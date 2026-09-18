@@ -12,24 +12,47 @@ function tn_pdo(): PDO {
     static $pdo = null;
     if ($pdo !== null) return $pdo;
 
-    // Load .env if not already loaded (nav.php already does this in production)
-    $host    = $_ENV['DB_HOST']    ?? getenv('DB_HOST')    ?: 'localhost';
-    $port    = (int)($_ENV['DB_PORT']    ?? getenv('DB_PORT')    ?: 3306);
-    $dbname  = $_ENV['DB_NAME']    ?? getenv('DB_NAME')    ?: 'u190073748_tezz_native_db';
-    $user    = $_ENV['DB_USER']    ?? getenv('DB_USER')    ?: 'u190073748_tezz_native_ur';
-    $pass    = $_ENV['DB_PASS']    ?? getenv('DB_PASS')    ?: 'TezzNativeByRohit@9608';
-    $charset = $_ENV['DB_CHARSET'] ?? getenv('DB_CHARSET') ?: 'utf8mb4';
+    $candidates = [
+        [
+            'host'    => $_ENV['TN_DB_HOST'] ?? 'localhost',
+            'port'    => (int)($_ENV['TN_DB_PORT'] ?? 3306),
+            'dbname'  => $_ENV['TN_DB_NAME'] ?? 'u190073748_tezz_native_db',
+            'user'    => $_ENV['TN_DB_USER'] ?? 'u190073748_tezz_native_ur',
+            'pass'    => $_ENV['TN_DB_PASS'] ?? 'TezzNativeByRohit@9608',
+            'charset' => 'utf8mb4',
+        ],
+        [
+            'host'    => $_ENV['DB_HOST'] ?? 'localhost',
+            'port'    => (int)($_ENV['DB_PORT'] ?? 3306),
+            'dbname'  => $_ENV['DB_NAME'] ?? 'u190073748_tezz_official_',
+            'user'    => $_ENV['DB_USER'] ?? 'u190073748_tezz_usr__vr__',
+            'pass'    => $_ENV['DB_PASS'] ?? 'TezzCorpOfficial#@2026',
+            'charset' => 'utf8mb4',
+        ],
+    ];
 
-    $dsn = "mysql:host={$host};port={$port};dbname={$dbname};charset={$charset}";
     $options = [
         PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
         PDO::ATTR_EMULATE_PREPARES   => false,
-        PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES {$charset} COLLATE utf8mb4_unicode_ci, time_zone = '+05:30'",
+        PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci, time_zone = '+05:30'",
     ];
 
-    $pdo = new PDO($dsn, $user, $pass, $options);
-    return $pdo;
+    $lastEx = null;
+    foreach ($candidates as $c) {
+        try {
+            $dsn = "mysql:host={$c['host']};port={$c['port']};dbname={$c['dbname']};charset={$c['charset']}";
+            $pdo = new PDO($dsn, $c['user'], $c['pass'], $options);
+            return $pdo;
+        } catch (Throwable $e) {
+            $lastEx = $e;
+        }
+    }
+
+    if ($lastEx !== null) {
+        throw $lastEx;
+    }
+    throw new RuntimeException("Unable to connect to database");
 }
 
 // ── Legacy array for includes that do `$cfg = require 'db.php'` ──────────────

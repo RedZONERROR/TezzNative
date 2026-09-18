@@ -120,14 +120,14 @@ fn str_find(s:str, sub:str) -> int:
   i:int = 0
   while i <= ns - nsub:
     j:int = 0
-    match:int = 1
+    is_match:int = 1
     while j < nsub:
       unsafe:
         if s[i + j] != sub[j]:
-          match = 0
+          is_match = 0
           break
       j = j + 1
-    if match != 0:
+    if is_match != 0:
       ret i
     i = i + 1
   ret 0 - 1

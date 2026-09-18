@@ -153,8 +153,8 @@ fn _pow2(exp:int) -> float:
     i = i + 1
   ret out
 
-fn f16_to_f32_bits(h:u16) -> float:
-  bits:int = h as int
+fn f16_to_f32_bits(h:int) -> float:
+  bits:int = h & 65535
   sign:int = (bits >> 15) & 1
   exp:int = (bits >> 10) & 31
   mant:int = bits & 1023
@@ -170,8 +170,8 @@ fn f16_to_f32_bits(h:u16) -> float:
     out = 0.0 - out
   ret out
 
-fn bf16_to_f32_bits(h:u16) -> float:
-  bits:int = h as int
+fn bf16_to_f32_bits(h:int) -> float:
+  bits:int = h & 65535
   sign:int = (bits >> 15) & 1
   exp:int = (bits >> 7) & 255
   mant:int = bits & 127

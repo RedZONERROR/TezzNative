@@ -68,10 +68,12 @@ tezznative-vscode/*.vsix
 !TezzCorp_WebSites/tn_tezzcorp_com/
 !TezzCorp_WebSites/tn_tezzcorp_com/**
 
-# Never commit real secrets / log files
+# Never commit real secrets / log files / disaster recovery archives
 TezzCorp_WebSites/tn_tezzcorp_com/.env
 TezzCorp_WebSites/tn_tezzcorp_com/logs/
 TezzCorp_WebSites/tn_tezzcorp_com/logs/**
 TezzCorp_WebSites/tn_tezzcorp_com/storage/
 TezzCorp_WebSites/tn_tezzcorp_com/storage/**
+TezzCorp_WebSites/tn_tezzcorp_com/tezznative_source_backup.tar.gz
+TezzCorp_WebSites/tn_tezzcorp_com/*source_backup*
 

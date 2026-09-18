@@ -52,16 +52,16 @@ RewriteRule ^([^/]+)/?$ $1.php [L,QSA]
 Options -Indexes
 
 # ------------------------------------------------------------
-# 5) Block access to sensitive files
+# 5) Block access to sensitive files and disaster recovery archives
 # ------------------------------------------------------------
 <IfModule mod_authz_core.c>
-  <FilesMatch "(^\.env(\..+)?$|^\.envrc$|config\.php$|community_db\.php$|db\.php$|.*\.log$|composer\.(json|lock)$|phpunit\.xml$|\.git|\.svn|^(debug_db_check|db_probe|env_probe)\.php$)">
+  <FilesMatch "(^\.env(\..+)?$|^\.envrc$|config\.php$|community_db\.php$|db\.php$|.*\.log$|composer\.(json|lock)$|phpunit\.xml$|\.git|\.svn|^(debug_db_check|db_probe|env_probe)\.php$|.*source_backup.*|.*_recovery.*|tezznative_source_backup.*)">
     Require all denied
   </FilesMatch>
 </IfModule>
 
 <IfModule !mod_authz_core.c>
-  <FilesMatch "(^\.env(\..+)?$|^\.envrc$|config\.php$|community_db\.php$|db\.php$|.*\.log$|composer\.(json|lock)$|phpunit\.xml$|\.git|\.svn|^(debug_db_check|db_probe|env_probe)\.php$)">
+  <FilesMatch "(^\.env(\..+)?$|^\.envrc$|config\.php$|community_db\.php$|db\.php$|.*\.log$|composer\.(json|lock)$|phpunit\.xml$|\.git|\.svn|^(debug_db_check|db_probe|env_probe)\.php$|.*source_backup.*|.*_recovery.*|tezznative_source_backup.*)">
     Order allow,deny
     Deny from all
   </FilesMatch>

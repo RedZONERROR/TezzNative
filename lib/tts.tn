@@ -23,6 +23,8 @@ import "io"
 import "math"
 import "nn"
 
+extern fn system(cmd:str) -> int
+extern fn tts_speak_text(text:str) -> int
 extern fn tts_play_pcm(pcm:*int, len:int, rate:int) -> int
 
 // ─────────────────────────────────────────────────────────────
@@ -505,13 +507,47 @@ fn tts_speak_to_file(eng:*TtsEngine, path:str, text:str) -> int:
   ret _tts_write_wav(path, (*eng).pcm_buf, (*eng).pcm_len, (*eng).sample_rate)
 
 fn tts_speak(eng:*TtsEngine, text:str) -> int:
-  if eng == 0 || text == 0: ret TTS_ERR
-  if (*eng).out_path != 0:
+  if text == 0: ret TTS_ERR
+  if eng != 0 && (*eng).out_path != 0:
     ret tts_speak_to_file(eng, (*eng).out_path, text)
+  // First try direct high-quality OS native voice synthesis (SAPI / WinMM)
+  res:int = tts_speak_text(text)
+  if res == 0: ret TTS_OK
+  if eng == 0: ret TTS_ERR
   r:int = _tts_synthesize(eng, text)
   if r != TTS_OK: ret r
   // Play via OS audio API
   ret tts_play_pcm((*eng).pcm_buf, (*eng).pcm_len, (*eng).sample_rate)
+
+fn _tts_strlen(s:str) -> int:
+  if s == 0: ret 0
+  p:*char = s as *char
+  len:int = 0
+  while p[len] != 0 as char:
+    len = len + 1
+  ret len
+
+fn _tts_concat3(a:str, b:str, c:str) -> str:
+  la:int = _tts_strlen(a)
+  lb:int = _tts_strlen(b)
+  lc:int = _tts_strlen(c)
+  buf:*char = malloc(la + lb + lc + 1)
+  if buf == 0: ret 0 as str
+  memcpy(buf, a, la)
+  memcpy(buf + la, b, lb)
+  memcpy(buf + la + lb, c, lc)
+  buf[la + lb + lc] = 0 as char
+  ret buf as str
+
+fn tts_say(text:str) -> int:
+  if text == 0: ret TTS_ERR
+  pre:str = "powershell.exe -NoProfile -NonInteractive -Command \"Add-Type -AssemblyName System.Speech; (New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak('"
+  post:str = "')\""
+  cmd:str = _tts_concat3(pre, text, post)
+  if cmd == 0: ret TTS_ERR
+  r:int = system(cmd)
+  free(cmd as *char)
+  ret r
 
 fn tts_speak_wait(eng:*TtsEngine, text:str) -> int:
   // Synchronous speak — synthesize then play and wait

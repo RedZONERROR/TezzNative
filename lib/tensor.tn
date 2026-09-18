@@ -22,7 +22,7 @@ let TENSOR_DEVICE_NPU:int = 2
 
 // Core multidimensional tensor.
 // Supports fast parallel batching and SIMD dot products.
-struct Tensor:
+struct TensorData:
   data:*float
   rows:int
   cols:int
@@ -202,9 +202,9 @@ fn tensor_desc_matches_buffer_p(d:*TensorDesc, byte_len:int) -> int:
       ret 0
   ret 1
 
-// Allocate a new zero-initialized Tensor
-fn tensor_new(rows:int, cols:int) -> Tensor:
-  t:Tensor
+// Allocate a new zero-initialized TensorData
+fn tensor_new(rows:int, cols:int) -> TensorData:
+  t:TensorData
   t.rows = rows
   t.cols = cols
   t.size = rows * cols
@@ -226,18 +226,18 @@ fn tensor_new(rows:int, cols:int) -> Tensor:
   ret t
 
 // Free tensor memory
-fn tensor_free(t:Tensor) -> int:
+fn tensor_free(t:TensorData) -> int:
   if t.data != 0 as *float:
     free(t.data)
   ret 0
 
 // Fast hardware-accelerated matrix multiplication (dot product)
 // Optimized for linear memory layouts using SIMD instructions.
-fn tensor_dot(a:Tensor, b:Tensor) -> Tensor:
+fn tensor_dot(a:TensorData, b:TensorData) -> TensorData:
   if a.cols != b.rows:
     ret tensor_new(0, 0)
     
-  c:Tensor = tensor_new(a.rows, b.cols)
+  c:TensorData = tensor_new(a.rows, b.cols)
   
   // Note: For true GEMM performance, 'b' should be transposed.
   // This is a naive implementation using SIMD for the inner loop.
@@ -270,10 +270,10 @@ fn tensor_dot(a:Tensor, b:Tensor) -> Tensor:
   ret c
 
 // Advanced Element-wise Addition using AXPBY SIMD (alpha=1, beta=1)
-fn tensor_add(a:Tensor, b:Tensor) -> Tensor:
+fn tensor_add(a:TensorData, b:TensorData) -> TensorData:
   if a.size != b.size:
     ret tensor_new(0, 0)
-  c:Tensor = tensor_new(a.rows, a.cols)
+  c:TensorData = tensor_new(a.rows, a.cols)
   // Copy 'a' to 'c'
   unsafe:
     memcpy(c.data, a.data, a.size * 8)
@@ -282,27 +282,27 @@ fn tensor_add(a:Tensor, b:Tensor) -> Tensor:
   ret c
 
 // Apply SIMD-accelerated ReLU (Rectified Linear Unit)
-fn tensor_relu(a:Tensor) -> Tensor:
-  c:Tensor = tensor_new(a.rows, a.cols)
+fn tensor_relu(a:TensorData) -> TensorData:
+  c:TensorData = tensor_new(a.rows, a.cols)
   simd.map_relu(c.data, a.data, a.size)
   ret c
 
 // Apply SIMD-accelerated GELU (Gaussian Error Linear Unit)
 // Heavily used in LLM Transformers (GPT, LLaMA).
-fn tensor_gelu(a:Tensor) -> Tensor:
-  c:Tensor = tensor_new(a.rows, a.cols)
+fn tensor_gelu(a:TensorData) -> TensorData:
+  c:TensorData = tensor_new(a.rows, a.cols)
   simd.map_gelu(c.data, a.data, a.size)
   ret c
 
 // Apply SIMD-accelerated Sigmoid
-fn tensor_sigmoid(a:Tensor) -> Tensor:
-  c:Tensor = tensor_new(a.rows, a.cols)
+fn tensor_sigmoid(a:TensorData) -> TensorData:
+  c:TensorData = tensor_new(a.rows, a.cols)
   simd.map_sigmoid(c.data, a.data, a.size)
   ret c
 
 // Softmax Layer: Exp(x) / Sum(Exp(x))
-fn tensor_softmax(a:Tensor) -> Tensor:
-  c:Tensor = tensor_new(a.rows, a.cols)
+fn tensor_softmax(a:TensorData) -> TensorData:
+  c:TensorData = tensor_new(a.rows, a.cols)
   i:int = 0
   while i < a.rows:
     row_offset:int = i * a.cols
@@ -328,8 +328,8 @@ fn tensor_softmax(a:Tensor) -> Tensor:
   ret c
 
 // Print tensor for verification
-fn tensor_print(t:Tensor) -> int:
-  say "Tensor(", t.rows, "x", t.cols, ") [SIMD Optimized]:"
+fn tensor_print(t:TensorData) -> int:
+  say "TensorData(", t.rows, "x", t.cols, ") [SIMD Optimized]:"
   i:int = 0
   while i < t.rows:
     j:int = 0

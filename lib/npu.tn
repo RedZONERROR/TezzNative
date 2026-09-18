@@ -232,22 +232,22 @@ fn model_run(handle:int, input:*float, in_n:int, output:*float, out_n:int) -> in
   ret tn_npu_model_run_f64_1d(handle, input, in_n, output, out_n)
 
 // ─────────────────────────────────────────────
-// High-Level Tensor Helpers
+// High-Level TensorData Helpers
 // (Bridges npu.* with the tensor.tn type system)
 // ─────────────────────────────────────────────
 
-// Run a Tensor through a loaded ONNX model.
-// Returns a new output Tensor allocated on the CPU heap.
+// Run a TensorData through a loaded ONNX model.
+// Returns a new output TensorData allocated on the CPU heap.
 // The caller is responsible for freeing via tensor.tensor_free().
-fn model_run_tensor(handle:int, input:Tensor, out_cols:int) -> Tensor:
-  empty:Tensor = tensor.tensor_new(0, 0)
+fn model_run_tensor(handle:int, input:TensorData, out_cols:int) -> TensorData:
+  empty:TensorData = tensor.tensor_new(0, 0)
   if handle < 0 || input.data == 0 as *float:
     ret empty
   if out_cols <= 0:
     ret empty
   
   // Allocate output buffer
-  out_t:Tensor = tensor.tensor_new(input.rows, out_cols)
+  out_t:TensorData = tensor.tensor_new(input.rows, out_cols)
   if out_t.data == 0 as *float:
     ret empty
   
@@ -265,7 +265,7 @@ fn model_run_tensor(handle:int, input:Tensor, out_cols:int) -> Tensor:
 
 // Smart dispatch: run matrix operation on best available hardware.
 // Priority: NPU -> GPU -> SIMD CPU
-fn smart_matmul(a:Tensor, b:Tensor) -> Tensor:
+fn smart_matmul(a:TensorData, b:TensorData) -> TensorData:
   if tn_npu_has_backend() != 0:
     // NPU path: upload, run SGEMM kernel, download
     // For now routes through tensor.tensor_dot with NPU init hint
@@ -275,7 +275,7 @@ fn smart_matmul(a:Tensor, b:Tensor) -> Tensor:
     M:int = a.rows
     N:int = b.cols
     K:int = a.cols
-    c:Tensor = tensor.tensor_new(M, N)
+    c:TensorData = tensor.tensor_new(M, N)
     a_gpu:*char = gpu.alloc(M * K * 8)
     b_gpu:*char = gpu.alloc(K * N * 8)
     c_gpu:*char = gpu.alloc(M * N * 8)
