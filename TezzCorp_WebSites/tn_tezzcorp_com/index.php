@@ -14,7 +14,7 @@ require_once __DIR__ . '/includes/nav.php';
     <div class="hero-content">
       <div class="hero-pill-badge">
         <span class="pulse-dot" style="background: #ff9933; box-shadow: 0 0 10px #ff9933;"></span>
-        <span>TEZZNATIVE v2.2.1 PRODUCTION RELEASE LIVE &bull; TEZZCORP PVT LTD</span>
+        <span>TEZZNATIVE v2.2.1 PRODUCTION RELEASE LIVE <span class="badge-sub">&bull; TEZZCORP PVT LTD</span></span>
       </div>
 
       <h1 class="hero-title">

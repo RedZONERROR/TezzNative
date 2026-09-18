@@ -76,6 +76,6 @@
 </div> <!-- .site-wrapper -->
 
 <!-- Scripts -->
-<script src="/assets/app.js?v=2.2.1"></script>
+<script src="/assets/app.js?v=2.2.2"></script>
 </body>
 </html>
