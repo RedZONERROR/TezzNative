@@ -1,0 +1,13 @@
+import "tts"
+
+fn main() -> int:
+  say "Testing TezzNative Text-To-Speech..."
+  eng:*TtsEngine = tts.tts_new()
+  if eng == 0:
+    say "Failed to create TTS engine"
+    ret 1
+  say "TTS Engine initialized. Synthesizing audio voice..."
+  tts.tts_speak(eng, "Hello from TezzNative v2.2.1 by Rohit Pathak and TezzCorp!")
+  tts.tts_free(eng)
+  say "TTS Synthesis & Playback Complete!"
+  ret 0

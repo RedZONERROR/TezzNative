@@ -1,0 +1,10 @@
+version=2
+classes=4
+vocab=256
+samples=37
+encoder=hash256
+data=TezzAi/data/samples.tnxb
+w_path=TezzAi/data/model.taim.w.taim
+b_path=TezzAi/data/model.taim.b.taim
+w_data=
+b_data=

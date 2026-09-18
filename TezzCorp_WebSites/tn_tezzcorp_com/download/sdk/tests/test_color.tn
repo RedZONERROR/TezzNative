@@ -1,0 +1,83 @@
+import "color"
+
+fn main() -> int:
+  unsafe:
+    say "--- Testing Color Library ---"
+    
+    // 1. Test RGBA Packing & Unpacking
+    c:int = color.rgba(255, 100, 50, 200)
+    if color.rgba_r(c) != 255 || color.rgba_g(c) != 100 || color.rgba_b(c) != 50 || color.rgba_a(c) != 200:
+      say "FAIL: 1. RGBA Packing/Unpacking"
+      ret 1
+    say "1. RGBA Packing/Unpacking: PASSED"
+
+    // 2. Test Color Blend/Lerp
+    c0:int = color.rgb(100, 100, 100)
+    c1:int = color.rgb(200, 200, 200)
+    mid:int = color.rgba_lerp(c0, c1, 128)
+    if color.rgba_r(mid) < 148 || color.rgba_r(mid) > 152:
+      say "FAIL: 2. RGBA Lerp"
+      ret 1
+    say "2. RGBA Lerp: PASSED"
+
+    // 3. Test ANSI escape builders and colors
+    // Force COLOR_TRUECOLOR to test escape builders even in non-TTY environments
+    prev_cap:int = color.color_cap()
+    color.color_force(3)
+    
+    fg_seq:str = color.ansi_fg(color.color_red())
+    if fg_seq == 0 as str:
+      say "FAIL: 3. ANSI FG Builder"
+      ret 1
+    free(fg_seq)
+    
+    bg_seq:str = color.ansi_bg(color.color_green())
+    if bg_seq == 0 as str:
+      say "FAIL: 3. ANSI BG Builder"
+      ret 1
+    free(bg_seq)
+    say "3. ANSI Escape Builders: PASSED"
+
+    // 4. Test styled and gradient strings
+    s1:str = color.fg_bold("Hello Red", color.color_red())
+    say s1
+    free(s1)
+
+    s2:str = color.gradient_text("This is an RGB gradient text!", color.color_red(), color.color_blue())
+    say s2
+    free(s2)
+    say "4. Styled and Gradient Text: PASSED"
+
+    // 5. Test Progress Bar
+    pb:str = color.progress_bar("Downloading", 75, 30, color.color_green(), color.color_darkgray())
+    say pb
+    free(pb)
+    say "5. Progress Bar: PASSED"
+
+    // 6. Test Color Table
+    tbl:*ColorTable = color.color_table_new(3)
+    color.color_table_set_header(tbl, 0, "Item")
+    color.color_table_set_header(tbl, 1, "Qty")
+    color.color_table_set_header(tbl, 2, "Price")
+    
+    row1:[str;3]
+    row1[0] = "Widget"
+    row1[1] = "10"
+    row1[2] = "$5.00"
+    color.color_table_add_row(tbl, &row1[0])
+
+    row2:[str;3]
+    row2[0] = "SuperGadget"
+    row2[1] = "5"
+    row2[2] = "$99.99"
+    color.color_table_add_row(tbl, &row2[0])
+
+    color.color_table_print(tbl)
+    color.color_table_free(tbl)
+    say "6. Color Table Print & Free: PASSED"
+
+    // Restore color cap
+    color.color_force(prev_cap)
+
+    color.say_ok("All Color tests completed successfully!")
+    ret 0

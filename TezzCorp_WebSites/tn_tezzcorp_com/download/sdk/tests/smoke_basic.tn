@@ -1,0 +1,6 @@
+import "io"
+fn main() -> int:
+  path:str = "build/test_basic.db"
+  say "exists: ", io.file_exists(path)
+  say "size:   ", file_size(path)
+  ret 0

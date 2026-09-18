@@ -1,0 +1,10 @@
+struct AbiPoint:
+  x:int
+  y:int
+
+@abi("c")
+extern fn c_scale(p:*AbiPoint, factor:int) -> int
+extern fn c_reset(p:*AbiPoint) -> void
+
+fn main() -> int:
+  ret 0

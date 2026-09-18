@@ -1,0 +1,17 @@
+import "gui"
+
+fn _fail(msg:str) -> int:
+  say msg
+  ret 1
+
+fn main() -> int:
+  active:int = gui.gui_ime_active()
+  cursor:int = gui.gui_ime_cursor()
+  length:int = gui.gui_ime_length()
+  if active < 0 || active > 1:
+    ret _fail("gui_ime_state: ime active out of range")
+  if cursor < 0:
+    ret _fail("gui_ime_state: ime cursor negative")
+  if length < 0:
+    ret _fail("gui_ime_state: ime length negative")
+  ret 0

@@ -1,0 +1,46 @@
+// sys module: freestanding ABI surface & system access
+
+typedef *char Ptr
+
+extern fn sys_exit(code:int) -> void
+extern fn sys_write(fd:int, buf:Ptr, len:int) -> int
+extern fn sys_read(fd:int, buf:Ptr, len:int) -> int
+extern fn sys_open(path:Ptr, flags:int, mode:int) -> int
+extern fn sys_close(fd:int) -> int
+extern fn sys_seek(fd:int, off:int, whence:int) -> int
+extern fn sys_mmap(addr:Ptr, len:int, prot:int, flags:int, fd:int, off:int) -> Ptr
+extern fn sys_munmap(addr:Ptr, len:int) -> int
+extern fn sys_yield() -> void
+extern fn sys_time_ns() -> int
+extern fn sys_outb(port:int, val:int) -> int
+extern fn sys_inb(port:int) -> int
+// Native x64 lowering exposes the process environment through get_env.
+// Keep the module-level wrapper portable for callers while using the ABI
+// name that the native backend actually implements.
+extern fn get_env(name:str) -> str
+
+fn pid() -> int:
+  v:str = get_env("TEZZ_SERVER_PID")
+  if v != 0 as str:
+    i:int = 0
+    out:int = 0
+    while v[i] != 0 as char:
+      d:int = (v[i] as int) - 48
+      if d < 0 || d > 9:
+        ret 1000
+      out = out * 10 + d
+      i = i + 1
+    if i > 0:
+      ret out
+  ret 1000
+
+fn getenv(name:str) -> str:
+  if name == 0 as str:
+    ret ""
+  v:str = get_env(name)
+  if v == 0 as str:
+    ret ""
+  ret v
+
+fn time_ns() -> int:
+  ret 1700000000

@@ -1,0 +1,411 @@
+// config module — INI-style configuration file support for TezzNative
+// Stability: Beta
+// Depends: runtime (for atoi, atof, getenv, fgets, memcpy)
+//
+// Supports key=value pairs with optional [section] headers.
+// Supports environment variable overrides.
+// Missing file: returns defaults safely.
+//
+// Usage:
+//   import "config"
+//   cfg:*Config = config_load("app.ini")
+//   val:str  = config_get(cfg, "server", "host", "localhost")
+//   port:int = config_get_int(cfg, "server", "port", 8080)
+//   config_free(cfg)
+
+import "runtime"
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+let CONFIG_MAX_ENTRIES:int  = 512
+let CONFIG_KEY_MAX:int      = 256
+let CONFIG_VAL_MAX:int      = 1024
+let CONFIG_LINE_MAX:int     = 2048
+
+// ---------------------------------------------------------------------------
+// Structs
+// ---------------------------------------------------------------------------
+
+struct ConfigEntry:
+  section:str
+  key:str
+  value:str
+
+struct Config:
+  entries:*ConfigEntry
+  entry_count:int
+  load_ok:int
+  error_msg:str
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+fn _cfg_is_ws(c:int) -> int:
+  if c == 32 || c == 9 || c == 10 || c == 13:
+    ret 1
+  ret 0
+
+fn _cfg_trim_start(s:str, i:int) -> int:
+  while s[i] != 0 as char:
+    if _cfg_is_ws(s[i] as int) == 0:
+      break
+    i = i + 1
+  ret i
+
+fn _cfg_str_len(s:str) -> int:
+  if s == 0:
+    ret 0
+  i:int = 0
+  while s[i] != 0 as char:
+    i = i + 1
+  ret i
+
+fn _cfg_trim_end_len(s:str, n:int) -> int:
+  while n > 0:
+    c:int = s[n - 1] as int
+    if _cfg_is_ws(c) == 0:
+      break
+    n = n - 1
+  ret n
+
+// Duplicate n bytes starting at s[start] into a heap string (caller frees)
+fn _cfg_str_dup_n(s:str, start:int, n:int) -> str:
+  if n <= 0:
+    out:*char = (*char)malloc(1)
+    if out == 0:
+      ret 0 as str
+    unsafe: out[0] = 0 as char
+    ret out as str
+  out:*char = (*char)malloc(n + 1)
+  if out == 0:
+    ret 0 as str
+  i:int = 0
+  while i < n:
+    unsafe: out[i] = s[start + i]
+    i = i + 1
+  unsafe: out[n] = 0 as char
+  ret out as str
+
+// Trim trailing whitespace by scanning from position end backwards
+fn _cfg_trim_end_from(s:str, start:int, end_n:int) -> int:
+  n:int = end_n
+  while n > 0:
+    c:int = s[start + n - 1] as int
+    if _cfg_is_ws(c) == 0:
+      break
+    n = n - 1
+  ret n
+
+// Case-insensitive string equality
+fn _cfg_str_eq_ic(a:str, b:str) -> int:
+  if a == 0 && b == 0:
+    ret 1
+  if a == 0 || b == 0:
+    ret 0
+  i:int = 0
+  while a[i] != 0 as char && b[i] != 0 as char:
+    ca:int = a[i] as int
+    cb:int = b[i] as int
+    if ca >= 65 && ca <= 90: ca = ca + 32
+    if cb >= 65 && cb <= 90: cb = cb + 32
+    if ca != cb: ret 0
+    i = i + 1
+  if a[i] as int == 0 && b[i] as int == 0:
+    ret 1
+  ret 0
+
+// ---------------------------------------------------------------------------
+// Internal: alloc a Config with zeroed entries array
+// ---------------------------------------------------------------------------
+
+fn _cfg_alloc() -> *Config:
+  cfg:*Config = (*Config)malloc(sizeof(Config))
+  if cfg == 0:
+    ret 0 as *Config
+  (*cfg).entry_count = 0
+  (*cfg).load_ok     = 0
+  (*cfg).error_msg   = 0 as str
+  entries:*ConfigEntry = (*ConfigEntry)malloc(CONFIG_MAX_ENTRIES * sizeof(ConfigEntry))
+  if entries == 0:
+    free(cfg)
+    ret 0 as *Config
+  // Zero all entry slots
+  i:int = 0
+  while i < CONFIG_MAX_ENTRIES:
+    e:*ConfigEntry = entries + i
+    (*e).section = 0 as str
+    (*e).key     = 0 as str
+    (*e).value   = 0 as str
+    i = i + 1
+  (*cfg).entries = entries
+  ret cfg
+
+// ---------------------------------------------------------------------------
+// Internal: parse a key=value line and store in cfg
+// ---------------------------------------------------------------------------
+
+fn _cfg_parse_line(cfg:*Config, section:str, line:str) -> int:
+  if cfg == 0 || line == 0:
+    ret 0
+  i:int = _cfg_trim_start(line, 0)
+  c0:int = line[i] as int
+  if c0 == 0 || c0 == 35 || c0 == 59:  // empty, '#', ';'
+    ret 0
+  // Find '='
+  eq_pos:int = 0 - 1
+  j:int = i
+  while line[j] != 0 as char:
+    if line[j] as int == 61:
+      eq_pos = j
+      break
+    j = j + 1
+  if eq_pos < 0:
+    ret 0
+  // Key region: line[i..eq_pos-1] trimmed
+  key_raw_len:int = eq_pos - i
+  key_len:int     = _cfg_trim_end_from(line, i, key_raw_len)
+  // Value region: after '=' trimmed
+  val_raw_start:int = eq_pos + 1
+  // Skip leading whitespace in value
+  vsi:int = val_raw_start
+  while line[vsi] != 0 as char && _cfg_is_ws(line[vsi] as int) != 0:
+    vsi = vsi + 1
+  val_start:int = vsi
+  line_len:int  = _cfg_str_len(line)
+  val_end:int   = _cfg_trim_end_from(line, val_start, line_len - val_start)
+  // Store entry
+  ec:int = (*cfg).entry_count
+  if ec >= CONFIG_MAX_ENTRIES:
+    ret 0 - 1
+  entries:*ConfigEntry = (*cfg).entries
+  e:*ConfigEntry = entries + ec
+  (*e).section = section
+  (*e).key     = _cfg_str_dup_n(line, i, key_len)
+  (*e).value   = _cfg_str_dup_n(line, val_start, val_end)
+  (*cfg).entry_count = ec + 1
+  ret 0
+
+// ---------------------------------------------------------------------------
+// Load from file
+// ---------------------------------------------------------------------------
+
+fn config_load(path:str) -> *Config:
+  cfg:*Config = _cfg_alloc()
+  if cfg == 0:
+    ret 0 as *Config
+  if path == 0:
+    ret cfg
+  fh:*char = fopen(path, "r")
+  if fh == 0:
+    ret cfg
+  (*cfg).load_ok = 1
+  cur_section:str = "" as str
+  line_buf:*char = (*char)malloc(CONFIG_LINE_MAX)
+  if line_buf == 0:
+    fclose(fh)
+    ret cfg
+  while runtime.fgets(line_buf, CONFIG_LINE_MAX, fh) > 0:
+    line:str = 0 as str
+    unsafe: line = line_buf as str
+    li:int = _cfg_trim_start(line, 0)
+    c0:int = line[li] as int
+    if c0 == 91:  // '[' — section header
+      li = li + 1
+      sec_start:int = li
+      while line[li] != 0 as char && line[li] as int != 93:
+        li = li + 1
+      sec_len:int = li - sec_start
+      cur_section = _cfg_str_dup_n(line, sec_start, sec_len)
+    else:
+      _cfg_parse_line(cfg, cur_section, line)
+  free(line_buf)
+  fclose(fh)
+  ret cfg
+
+// ---------------------------------------------------------------------------
+// Load from in-memory string
+// ---------------------------------------------------------------------------
+
+fn config_parse_string(text:str) -> *Config:
+  cfg:*Config = _cfg_alloc()
+  if cfg == 0:
+    ret 0 as *Config
+  (*cfg).load_ok = 1
+  if text == 0:
+    ret cfg
+  cur_section:str = "" as str
+  tlen:int = _cfg_str_len(text)
+  i:int = 0
+  line_buf:*char = (*char)malloc(CONFIG_LINE_MAX)
+  if line_buf == 0:
+    ret cfg
+  while i < tlen:
+    li:int = 0
+    while i < tlen && li < CONFIG_LINE_MAX - 1:
+      c:int = text[i] as int
+      unsafe: line_buf[li] = c as char
+      i = i + 1
+      li = li + 1
+      if c == 10:
+        break
+    unsafe: line_buf[li] = 0 as char
+    line:str = 0 as str
+    unsafe: line = line_buf as str
+    lj:int = _cfg_trim_start(line, 0)
+    c0:int = line[lj] as int
+    if c0 == 91:
+      lj = lj + 1
+      sec_start:int = lj
+      while line[lj] != 0 as char && line[lj] as int != 93:
+        lj = lj + 1
+      sec_len:int = lj - sec_start
+      cur_section = _cfg_str_dup_n(line, sec_start, sec_len)
+    else:
+      _cfg_parse_line(cfg, cur_section, line)
+  free(line_buf)
+  ret cfg
+
+// ---------------------------------------------------------------------------
+// Accessors
+// ---------------------------------------------------------------------------
+
+fn config_load_ok(cfg:*Config) -> int:
+  if cfg == 0:
+    ret 0
+  ret (*cfg).load_ok
+
+fn config_get(cfg:*Config, section:str, key:str, default_val:str) -> str:
+  if cfg == 0 || key == 0:
+    ret default_val
+  ec:int = (*cfg).entry_count
+  entries:*ConfigEntry = (*cfg).entries
+  i:int = 0
+  while i < ec:
+    e:*ConfigEntry = entries + i
+    esec:str = (*e).section
+    ekey:str = (*e).key
+    sec_match:int = 0
+    if section == 0 || section[0] == 0 as char:
+      if esec == 0 || esec[0] == 0 as char:
+        sec_match = 1
+    else:
+      sec_match = _cfg_str_eq_ic(esec, section)
+    if sec_match != 0 && _cfg_str_eq_ic(ekey, key) != 0:
+      ret (*e).value
+    i = i + 1
+  ret default_val
+
+fn config_get_int(cfg:*Config, section:str, key:str, default_val:int) -> int:
+  val:str = config_get(cfg, section, key, 0 as str)
+  if val == 0 || val[0] == 0 as char:
+    ret default_val
+  ret runtime.atoi(val)
+
+fn config_get_float(cfg:*Config, section:str, key:str, default_val:float) -> float:
+  val:str = config_get(cfg, section, key, 0 as str)
+  if val == 0 || val[0] == 0 as char:
+    ret default_val
+  ret runtime.atof(val)
+
+fn config_get_bool(cfg:*Config, section:str, key:str, default_val:int) -> int:
+  val:str = config_get(cfg, section, key, 0 as str)
+  if val == 0:
+    ret default_val
+  if _cfg_str_eq_ic(val, "true")  != 0: ret 1
+  if _cfg_str_eq_ic(val, "yes")   != 0: ret 1
+  if _cfg_str_eq_ic(val, "1")     != 0: ret 1
+  if _cfg_str_eq_ic(val, "false") != 0: ret 0
+  if _cfg_str_eq_ic(val, "no")    != 0: ret 0
+  if _cfg_str_eq_ic(val, "0")     != 0: ret 0
+  ret default_val
+
+// ---------------------------------------------------------------------------
+// Environment variable override
+// ---------------------------------------------------------------------------
+
+fn config_get_env(cfg:*Config, section:str, key:str, env_var:str, default_val:str) -> str:
+  if env_var != 0:
+    env_val:str = runtime.getenv(env_var)
+    if env_val != 0:
+      ret env_val
+  ret config_get(cfg, section, key, default_val)
+
+fn config_get_int_env(cfg:*Config, section:str, key:str, env_var:str, default_val:int) -> int:
+  if env_var != 0:
+    env_val:str = runtime.getenv(env_var)
+    if env_val != 0:
+      ret runtime.atoi(env_val)
+  ret config_get_int(cfg, section, key, default_val)
+
+fn config_get_float_env(cfg:*Config, section:str, key:str, env_var:str, default_val:float) -> float:
+  if env_var != 0:
+    env_val:str = runtime.getenv(env_var)
+    if env_val != 0:
+      ret runtime.atof(env_val)
+  ret config_get_float(cfg, section, key, default_val)
+
+// ---------------------------------------------------------------------------
+// Entry listing
+// ---------------------------------------------------------------------------
+
+fn config_entry_count(cfg:*Config) -> int:
+  if cfg == 0:
+    ret 0
+  ret (*cfg).entry_count
+
+fn config_entry_section(cfg:*Config, idx:int) -> str:
+  if cfg == 0:
+    ret 0 as str
+  ec:int = (*cfg).entry_count
+  if idx < 0 || idx >= ec:
+    ret 0 as str
+  e:*ConfigEntry = (*cfg).entries + idx
+  ret (*e).section
+
+fn config_entry_key(cfg:*Config, idx:int) -> str:
+  if cfg == 0:
+    ret 0 as str
+  ec:int = (*cfg).entry_count
+  if idx < 0 || idx >= ec:
+    ret 0 as str
+  e:*ConfigEntry = (*cfg).entries + idx
+  ret (*e).key
+
+fn config_entry_value(cfg:*Config, idx:int) -> str:
+  if cfg == 0:
+    ret 0 as str
+  ec:int = (*cfg).entry_count
+  if idx < 0 || idx >= ec:
+    ret 0 as str
+  e:*ConfigEntry = (*cfg).entries + idx
+  ret (*e).value
+
+// ---------------------------------------------------------------------------
+// Free
+// ---------------------------------------------------------------------------
+
+fn config_free(cfg:*Config) -> int:
+  if cfg == 0:
+    ret 0
+  ec:int = (*cfg).entry_count
+  entries:*ConfigEntry = (*cfg).entries
+  i:int = 0
+  while i < ec:
+    e:*ConfigEntry = entries + i
+    k:str = (*e).key
+    v:str = (*e).value
+    if k != 0:
+      free(k as *char)
+    if v != 0:
+      free(v as *char)
+    i = i + 1
+  if entries != 0:
+    free(entries)
+  em:str = (*cfg).error_msg
+  if em != 0:
+    free(em as *char)
+  free(cfg)
+  ret 0

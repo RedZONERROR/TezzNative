@@ -1,0 +1,3 @@
+tests/conformance_parse_missing_colon.tn:1:17: tezzc error: expected '{'
+  fn main() -> int
+                  ^

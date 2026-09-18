@@ -1,0 +1,324 @@
+// autodiff module (Phase 4 scaffold)
+
+struct Dual:
+  val:float
+  d:float
+
+fn dual(val:float, d:float) -> *Dual:
+  x:*Dual = malloc(sizeof(Dual))
+  if x == 0:
+    ret 0 as *Dual
+  unsafe:
+    (*x).val = val
+    (*x).d = d
+  ret x
+
+fn add(a:*Dual, b:*Dual) -> *Dual:
+  if a == 0 || b == 0:
+    ret 0 as *Dual
+  ret dual((*a).val + (*b).val, (*a).d + (*b).d)
+
+fn mul(a:*Dual, b:*Dual) -> *Dual:
+  if a == 0 || b == 0:
+    ret 0 as *Dual
+  ret dual((*a).val * (*b).val, (*a).d * (*b).val + (*b).d * (*a).val)
+
+fn dual_free(x:*Dual) -> int:
+  if x == 0:
+    ret 0
+  free(x as *char)
+  ret 0
+
+// reverse-mode scalar nodes (tree-based)
+let OP_LEAF:int = 0
+let OP_ADD:int = 1
+let OP_MUL:int = 2
+let OP_SUB:int = 3
+let OP_DIV:int = 4
+let OP_RELU:int = 5
+let OP_SIGMOID:int = 6
+
+struct Node:
+  val:float
+  grad:float
+  op:int
+  a:*Node
+  b:*Node
+
+struct Mixed:
+  node:*Node
+  d:float
+
+fn mixed_from_dual(a:*Dual) -> Mixed:
+  m:Mixed
+  m.node = 0 as *Node
+  m.d = 0.0
+  if a == 0:
+    ret m
+  n:*Node = node((*a).val)
+  if n == 0:
+    ret m
+  m.node = n
+  m.d = (*a).d
+  ret m
+
+fn mixed_from_node(n:*Node) -> Mixed:
+  m:Mixed
+  m.node = n
+  m.d = 0.0
+  ret m
+
+fn mixed_val(m:*Mixed) -> float:
+  if m == 0 || (*m).node == 0:
+    ret 0.0
+  ret (*(*m).node).val
+
+fn mixed_add(a:*Mixed, b:*Mixed) -> Mixed:
+  out:Mixed
+  out.node = 0 as *Node
+  out.d = 0.0
+  if a == 0 || b == 0:
+    ret out
+  if (*a).node == 0 || (*b).node == 0:
+    ret out
+  n:*Node = node_add((*a).node, (*b).node)
+  if n == 0:
+    ret out
+  out.node = n
+  out.d = (*a).d + (*b).d
+  ret out
+
+fn mixed_mul(a:*Mixed, b:*Mixed) -> Mixed:
+  out:Mixed
+  out.node = 0 as *Node
+  out.d = 0.0
+  if a == 0 || b == 0:
+    ret out
+  if (*a).node == 0 || (*b).node == 0:
+    ret out
+  n:*Node = node_mul((*a).node, (*b).node)
+  if n == 0:
+    ret out
+  out.node = n
+  unsafe:
+    out.d = (*a).d * (*(*b).node).val + (*b).d * (*(*a).node).val
+  ret out
+
+fn mixed_sub(a:*Mixed, b:*Mixed) -> Mixed:
+  out:Mixed
+  out.node = 0 as *Node
+  out.d = 0.0
+  if a == 0 || b == 0:
+    ret out
+  if (*a).node == 0 || (*b).node == 0:
+    ret out
+  n:*Node = node_sub((*a).node, (*b).node)
+  if n == 0:
+    ret out
+  out.node = n
+  out.d = (*a).d - (*b).d
+  ret out
+
+fn mixed_div(a:*Mixed, b:*Mixed) -> Mixed:
+  out:Mixed
+  out.node = 0 as *Node
+  out.d = 0.0
+  if a == 0 || b == 0:
+    ret out
+  if (*a).node == 0 || (*b).node == 0:
+    ret out
+  n:*Node = node_div((*a).node, (*b).node)
+  if n == 0:
+    ret out
+  out.node = n
+  unsafe:
+    out.d = ((*a).d * (*(*b).node).val - (*b).d * (*(*a).node).val) / ((*(*b).node).val * (*(*b).node).val)
+  ret out
+
+fn mixed_relu(a:*Mixed) -> Mixed:
+  out:Mixed
+  out.node = 0 as *Node
+  out.d = 0.0
+  if a == 0 || (*a).node == 0:
+    ret out
+  n:*Node = node_relu((*a).node)
+  if n == 0:
+    ret out
+  out.node = n
+  if (*(*a).node).val > 0.0:
+    out.d = (*a).d
+  ret out
+
+fn mixed_sigmoid(a:*Mixed) -> Mixed:
+  out:Mixed
+  out.node = 0 as *Node
+  out.d = 0.0
+  if a == 0 || (*a).node == 0:
+    ret out
+  n:*Node = node_sigmoid((*a).node)
+  if n == 0:
+    ret out
+  out.node = n
+  s:float = _sigmoid_f((*(*a).node).val)
+  out.d = (*a).d * s * (1.0 - s)
+  ret out
+
+fn mixed_free(m:*Mixed) -> int:
+  if m == 0:
+    ret 0
+  if (*m).node != 0:
+    free_node((*m).node)
+    (*m).node = 0 as *Node
+  ret 0
+
+fn node(val:float) -> *Node:
+  n:*Node = malloc(sizeof(Node))
+  if n == 0:
+    ret 0 as *Node
+  unsafe:
+    (*n).val = val
+    (*n).grad = 0.0
+    (*n).op = OP_LEAF
+    (*n).a = 0 as *Node
+    (*n).b = 0 as *Node
+  ret n
+
+fn node_add(a:*Node, b:*Node) -> *Node:
+  if a == 0 || b == 0:
+    ret 0 as *Node
+  n:*Node = node((*a).val + (*b).val)
+  if n == 0:
+    ret 0 as *Node
+  unsafe:
+    (*n).op = OP_ADD
+    (*n).a = a
+    (*n).b = b
+  ret n
+
+fn node_mul(a:*Node, b:*Node) -> *Node:
+  if a == 0 || b == 0:
+    ret 0 as *Node
+  n:*Node = node((*a).val * (*b).val)
+  if n == 0:
+    ret 0 as *Node
+  unsafe:
+    (*n).op = OP_MUL
+    (*n).a = a
+    (*n).b = b
+  ret n
+
+fn _sigmoid_f(x:float) -> float:
+  ax:float = x
+  if ax < 0.0:
+    ax = 0.0 - ax
+  ret 0.5 * (x / (1.0 + ax)) + 0.5
+
+fn node_sub(a:*Node, b:*Node) -> *Node:
+  if a == 0 || b == 0:
+    ret 0 as *Node
+  n:*Node = node((*a).val - (*b).val)
+  if n == 0:
+    ret 0 as *Node
+  unsafe:
+    (*n).op = OP_SUB
+    (*n).a = a
+    (*n).b = b
+  ret n
+
+fn node_div(a:*Node, b:*Node) -> *Node:
+  if a == 0 || b == 0:
+    ret 0 as *Node
+  n:*Node = node((*a).val / (*b).val)
+  if n == 0:
+    ret 0 as *Node
+  unsafe:
+    (*n).op = OP_DIV
+    (*n).a = a
+    (*n).b = b
+  ret n
+
+fn node_relu(a:*Node) -> *Node:
+  if a == 0:
+    ret 0 as *Node
+  v:float = (*a).val
+  if v < 0.0:
+    v = 0.0
+  n:*Node = node(v)
+  if n == 0:
+    ret 0 as *Node
+  unsafe:
+    (*n).op = OP_RELU
+    (*n).a = a
+  ret n
+
+fn node_sigmoid(a:*Node) -> *Node:
+  if a == 0:
+    ret 0 as *Node
+  n:*Node = node(_sigmoid_f((*a).val))
+  if n == 0:
+    ret 0 as *Node
+  unsafe:
+    (*n).op = OP_SIGMOID
+    (*n).a = a
+  ret n
+
+fn backward(n:*Node, seed:float) -> int:
+  if n == 0:
+    ret 0 - 1
+  unsafe:
+    (*n).grad = (*n).grad + seed
+    if (*n).op == OP_ADD:
+      backward((*n).a, seed)
+      backward((*n).b, seed)
+    if (*n).op == OP_MUL:
+      backward((*n).a, seed * (*(*n).b).val)
+      backward((*n).b, seed * (*(*n).a).val)
+    if (*n).op == OP_SUB:
+      backward((*n).a, seed)
+      backward((*n).b, 0.0 - seed)
+    if (*n).op == OP_DIV:
+      backward((*n).a, seed / (*(*n).b).val)
+      backward((*n).b, 0.0 - seed * (*(*n).a).val / ((*(*n).b).val * (*(*n).b).val))
+    if (*n).op == OP_RELU:
+      if (*(*n).a).val > 0.0:
+        backward((*n).a, seed)
+    if (*n).op == OP_SIGMOID:
+      s:float = _sigmoid_f((*(*n).a).val)
+      backward((*n).a, seed * s * (1.0 - s))
+  ret 0
+
+fn free_node(n:*Node) -> int:
+  if n == 0:
+    ret 0
+  unsafe:
+    if (*n).a != 0:
+      free_node((*n).a)
+    if (*n).b != 0:
+      free_node((*n).b)
+    free(n as *char)
+  ret 0
+
+// mixed-mode: forward-mode for Dual + reverse-mode for Node
+fn mixed_add_dual_node(a:*Dual, b:*Node) -> Mixed:
+  da:Mixed = mixed_from_dual(a)
+  db:Mixed = mixed_from_node(b)
+  ret mixed_add(&da, &db)
+
+fn mixed_mul_dual_node(a:*Dual, b:*Node) -> Mixed:
+  da:Mixed = mixed_from_dual(a)
+  db:Mixed = mixed_from_node(b)
+  ret mixed_mul(&da, &db)
+
+fn mixed_add_node(m:*Mixed, b:*Node) -> Mixed:
+  db:Mixed = mixed_from_node(b)
+  ret mixed_add(m, &db)
+
+fn mixed_mul_node(m:*Mixed, b:*Node) -> Mixed:
+  db:Mixed = mixed_from_node(b)
+  ret mixed_mul(m, &db)
+
+fn mixed_backward(m:*Mixed, seed:float) -> float:
+  if m == 0 || (*m).node == 0:
+    ret 0.0
+  backward((*m).node, seed)
+  ret (*m).d * seed

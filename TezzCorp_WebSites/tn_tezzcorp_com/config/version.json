@@ -1,0 +1,7 @@
+{
+  "language": "TezzNative",
+  "version": "1.1.0",
+  "channel": "release",
+  "api": "v1",
+  "backend": "php-mysql"
+}

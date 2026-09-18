@@ -1,0 +1,12 @@
+#!/usr/bin/env sh
+set -eu
+
+BIN_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$BIN_DIR/.." && pwd)"
+
+if [ ! -f "$ROOT/tezz" ]; then
+  echo "bin/tezz: missing $ROOT/tezz launcher"
+  exit 1
+fi
+
+exec "$ROOT/tezz" "$@"

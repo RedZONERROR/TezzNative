@@ -1,0 +1,142 @@
+// tests/test_tezzdb.tn — TezzDB 2.0 B+ Tree conformance test lane
+// Uses *char opaque handles to ensure type safety and avoid 32/64-bit truncation.
+import "std"
+import "../lib/tezzdb.tn"
+
+fn main() -> int:
+  say "TezzDB 2.0 — B+ Tree Engine Test"
+  say "CWD: ", io.cwd()
+  // ── Test 1: open + table_create + insert + get + update + delete ──
+  db:*char = tezzdb.db_open("build/test_basic.db")
+  if db == 0:
+    say "FAIL: open"
+    ret 1
+
+  tezzdb.db_table_create(db, "items")
+  pk1:int = tezzdb.db_insert(db, "items", "{\"name\":\"apple\",\"price\":10}")
+  pk2:int = tezzdb.db_insert(db, "items", "{\"name\":\"banana\",\"price\":20}")
+  if pk1 <= 0 || pk2 <= 0:
+    say "FAIL: insert"
+    ret 1
+  say "insert ok pk1=", pk1, " pk2=", pk2
+
+  cnt:int = tezzdb.db_table_row_count(db, "items")
+  if cnt != 2:
+    say "FAIL: row_count after insert, got ", cnt
+    ret 1
+  say "row_count ok"
+
+  tezzdb.db_update(db, "items", pk1, "{\"name\":\"apple\",\"price\":12}")
+  cnt2:int = tezzdb.db_table_row_count(db, "items")
+  if cnt2 != 2:
+    say "FAIL: row_count after update, got ", cnt2
+    ret 1
+  say "update ok"
+
+  tezzdb.db_delete(db, "items", pk2)
+  cnt3:int = tezzdb.db_table_row_count(db, "items")
+  if cnt3 != 1:
+    say "FAIL: row_count after delete, got ", cnt3
+    ret 1
+  say "delete ok"
+
+  tezzdb.db_close(db)
+  say "CRUD test passed"
+
+  // ── Test 2: B+ tree splits (200 rows) ──
+  db2:*char = tezzdb.db_open("build/test_splits.db")
+  if db2 == 0:
+    say "FAIL: open splits"
+    ret 1
+
+  tezzdb.db_table_create(db2, "log")
+  i:int = 0
+  while i < 200:
+    idx_s:str = tezzdb._db_itoa(i)
+    row_data:str = tezzdb.row_json2("idx", idx_s, "tag", "split_test")
+    unsafe:
+      free(idx_s)
+      tezzdb.db_insert(db2, "log", row_data)
+      free(row_data)
+    i = i + 1
+
+  cnt_sp:int = tezzdb.db_table_row_count(db2, "log")
+  if cnt_sp != 200:
+    say "FAIL: split row count expected 200 got ", cnt_sp
+    ret 1
+  say "split test 200 rows ok, count=", cnt_sp
+  tezzdb.db_close(db2)
+
+  // ── Test 3: secondary index + query_where ──
+  db3:*char = tezzdb.db_open("build/test_idx.db")
+  if db3 == 0:
+    say "FAIL: open idx"
+    ret 1
+  tezzdb.db_table_create(db3, "users")
+  tezzdb.db_table_index_create(db3, "users", "username")
+  tezzdb.db_insert(db3, "users", "{\"username\":\"alice\",\"role\":\"admin\"}")
+  tezzdb.db_insert(db3, "users", "{\"username\":\"bob\",\"role\":\"user\"}")
+  tezzdb.db_insert(db3, "users", "{\"username\":\"charlie\",\"role\":\"user\"}")
+  tezzdb.db_info(db3)
+  res:str = tezzdb.db_query_where(db3, "users", "username", "bob")
+  if tezzdb.str_contains(res, "bob") == 0:
+    say "FAIL: query_where bob not found"
+    ret 1
+  say "secondary index query ok"
+  unsafe:
+    free(res)
+  tezzdb.db_close(db3)
+
+  // ── Test 4: ACID transactions ──
+  db4:*char = tezzdb.db_open("build/test_tx.db")
+  if db4 == 0:
+    say "FAIL: open tx"
+    ret 1
+  tezzdb.db_table_create(db4, "accounts")
+  tezzdb.db_insert(db4, "accounts", "{\"name\":\"alice\",\"bal\":100}")
+  
+  tezzdb.db_begin(db4)
+  tezzdb.db_insert(db4, "accounts", "{\"name\":\"bob\",\"bal\":200}")
+  tezzdb.db_rollback(db4)
+  cnt_rb:int = tezzdb.db_table_row_count(db4, "accounts")
+  if cnt_rb != 1:
+    say "FAIL: rollback, count=", cnt_rb
+    ret 1
+  say "rollback ok count=", cnt_rb
+
+  tezzdb.db_begin(db4)
+  tezzdb.db_insert(db4, "accounts", "{\"name\":\"charlie\",\"bal\":300}")
+  tezzdb.db_commit(db4)
+  cnt_cm:int = tezzdb.db_table_row_count(db4, "accounts")
+  if cnt_cm != 2:
+    say "FAIL: commit, count=", cnt_cm
+    ret 1
+  say "commit ok count=", cnt_cm
+  tezzdb.db_close(db4)
+
+  // ── Test 5: user auth helpers ──
+  db5:*char = tezzdb.db_open("build/test_auth.db")
+  if db5 == 0:
+    say "FAIL: open auth"
+    ret 1
+  r:int = tezzdb.db_register_user(db5, "admin", "secret123")
+  if r != 0:
+    say "FAIL: register_user rc=", r
+    ret 1
+  tok:str = tezzdb.db_login_token(db5, "admin", "secret123")
+  if tok == 0:
+    say "FAIL: login_token null"
+    ret 1
+  uname:str = tezzdb.db_user_from_token(db5, tok)
+  if tezzdb.str_contains(uname, "admin") == 0:
+    say "FAIL: user_from_token mismatch"
+    ret 1
+  say "user auth ok, uname=", uname
+  unsafe:
+    free(tok)
+    free(uname)
+  tezzdb.db_close(db5)
+
+  say "All TezzDB tests PASSED"
+  say "TEZZDB LANE PASSED"
+  ret 0

@@ -1,0 +1,2 @@
+tests/fmt_struct_sample.tn|tests/expected/fmt_struct_sample.formatted.tn
+tests/fmt_control_flow.tn|tests/expected/fmt_control_flow.formatted.tn

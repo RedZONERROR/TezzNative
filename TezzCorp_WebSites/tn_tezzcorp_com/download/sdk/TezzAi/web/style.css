@@ -1,0 +1,126 @@
+:root {
+  --bg: #071022;
+  --bg2: #0d1b34;
+  --text: #e7eefc;
+  --muted: #9fb0d7;
+  --card: #101f3e;
+  --line: #2a4278;
+  --accent: #2d7cff;
+  --ok: #14945d;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  color: var(--text);
+  background:
+    radial-gradient(1200px 500px at 10% -10%, #274a96 0%, transparent 65%),
+    radial-gradient(900px 400px at 90% -20%, #164861 0%, transparent 70%),
+    linear-gradient(180deg, var(--bg), var(--bg2));
+  font: 16px/1.45 Consolas, Menlo, Monaco, monospace;
+}
+
+.wrap {
+  max-width: 1100px;
+  margin: 28px auto;
+  padding: 0 16px 24px;
+}
+
+.head h1 {
+  margin: 0;
+  font-size: 42px;
+  letter-spacing: 0.02em;
+}
+
+.head p {
+  margin: 6px 0 14px;
+  color: var(--muted);
+}
+
+.chip {
+  display: inline-block;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+
+.chip.ok {
+  background: rgba(20, 148, 93, 0.18);
+  border-color: #1fbf7a;
+  color: #92f0c2;
+}
+
+.panel {
+  margin-top: 14px;
+  border: 1px solid var(--line);
+  background: rgba(16, 31, 62, 0.82);
+  border-radius: 14px;
+  padding: 14px;
+}
+
+label, h2 {
+  display: block;
+  margin: 0 0 8px;
+}
+
+textarea, select, button, pre {
+  font: inherit;
+}
+
+textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #0a1430;
+  color: var(--text);
+  padding: 10px;
+  resize: vertical;
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+select, button {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #0a1430;
+  color: var(--text);
+  padding: 10px 12px;
+}
+
+button {
+  background: linear-gradient(180deg, #3180ff, #225fd8);
+  border-color: #4c8dff;
+  cursor: pointer;
+}
+
+button:hover {
+  filter: brightness(1.08);
+}
+
+pre {
+  margin: 8px 0 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #091126;
+  padding: 10px;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 760px) {
+  .head h1 {
+    font-size: 30px;
+  }
+
+  .row {
+    flex-wrap: wrap;
+  }
+}

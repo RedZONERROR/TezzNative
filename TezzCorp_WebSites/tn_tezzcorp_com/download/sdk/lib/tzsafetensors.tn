@@ -1,0 +1,69 @@
+// lib/tzsafetensors.tn -- TezzNative HuggingFace Safetensors Model Weight Loader v2.2
+// Zero-dependency direct reader for .safetensors binary files into tztensor.Tensor instances.
+
+import "tzcpu"
+import "tztensor"
+
+extern fn tz_safetensors_open(path: int) -> int
+extern fn tz_safetensors_num_tensors(handle: int) -> int
+extern fn tz_safetensors_tensor_name(handle: int, idx: int, out_buf: int) -> int
+extern fn tz_safetensors_tensor_shape(handle: int, name: int, out_shape_buf: int) -> int
+extern fn tz_safetensors_tensor_numel(handle: int, name: int) -> int
+extern fn tz_safetensors_read_tensor_f32(handle: int, name: int, dst_ptr: int) -> int
+extern fn tz_safetensors_close(handle: int) -> int
+
+fn cstr(s: str) -> int:
+  unsafe:
+    ret s as int
+  ret 0
+
+fn open_file(path: str) -> int:
+  ret tz_safetensors_open(cstr(path))
+
+fn num_tensors(handle: int) -> int:
+  ret tz_safetensors_num_tensors(handle)
+
+fn load_tensor(handle: int, name: str) -> int:
+  p_name: int = cstr(name)
+  shape_buf: int = tzcpu.tz_cpu_malloc(64)
+  ndim: int = tz_safetensors_tensor_shape(handle, p_name, shape_buf)
+  if ndim <= 0:
+    tzcpu.tz_cpu_free(shape_buf)
+    ret 0
+
+  d0: int = 1
+  d1: int = 1
+  d2: int = 1
+  d3: int = 1
+
+  unsafe:
+    d0 = (shape_buf as *int)[0]
+    if ndim > 1:
+      d1 = (shape_buf as *int)[1]
+    if ndim > 2:
+      d2 = (shape_buf as *int)[2]
+    if ndim > 3:
+      d3 = (shape_buf as *int)[3]
+
+  tzcpu.tz_cpu_free(shape_buf)
+
+  t: int = 0
+  if ndim == 1:
+    t = tztensor.tensor_new_1d(d0, 0)
+  else if ndim == 2:
+    t = tztensor.tensor_new_2d(d0, d1, 0)
+  else if ndim == 3:
+    t = tztensor.tensor_new_3d(d0, d1, d2, 0)
+  else:
+    t = tztensor.tensor_new_4d(d0, d1, d2, d3, 0)
+
+  data_p: int = tztensor.tensor_data(t)
+  read_n: int = tz_safetensors_read_tensor_f32(handle, p_name, data_p)
+  if read_n <= 0:
+    tztensor.tensor_free(t)
+    ret 0
+
+  ret t
+
+fn close_file(handle: int) -> int:
+  ret tz_safetensors_close(handle)

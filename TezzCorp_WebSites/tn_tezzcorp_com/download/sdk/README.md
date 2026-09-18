@@ -1,0 +1,264 @@
+# TezzNative
+
+TezzNative is a Python-readable, C-adjacent native programming language. It is
+designed for developers who want simple syntax, static typing, native binaries,
+manual low-level control when needed, and a bundled standard library.
+
+This repository is the public TezzNative distribution surface. It contains:
+
+- The TezzNative standard library in `lib/`
+- The package metadata in `tezz.mod`, `tezz.lock`, and `version.json`
+- The official VS Code language extension in `tezznative-vscode/`
+- Public project documentation
+
+Current language metadata: **TezzNative 1.1.0**, release channel, API `v1`.
+
+## Project Goal
+
+TezzNative is not trying to clone Python or C. The strongest target is:
+
+> Python-like readability with C-like native deployment.
+
+The best early use cases are CLI tools, automation scripts, native utilities,
+small services, embedded runtime experiments, and C interop code where Python is
+too slow or C is too noisy.
+
+## Status
+
+TezzNative is active and ambitious, but the stable core is intentionally smaller
+than the full repository surface.
+
+| Area | Status | Notes |
+| --- | --- | --- |
+| Core syntax | Stable (gated) | Functions, variables, control flow, structs, arrays, imports, `sizeof`/`alignof`, and unsafe pointer blocks |
+| Static type checking | Stable/Beta (gated core) | Type mismatch, named unknown name/module/function, arity, and unsafe diagnostics are snippet checked; common errors now include actionable help lines |
+| Native executable flow | Beta (gated x64) | Windows/Linux SDKs build and run hello, loops/math module, many-argument calls, strings/transforms, structs, raw/wrapped/line/stream file IO, directory lifecycle, direct `dir_list`, raw/public recursive listing and glob, portable paths, vectors, arenas, process run/output, time clock/sleep/UTC/local-date helpers, deterministic net/HTTP URL parsing, Windows/Linux x64 TCP loopback sockets, IPv4 literal socket bind handling, localhost connect/bind wrappers, keep-alive HTTP response reads, local HTTP client/server loopback, reproducible native output fixtures, and fail-closed unsupported targets |
+| Bytecode run flow | Stable/Beta | Useful for development and compatibility |
+| C ABI / extern calls | Beta (gated starter) | Header/structured ABI dump checks cover pointers, arrays, nested structs, scalar mixes, fixed-width integer C mappings, field offsets, and extern signatures |
+| Python bridge | Beta (gated scaffold) | `tezzc pyext` generates CPython wrapper C, ABI declarations, setup metadata, ownership docs, and deterministic wrapped/skipped manifests for primitive and buffer hot paths |
+| Package trust | Stable/Beta (gated first-party set) | `tezz init/add/remove/update/lock/publish/test/build --release`, SemVer package pins, lock/registry parity, package checksums, generated package inventory docs, and first-party package promotion rules are gated |
+| Stable stdlib candidates | Stable/Beta (edge gated) | Core imports plus native math, string, raw/wrapped/line/stream file IO, directory lifecycle, direct `dir_list`, raw/public recursive listing and glob, portable path, vector, arena, process run/output capture, `time` clock/sleep/UTC/local-date smoke, and focused stdlib edge gates for math, strings, vectors, and arenas |
+| Networking/TLS/GUI/DB | Beta | `net` URL, DNS endpoint, HTTP parser, route, auth/cookie, chunked response helpers, keep-alive `Content-Length`/chunked response reads, Windows/Linux x64 TCP loopback send/recv, IPv4 literal bind hosts, localhost TCP/UDP connect wrappers, socket options, and local HTTP client/server route helpers are smoke gated; TLS, public-network HTTP, DNS-backed sockets, and wider backend matrix testing are still needed |
+| GPU/NPU/LLM/kernel modules | Experimental | `llm_core` now provides gated f64 CPU transformer primitives plus signed int8-weight matmul for tiny inference experiments; production LLM training/serving still needs dtype, tensor, model IO, GPU/NPU, and benchmark gates |
+
+See `docs/STABILITY.md` for the full stability map.
+See `docs/PLATFORM_SUPPORT.md` for target support and
+`docs/STDLIB_INVENTORY.md` for module maturity. C ABI rules are documented in
+`docs/C_ABI.md`. Stable-candidate stdlib ownership and failure rules are
+documented in `docs/STDLIB_CORE.md`. Conformance and benchmark rules are documented in
+`docs/CONFORMANCE.md` and `docs/BENCHMARKS.md`. Public claim boundaries are
+documented in `docs/TRUST_BASELINE.md`. Native backend target scope and
+reliability gates are documented in `docs/NATIVE_BACKEND.md`. Developer
+experience gates are documented in `docs/DEVELOPER_EXPERIENCE.md`. Release
+integrity and privacy policies are documented in `docs/RELEASE_ENGINEERING.md`,
+`docs/TELEMETRY_PRIVACY.md`, and `SECURITY.md`. Package trust rules are
+documented in `docs/PACKAGE_TRUST.md`. The LLM production-readiness boundary is
+documented in `docs/LLM_PRODUCTION_PATH.md`.
+
+## Quick Example
+
+```tn
+import "std"
+
+fn fib(n:int) -> int:
+  if n <= 1:
+    ret n
+  ret fib(n - 1) + fib(n - 2)
+
+fn main() -> int:
+  say "fib(10) = ", fib(10)
+  ret 0
+```
+
+Typical commands:
+
+```bash
+tezzc check hello.tn
+tezzc run hello.tn
+tezzc buildexe hello.tn hello.exe
+tezzc buildexe hello.tn ./hello --target linux
+```
+
+## Language Snapshot
+
+TezzNative currently supports:
+
+- Indentation-based blocks
+- `fn`, `let`, `struct`, `enum`, `typedef`, `extern`, and `static`
+- `if`, `else`, `while`, C-style `for`, `switch`, `break`, `continue`, `ret`
+- Primitive types such as `int`, `float`, `char`, `str`, `void`, and
+  fixed-width integers `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`
+- Pointers, arrays, casts, indexing, field access, `sizeof`, and `alignof`
+- `unsafe` blocks for pointer and low-level memory operations
+- C ABI-oriented attributes and extern declarations
+- A bundled module system and standard library
+
+## Standard Library
+
+The public `lib/` directory includes modules for:
+
+- Core utilities: `std`, `io`, `str`, `math`, `vec`, `arena`, `time`
+- Systems work: `sys`, `mmap`, `os`, `kernel`, `arduino`, `raspi`
+- Networking: `net`, `tls`, `tezzserve`, `tezzapi`
+- UI/application work: `gui`, `gui_win`, `tzgui`, `tzui`, `tnui`, `tezzui`
+- Data and AI experiments: `tezzdb`, `tensor`, `nn`, `llm`, `llm_core`, `tokenizer`, `tts`, `stt`
+- Acceleration surfaces: `simd`, `intrin`, `gpu`, `npu`
+
+Not every module has the same maturity level. Stable applications should start
+with the core modules and opt into experimental modules deliberately. The
+stable-candidate stdlib contract, ownership rules, failure behavior, and
+verification commands are documented in `docs/STDLIB_CORE.md`.
+
+## Tooling
+
+The compiler and wrapper tooling are designed around a simple workflow:
+
+- `check`: parse and type-check a program
+- `run`: execute through the supported runtime path
+- `buildexe`: build a native executable where supported
+- `tezz init/add/remove/update/lock/publish/test/build --release`: manage
+  project metadata, reproducible locks, first-party package installs, and
+  release-default builds
+- `fmt`: format source
+- `lint`: run static lint rules
+- `cheader`, `abidump`, `abiverify`: inspect and verify C ABI surfaces
+- `pyext`: generate a CPython extension scaffold for ABI-safe hot functions
+
+The VS Code extension provides syntax highlighting, snippets, and editor
+integration for TezzNative files.
+
+The first public stable-core conformance corpus is available in
+`tests/conformance/`. Run it with:
+
+```powershell
+.\tests\conformance\run.ps1
+```
+
+On Linux or WSL:
+
+```bash
+bash tests/conformance/run.sh ./TezzNative-language/bin/tezzc-linux-x64
+```
+
+The current gate covers flat stable-core, parser, typecheck, diagnostics, and
+stdlib-import suites. Invalid conformance tests may also have diagnostic
+snippets under `tests/conformance/diagnostics/`, including parser and typecheck
+subdirectories. GitHub Actions runs the same stable-core corpus against the
+published Windows and Linux SDK packages. See `docs/CONFORMANCE.md` for the
+suite contract.
+
+The developer experience lane checks actionable diagnostics, formatter
+idempotence, lint rule IDs, curated examples, VS Code snippets, LSP source
+health, and the first run/build path:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tests\conformance\run-dx.ps1
+```
+
+On Linux or WSL:
+
+```bash
+bash tests/conformance/run-dx.sh ./TezzNative-language/bin/tezzc-linux-x64
+```
+
+The package trust lane checks the public `tezz` tool, launchers, SemVer package
+metadata, lock/registry parity, package checksums, and generated package
+inventory docs:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tests\conformance\run-package-trust.ps1 -Tezzc .\TezzNative-language\build\tezzc.exe
+```
+
+On Linux or WSL:
+
+```bash
+bash tests/conformance/run-package-trust.sh ./TezzNative-language/bin/tezzc-linux-x64
+```
+
+The native backend smoke lane builds and runs small executable programs for
+hello output, loops/math, math module helpers, strings and transforms, structs,
+many-argument call handling,
+raw/wrapped/line/stream file IO, directory lifecycle, direct directory listing,
+raw/public glob filters, portable path helpers, vectors, arenas, time
+clock/sleep/UTC/local-date helpers, stdlib math/collections edge behavior,
+deterministic `net` URL/HTTP parsing,
+Windows/Linux x64 TCP loopback sockets, socket options, localhost socket
+wrappers, keep-alive HTTP response reads, and local HTTP client/server route
+helpers, plus IPv4 literal socket bind host handling:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tests\conformance\run-native-smoke.ps1
+```
+
+CI runs the same lane as a hosted Windows and Linux execution gate. Local runs
+can use the default execute mode, `-CheckIrOnly`, or `-BuildOnly` for deeper
+backend verification.
+
+On Linux or WSL:
+
+```bash
+bash tests/conformance/run-native-smoke.sh ./TezzNative-language/bin/tezzc-linux-x64
+```
+
+The first ABI starter lane checks C header layout assertions plus structured
+ABI dump and verify behavior:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tests\conformance\run-abi.ps1
+```
+
+Windows and Linux CI both run this lane with full `abiverify` against the
+published SDK compiler. The JSON ABI manifest records struct sizes, alignment,
+field offsets, field type shapes, function return types, and parameter shapes.
+
+The public benchmark harness records environment metadata, bytecode timing,
+native build timing, native run timing, peak memory where available, exit codes,
+output hashes, and binary size:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\benchmarks\run.ps1
+```
+
+Use `-IncludeExternal` to run optional Python, C, Node.js, Go, and Rust
+comparison fixtures when those toolchains are available. See
+`docs/BENCHMARKS.md` for the workload matrix and publishing rules.
+
+Release manifests can be generated and verified with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\release\build_release_manifest.ps1
+powershell -ExecutionPolicy Bypass -File .\tools\release\verify_release_manifest.ps1
+```
+
+Installers must verify archive SHA-256 files before extraction.
+
+On Linux or WSL:
+
+```bash
+bash benchmarks/run.sh ./TezzNative-language/bin/tezzc-linux-x64 --check-only
+```
+
+## Optimization Roadmap
+
+The current priority is trust over feature count:
+
+1. Stabilize and document the core language subset.
+2. Split stable, beta, and experimental standard library surfaces.
+3. Expand compiler, ABI, and runtime conformance tests.
+4. Harden x86_64 native builds before widening target claims.
+5. Keep expanding package metadata, examples, diagnostics, and benchmarks.
+
+See `docs/OPTIMIZATION_PLAN.md` for the working roadmap.
+
+## Repository Notes
+
+The public repository intentionally tracks a clean distribution subset. Full
+compiler sources, generated binaries, installers, local deployment scripts, and
+site deployment data may exist in local development directories but are not part
+of this public Git surface unless explicitly added. The small
+`ci/bootstrap/` compilers are tracked only to keep hosted conformance independent
+from temporary download-host availability.
+
+## License
+
+See `LICENSE.txt`.

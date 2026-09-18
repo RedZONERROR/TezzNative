@@ -1,0 +1,114 @@
+// otp_sys.tn — Erlang-Style OTP Core Actor Concurrency Runtime
+// Stores internal actor states and mailboxes cleanly inside `.log/` directory.
+
+import "str"
+import "sys"
+import "io"
+
+// OTP Process States
+fn OTP_ALIVE() -> int: ret 1
+fn OTP_CRASHED() -> int: ret 2
+fn OTP_TERMINATED() -> int: ret 3
+
+// OTP Restart Strategies
+fn RESTART_ONE_FOR_ONE() -> int: ret 10
+fn RESTART_ONE_FOR_ALL() -> int: ret 11
+
+fn ensure_log_dir() -> int:
+  if io.dir_exists(".log") == 0:
+    io.dir_make(".log")
+  ret 1
+
+// Simple Mailbox Storage inside `.log/` directory
+fn send_msg(target_pid:int, msg:str) -> int:
+  if target_pid <= 0 || msg == 0 as str:
+    ret 0
+  
+  ensure_log_dir()
+  mbox_key:str = ".log/otp_mb_"
+  mbox_key = str.str_cat(mbox_key, str.int_to_str(target_pid))
+  
+  // Append message line to process mailbox queue
+  current_mb:str = io.read_all(mbox_key)
+  if current_mb == 0 as str:
+    current_mb = ""
+
+  new_mb:str = str.str_cat(current_mb, msg)
+  new_mb = str.str_cat(new_mb, "\n")
+  
+  io.write_all(mbox_key, new_mb)
+  ret 1
+
+// Read next message from process mailbox inside `.log/` directory
+fn recv_msg(pid:int) -> str:
+  if pid <= 0:
+    ret 0 as str
+  
+  mbox_key:str = ".log/otp_mb_"
+  mbox_key = str.str_cat(mbox_key, str.int_to_str(pid))
+  
+  current_mb:str = io.read_all(mbox_key)
+  if current_mb == 0 as str || str.str_len(current_mb) == 0:
+    ret 0 as str
+
+  slen:int = str.str_len(current_mb)
+  pos:int = 0
+  while pos < slen && (current_mb[pos] as int) != 10:
+    pos = pos + 1
+
+  msg:str = str.str_slice(current_mb, 0, pos)
+  
+  // Save remaining queue
+  rem:str = ""
+  if pos + 1 < slen:
+    rem = str.str_slice(current_mb, pos + 1, slen)
+
+  io.write_all(mbox_key, rem)
+  ret msg
+
+// Spawn lightweight actor process inside `.log/` directory
+fn spawn_actor(name:str, parent_pid:int) -> int:
+  ensure_log_dir()
+  time_ns:int = sys.time_ns()
+  pid:int = (time_ns % 9000) + 1000
+
+  state_key:str = ".log/otp_proc_"
+  state_key = str.str_cat(state_key, str.int_to_str(pid))
+
+  meta:str = "NAME="
+  meta = str.str_cat(meta, name)
+  meta = str.str_cat(meta, "\nSTATUS=ALIVE\nPARENT=")
+  meta = str.str_cat(meta, str.int_to_str(parent_pid))
+  meta = str.str_cat(meta, "\nRESTARTS=0\n")
+
+  io.write_all(state_key, meta)
+  ret pid
+
+// Get process status
+fn process_status(pid:int) -> str:
+  state_key:str = ".log/otp_proc_"
+  state_key = str.str_cat(state_key, str.int_to_str(pid))
+  
+  meta:str = io.read_all(state_key)
+  if meta == 0 as str || str.str_len(meta) == 0:
+    ret "DEAD"
+  
+  if str.str_contains(meta, "STATUS=ALIVE") != 0:
+    ret "ALIVE"
+  if str.str_contains(meta, "STATUS=CRASHED") != 0:
+    ret "CRASHED"
+
+  ret "TERMINATED"
+
+// Mark process crashed (for supervisor trap)
+fn crash_process(pid:int) -> int:
+  state_key:str = ".log/otp_proc_"
+  state_key = str.str_cat(state_key, str.int_to_str(pid))
+  
+  meta:str = io.read_all(state_key)
+  if meta != 0 as str:
+    // Update status to crashed
+    meta = str.str_cat(meta, "STATUS=CRASHED\n")
+    io.write_all(state_key, meta)
+    ret 1
+  ret 0

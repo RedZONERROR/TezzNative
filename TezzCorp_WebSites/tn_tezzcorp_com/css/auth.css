@@ -1,0 +1,301 @@
+/* Authentication Pages Styles */
+
+/* Auth Section */
+.auth-section {
+    padding: 150px 0 100px;
+    position: relative;
+    overflow: hidden;
+}
+
+.auth-shape {
+    position: absolute;
+    top: -300px;
+    right: -300px;
+    width: 800px;
+    height: 800px;
+    border-radius: 50%;
+    background: var(--gradient);
+    opacity: 0.1;
+    z-index: -1;
+    animation: rotate 30s linear infinite;
+}
+
+.auth-shape-2 {
+    position: absolute;
+    bottom: -200px;
+    left: -200px;
+    width: 500px;
+    height: 500px;
+    border-radius: 30% 70% 70% 30% / 30% 30% 70% 70%;
+    background: var(--gradient-alt);
+    opacity: 0.1;
+    z-index: -1;
+    animation: morph 15s ease-in-out infinite;
+}
+
+.auth-container {
+    display: flex;
+    max-width: 1000px;
+    margin: 0 auto;
+    background-color: var(--card-bg);
+    border-radius: 20px;
+    overflow: hidden;
+    border: 1px solid var(--border-color);
+    box-shadow: 0 15px 30px var(--shadow-color);
+}
+
+.auth-image {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    display: none;
+}
+
+.auth-image img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.image-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(
+        to bottom,
+        color-mix(in srgb, var(--primary-color) 72%, transparent),
+        color-mix(in srgb, var(--secondary-color) 76%, transparent)
+    );
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 30px;
+}
+
+.overlay-content {
+    color: white;
+    text-align: center;
+}
+
+.overlay-content h2 {
+    font-size: 2.5rem;
+    margin-bottom: 15px;
+}
+
+.overlay-content p {
+    font-size: 1.1rem;
+    opacity: 0.9;
+}
+
+.auth-form-container {
+    flex: 1;
+    padding: 50px;
+    position: relative;
+    background: linear-gradient(
+        165deg,
+        color-mix(in srgb, var(--bg-elevated) 90%, var(--primary-color) 10%),
+        var(--bg-elevated)
+    );
+}
+
+.form-header {
+    text-align: center;
+    margin-bottom: 30px;
+}
+
+.form-header h2 {
+    font-size: 2.5rem;
+    margin-bottom: 10px;
+    background: var(--gradient-text);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
+
+.form-header p {
+    opacity: 0.8;
+}
+
+.auth-form {
+    max-width: 400px;
+    margin: 0 auto;
+}
+
+.form-group {
+    margin-bottom: 20px;
+    position: relative;
+}
+
+.form-group label {
+    position: absolute;
+    left: 15px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-color);
+    opacity: 0.7;
+}
+
+.form-group input {
+    width: 100%;
+    padding: 15px 15px 15px 45px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    transition: var(--transition);
+}
+
+.form-group input:focus {
+    border-color: var(--primary-color);
+    outline: none;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color) 18%, transparent);
+}
+
+.toggle-password {
+    position: absolute;
+    right: 15px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    color: var(--text-color);
+    opacity: 0.7;
+    cursor: pointer;
+}
+
+.form-options {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.remember-me, .terms-checkbox {
+    display: flex;
+    align-items: center;
+}
+
+.remember-me input, .terms-checkbox input {
+    margin-right: 5px;
+}
+
+.forgot-password {
+    color: var(--primary-color);
+}
+
+/* Fixed login button to match other pages */
+.login-button {
+    width: 100%;
+    padding: 15px;
+    font-size: 1.1rem;
+    background: var(--gradient);
+    color: white;
+    border: none;
+    border-radius: 50px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: var(--transition);
+    display: inline-block;
+    text-align: center;
+    box-shadow: 0 8px 18px color-mix(in srgb, var(--primary-color) 35%, transparent);
+}
+
+.login-button:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 14px 26px color-mix(in srgb, var(--primary-color) 44%, transparent);
+}
+
+.social-login {
+    margin-top: 30px;
+    text-align: center;
+}
+
+.social-login p {
+    margin-bottom: 15px;
+    position: relative;
+}
+
+.social-login p::before, .social-login p::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    width: 30%;
+    height: 1px;
+    background-color: var(--border-color);
+}
+
+.social-login p::before {
+    left: 0;
+}
+
+.social-login p::after {
+    right: 0;
+}
+
+.social-buttons {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.social-btn {
+    flex: wrap;
+    padding: 12px;
+    border-radius: 10px;
+    border: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    cursor: pointer;
+    transition: var(--transition);
+    font-weight: 500;
+}
+
+.social-btn.tezzauth {
+    background-color: color-mix(in srgb, var(--accent-color) 70%, #0e341f);
+    color: white;
+}
+
+.social-btn.facebook {
+    background-color: #4267B2;
+    color: white;
+}
+
+.social-btn:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 8px 20px color-mix(in srgb, var(--shadow-color) 70%, transparent);
+}
+
+.register-link {
+    text-align: center;
+    margin-top: 30px;
+}
+
+.register-link a {
+    color: var(--primary-color);
+    font-weight: 500;
+}
+
+/* Responsive Styles */
+@media (min-width: 768px) {
+    .auth-image {
+        display: block;
+    }
+}
+
+@media (max-width: 576px) {
+    .auth-form-container {
+        padding: 30px;
+    }
+    
+    .form-header h2 {
+        font-size: 2rem;
+    }
+    
+    .social-buttons {
+        flex-direction: column;
+    }
+}

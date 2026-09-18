@@ -1,0 +1,3 @@
+tests/conformance_parse_missing_colon.tn|tests/expected/conformance_parse_missing_colon.diag.txt
+tests/conformance_type_mismatch.tn|tests/expected/conformance_type_mismatch.diag.txt
+tests/conformance_attr_import_fail.tn|tests/expected/conformance_attr_import_fail.diag.txt

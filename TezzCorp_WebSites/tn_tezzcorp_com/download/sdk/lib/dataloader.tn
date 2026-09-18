@@ -1,0 +1,463 @@
+// dataloader module — TezzNative Dataset Pipeline
+//
+// In-memory dataset management with shuffle, batch iteration,
+// train/val split, CSV/TSV reader, and normalization helpers.
+//
+// Designed for on-device AI training. All data lives in flat float64 slabs.
+// Row layout: [feature_cols | label_cols] per sample.
+//
+// Usage:
+//   dl:*DataLoader = dataloader.load_csv("data.csv", 4, 1)
+//   dataloader.shuffle(dl, 42)
+//   val_dl:*DataLoader = dataloader.split(dl, 0.8)   // 80% train, 20% val
+//
+//   while dataloader.has_next(dl):
+//     x_buf:*float = malloc(batch * 4 * 8) as *float
+//     y_buf:*float = malloc(batch * 1 * 8) as *float
+//     n:int = dataloader.next_batch(dl, x_buf, y_buf, batch, 4, 1)
+//     ... train ...
+//   dataloader.reset(dl)
+
+import "io"
+import "math"
+
+// ─────────────────────────────────────────────
+// DataLoader struct
+// ─────────────────────────────────────────────
+
+struct DataLoader:
+  data:*float     // flat slab: [n_samples x n_cols]
+  indices:*int    // shuffled index array [n_samples]
+  n_samples:int
+  n_features:int  // number of feature columns (input dims)
+  n_labels:int    // number of label columns (output dims)
+  n_cols:int      // n_features + n_labels
+  cursor:int      // current position for next_batch
+  owned:int       // 1 if we own 'data' memory (should free it)
+
+// ─────────────────────────────────────────────
+// Internal helpers
+// ─────────────────────────────────────────────
+
+fn _df(p:*float, i:int) -> float:
+  v:float = 0.0
+  unsafe:
+    v = p[i]
+  ret v
+
+fn _dw(p:*float, i:int, v:float) -> int:
+  unsafe:
+    p[i] = v
+  ret 0
+
+fn _di(p:*int, i:int) -> int:
+  v:int = 0
+  unsafe:
+    v = p[i]
+  ret v
+
+fn _diw(p:*int, i:int, v:int) -> int:
+  unsafe:
+    p[i] = v
+  ret 0
+
+// ─────────────────────────────────────────────
+// Creation / Destruction
+// ─────────────────────────────────────────────
+
+// Create a DataLoader from an existing flat data slab.
+// data: [n_samples x (n_features + n_labels)] — NOT copied, NOT freed by DL.
+fn from_slab(data:*float, n_samples:int, n_features:int, n_labels:int) -> *DataLoader:
+  if data == 0 as *float || n_samples <= 0 || n_features <= 0:
+    ret 0 as *DataLoader
+  dl:*DataLoader = (*DataLoader)malloc(sizeof(DataLoader))
+  if dl == 0:
+    ret 0 as *DataLoader
+  (*dl).data = data
+  (*dl).n_samples = n_samples
+  (*dl).n_features = n_features
+  (*dl).n_labels = n_labels
+  (*dl).n_cols = n_features + n_labels
+  (*dl).cursor = 0
+  (*dl).owned = 0
+  // Allocate identity index array
+  idx_raw:*char = malloc(n_samples * 8)
+  if idx_raw == 0:
+    free(dl as *char)
+    ret 0 as *DataLoader
+  (*dl).indices = idx_raw as *int
+  i:int = 0
+  while i < n_samples:
+    _diw((*dl).indices, i, i)
+    i = i + 1
+  ret dl
+
+// Create a DataLoader and own the data slab (will free it on dl_free).
+fn from_slab_owned(data:*float, n_samples:int, n_features:int, n_labels:int) -> *DataLoader:
+  dl:*DataLoader = from_slab(data, n_samples, n_features, n_labels)
+  if dl != 0 as *DataLoader:
+    (*dl).owned = 1
+  ret dl
+
+// Free a DataLoader (and optionally its data).
+fn dl_free(dl:*DataLoader) -> int:
+  if dl == 0 as *DataLoader:
+    ret 0
+  if (*dl).owned != 0 && (*dl).data != 0 as *float:
+    free((*dl).data as *char)
+  if (*dl).indices != 0 as *int:
+    free((*dl).indices as *char)
+  free(dl as *char)
+  ret 0
+
+// Reset iteration cursor to the start.
+fn reset(dl:*DataLoader) -> int:
+  if dl == 0 as *DataLoader:
+    ret 0 - 1
+  (*dl).cursor = 0
+  ret 0
+
+// ─────────────────────────────────────────────
+// Shuffling — Fisher-Yates
+// ─────────────────────────────────────────────
+
+// Shuffle the sample index array using Fisher-Yates algorithm.
+fn shuffle(dl:*DataLoader, seed:int) -> int:
+  if dl == 0 as *DataLoader || (*dl).n_samples <= 1:
+    ret 0
+  // LCG PRNG
+  rng:int = seed
+  n:int = (*dl).n_samples
+  i:int = n - 1
+  while i > 0:
+    rng = rng * 1664525 + 1013904223
+    j:int = ((rng >> 1) & 2147483647) % (i + 1)
+    // Swap indices[i] and indices[j]
+    tmp:int = _di((*dl).indices, i)
+    _diw((*dl).indices, i, _di((*dl).indices, j))
+    _diw((*dl).indices, j, tmp)
+    i = i - 1
+  ret 0
+
+// ─────────────────────────────────────────────
+// Batch Iteration
+// ─────────────────────────────────────────────
+
+// Returns 1 if there are more batches in the current epoch.
+fn has_next(dl:*DataLoader) -> int:
+  if dl == 0 as *DataLoader:
+    ret 0
+  ret (*dl).cursor < (*dl).n_samples
+
+// Get the next batch of samples.
+// out_x: pre-allocated [batch_size x n_features] float buffer
+// out_y: pre-allocated [batch_size x n_labels] float buffer
+// Returns the actual number of samples placed (may be < batch_size at epoch end).
+fn next_batch(dl:*DataLoader, out_x:*float, out_y:*float, batch_size:int) -> int:
+  if dl == 0 as *DataLoader || out_x == 0 as *float || out_y == 0 as *float:
+    ret 0
+  if batch_size <= 0 || (*dl).cursor >= (*dl).n_samples:
+    ret 0
+
+  nf:int = (*dl).n_features
+  nl:int = (*dl).n_labels
+  nc:int = (*dl).n_cols
+  count:int = 0
+  bi:int = 0
+
+  while bi < batch_size && (*dl).cursor < (*dl).n_samples:
+    row_idx:int = _di((*dl).indices, (*dl).cursor)
+    base:int = row_idx * nc
+    // Copy features
+    j:int = 0
+    while j < nf:
+      _dw(out_x, bi * nf + j, _df((*dl).data, base + j))
+      j = j + 1
+    // Copy labels
+    j = 0
+    while j < nl:
+      _dw(out_y, bi * nl + j, _df((*dl).data, base + nf + j))
+      j = j + 1
+    (*dl).cursor = (*dl).cursor + 1
+    bi = bi + 1
+    count = count + 1
+
+  ret count
+
+// Skip n samples without copying (for curriculum learning).
+fn skip(dl:*DataLoader, n:int) -> int:
+  if dl == 0 as *DataLoader:
+    ret 0 - 1
+  (*dl).cursor = (*dl).cursor + n
+  if (*dl).cursor > (*dl).n_samples:
+    (*dl).cursor = (*dl).n_samples
+  ret 0
+
+// ─────────────────────────────────────────────
+// Train/Validation Split
+// ─────────────────────────────────────────────
+
+// Split: first train_ratio fraction stays in dl, rest goes to new returned DL.
+// Returns a new DataLoader for the validation set.
+// Both share the original data slab (not owned by either after split).
+fn split_val(dl:*DataLoader, train_ratio:float) -> *DataLoader:
+  if dl == 0 as *DataLoader:
+    ret 0 as *DataLoader
+  if train_ratio <= 0.0 || train_ratio >= 1.0:
+    ret 0 as *DataLoader
+  n_train:int = ((*dl).n_samples as float * train_ratio) as int
+  n_val:int = (*dl).n_samples - n_train
+  if n_train <= 0 || n_val <= 0:
+    ret 0 as *DataLoader
+  // Build val DL from the same data, using the tail of the current indices
+  val_dl:*DataLoader = 0 as *DataLoader
+  val_raw:*char = malloc(sizeof(DataLoader))
+  if val_raw == 0:
+    ret 0 as *DataLoader
+  val_dl = (*DataLoader)val_raw
+  (*val_dl).data = (*dl).data
+  (*val_dl).n_samples = n_val
+  (*val_dl).n_features = (*dl).n_features
+  (*val_dl).n_labels = (*dl).n_labels
+  (*val_dl).n_cols = (*dl).n_cols
+  (*val_dl).cursor = 0
+  (*val_dl).owned = 0
+  // Copy tail indices
+  idx_raw:*char = malloc(n_val * 8)
+  if idx_raw == 0:
+    free(val_raw)
+    ret 0 as *DataLoader
+  (*val_dl).indices = idx_raw as *int
+  i:int = 0
+  while i < n_val:
+    _diw((*val_dl).indices, i, _di((*dl).indices, n_train + i))
+    i = i + 1
+  // Truncate original dl to train portion
+  (*dl).n_samples = n_train
+  ret val_dl
+
+// ─────────────────────────────────────────────
+// CSV / TSV Reader
+// ─────────────────────────────────────────────
+
+// Parse a float from a string starting at position *pos.
+// Advances *pos to next delimiter or end of string.
+fn _parse_float(s:str, pos:*int, n:int) -> float:
+  // Skip leading whitespace
+  while (*pos) < n:
+    c:int = (s as *char)[(*pos)] as int
+    if c != 32 && c != 9:
+      break
+    (*pos) = (*pos) + 1
+  // Read sign
+  sign:float = 1.0
+  if (*pos) < n && (s as *char)[(*pos)] == 45 as char:  // '-'
+    sign = 0.0 - 1.0
+    (*pos) = (*pos) + 1
+  // Read integer part
+  v:float = 0.0
+  while (*pos) < n:
+    c:int = (s as *char)[(*pos)] as int
+    if c < 48 || c > 57:
+      break
+    v = v * 10.0 + ((c - 48) as float)
+    (*pos) = (*pos) + 1
+  // Read fractional part
+  if (*pos) < n && (s as *char)[(*pos)] == 46 as char:  // '.'
+    (*pos) = (*pos) + 1
+    frac:float = 0.1
+    while (*pos) < n:
+      c:int = (s as *char)[(*pos)] as int
+      if c < 48 || c > 57:
+        break
+      v = v + (c - 48) as float * frac
+      frac = frac / 10.0
+      (*pos) = (*pos) + 1
+  // Read exponent
+  if (*pos) < n:
+    ec:int = (s as *char)[(*pos)] as int
+    if ec == 101 || ec == 69:  // 'e' or 'E'
+      (*pos) = (*pos) + 1
+      esign:int = 1
+      if (*pos) < n && (s as *char)[(*pos)] == 45 as char:
+        esign = 0 - 1
+        (*pos) = (*pos) + 1
+      exp:int = 0
+      while (*pos) < n:
+        c:int = (s as *char)[(*pos)] as int
+        if c < 48 || c > 57:
+          break
+        exp = exp * 10 + (c - 48)
+        (*pos) = (*pos) + 1
+      i:int = 0
+      if esign > 0:
+        while i < exp:
+          v = v * 10.0
+          i = i + 1
+      else:
+        while i < exp:
+          v = v / 10.0
+          i = i + 1
+  ret sign * v
+
+// Load a CSV/TSV file into a DataLoader.
+// header: 1 if the first line is a header (skip it), 0 otherwise.
+// sep: field separator character (44=comma, 9=tab, 32=space).
+// n_features: number of feature columns (first n_features cols = X).
+// n_labels: number of label columns (last n_labels cols = Y).
+// Returns null on failure.
+fn load_csv(path:str, n_features:int, n_labels:int, header:int, sep:int) -> *DataLoader:
+  if path == 0 || n_features <= 0 || n_labels < 0:
+    ret 0 as *DataLoader
+  n_cols:int = n_features + n_labels
+  src:str = io.read_all(path)
+  if src == 0:
+    ret 0 as *DataLoader
+  total_len:int = len(src)
+  // Count lines (to pre-allocate)
+  n_lines:int = 0
+  i:int = 0
+  while i < total_len:
+    if (src as *char)[i] == 10 as char:
+      n_lines = n_lines + 1
+    i = i + 1
+  if n_lines <= 0:
+    free(src)
+    ret 0 as *DataLoader
+  n_data:int = n_lines
+  if header != 0:
+    n_data = n_data - 1
+  if n_data <= 0:
+    free(src)
+    ret 0 as *DataLoader
+  // Allocate data slab
+  slab_raw:*char = malloc(n_data * n_cols * 8)
+  if slab_raw == 0:
+    free(src)
+    ret 0 as *DataLoader
+  slab:*float = slab_raw as *float
+  // Parse lines
+  pos:int = 0
+  sample:int = 0
+  skip_first:int = header
+  while pos < total_len && sample < n_data:
+    // Skip header line
+    if skip_first != 0:
+      while pos < total_len && (src as *char)[pos] != 10 as char:
+        pos = pos + 1
+      if pos < total_len:
+        pos = pos + 1
+      skip_first = 0
+      continue
+    // Parse n_cols values from this line
+    col:int = 0
+    while col < n_cols:
+      // Skip separator chars between fields
+      while pos < total_len:
+        c:int = (src as *char)[pos] as int
+        if c == 10 || c == 13:
+          break
+        if c == sep:
+          if col > 0:
+            pos = pos + 1
+          break
+        break
+      if pos >= total_len || (src as *char)[pos] == 10 as char:
+        break
+      // Skip the separator (already consumed for col > 0)
+      if col > 0 && pos < total_len && (src as *char)[pos] as int == sep:
+        pos = pos + 1
+      v:float = _parse_float(src, &pos, total_len)
+      slab[sample * n_cols + col] = v
+      col = col + 1
+    // Advance to next line
+    while pos < total_len && (src as *char)[pos] != 10 as char:
+      pos = pos + 1
+    if pos < total_len:
+      pos = pos + 1
+    if col >= n_cols:
+      sample = sample + 1
+  free(src)
+  actual:int = sample
+  if actual <= 0:
+    free(slab_raw)
+    ret 0 as *DataLoader
+  dl:*DataLoader = from_slab_owned(slab, actual, n_features, n_labels)
+  ret dl
+
+// ─────────────────────────────────────────────
+// Normalization
+// ─────────────────────────────────────────────
+
+// Compute mean and std per feature column across the dataset.
+// means: [n_features] float buffer (caller-allocated)
+// stds:  [n_features] float buffer (caller-allocated)
+fn compute_stats(dl:*DataLoader, means:*float, stds:*float) -> int:
+  if dl == 0 as *DataLoader || means == 0 as *float || stds == 0 as *float:
+    ret 0 - 1
+  nf:int = (*dl).n_features
+  nc:int = (*dl).n_cols
+  n:int = (*dl).n_samples
+  // Zero
+  j:int = 0
+  while j < nf:
+    means[j] = 0.0
+    stds[j] = 0.0
+    j = j + 1
+  // Compute means
+  i:int = 0
+  while i < n:
+    row:int = _di((*dl).indices, i) * nc
+    j = 0
+    while j < nf:
+      means[j] = means[j] + _df((*dl).data, row + j)
+      j = j + 1
+    i = i + 1
+  j = 0
+  while j < nf:
+    means[j] = means[j] / (n as float)
+    j = j + 1
+  // Compute std
+  i = 0
+  while i < n:
+    row:int = _di((*dl).indices, i) * nc
+    j = 0
+    while j < nf:
+      d:float = _df((*dl).data, row + j) - means[j]
+      stds[j] = stds[j] + d * d
+      j = j + 1
+    i = i + 1
+  j = 0
+  while j < nf:
+    stds[j] = math.sqrt(stds[j] / (n as float) + 1.0e-8)
+    j = j + 1
+  ret 0
+
+// Normalize all feature columns in-place using pre-computed means and stds.
+fn normalize_inplace(dl:*DataLoader, means:*float, stds:*float) -> int:
+  if dl == 0 as *DataLoader || means == 0 as *float || stds == 0 as *float:
+    ret 0 - 1
+  nf:int = (*dl).n_features
+  nc:int = (*dl).n_cols
+  n:int = (*dl).n_samples
+  i:int = 0
+  while i < n:
+    row:int = i * nc  // Normalize the raw slab, not the indexed view
+    j:int = 0
+    while j < nf:
+      v:float = _df((*dl).data, row + j)
+      _dw((*dl).data, row + j, (v - means[j]) / stds[j])
+      j = j + 1
+    i = i + 1
+  ret 0
+
+// ─────────────────────────────────────────────
+// Info / Debug
+// ─────────────────────────────────────────────
+
+fn dl_info(dl:*DataLoader) -> int:
+  if dl == 0 as *DataLoader:
+    say "[DataLoader] null"
+    ret 0 - 1
+  say "[DataLoader] samples=", (*dl).n_samples, " features=", (*dl).n_features, " labels=", (*dl).n_labels, " cursor=", (*dl).cursor
+  ret 0

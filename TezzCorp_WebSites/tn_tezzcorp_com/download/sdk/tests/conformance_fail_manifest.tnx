@@ -1,0 +1,3 @@
+tests/conformance_parse_missing_colon.tn|expected '{'
+tests/conformance_type_mismatch.tn|type mismatch in assignment/call argument
+tests/attr_abi_nonextern.tn|@abi only valid on extern fn

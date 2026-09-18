@@ -1,0 +1,12 @@
+import "io"
+
+fn main() -> int:
+  null_path:str
+  unsafe:
+    null_path = 0 as str
+  if list_dir_recursive(null_path) != 0:
+    ret 1
+  if glob(null_path) != 0:
+    ret 2
+  say "native-dir-null-guards"
+  ret 0

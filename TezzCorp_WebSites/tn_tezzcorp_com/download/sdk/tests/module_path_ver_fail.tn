@@ -1,0 +1,4 @@
+import "./lib/io.tn@0.1"
+
+fn main() -> int:
+  ret 0

@@ -1,0 +1,13 @@
+import "io"
+
+fn main() -> int:
+  data:str = io.read_all("tests/missing_runtime_file.txt")
+  if data != 0:
+    say "missing-read-unexpected"
+    ret 1
+  say "missing-read-ok"
+  if path_exists("tests/missing_runtime_file.txt") != 0:
+    say "path-exists-unexpected"
+    ret 1
+  say "path-check-ok"
+  ret 0

@@ -1,0 +1,4 @@
+tests/lint_unused_var.tn:2:3: tezzc warning: lint[unused-var]: unused variable 'unused_value'
+    unused_value:int = 0
+    ^
+WARN: tests/lint_unused_var.tn (1 warnings)

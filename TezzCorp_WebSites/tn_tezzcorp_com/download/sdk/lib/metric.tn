@@ -1,0 +1,410 @@
+// metric module — TezzNative AI Evaluation Metrics
+//
+// Production evaluation metrics for classification, regression,
+// language models, and generative tasks.
+//
+// Usage:
+//   acc:float = metric.accuracy(preds, targets, n)
+//   ppl:float = metric.perplexity(log_probs, n_tokens)
+//   f1:float  = metric.f1_binary(preds, targets, n)
+//   metric.confusion_matrix(preds, targets, n, n_classes)
+
+import "math"
+import "io"
+import "str"
+
+// ─────────────────────────────────────────────
+// Internal helpers
+// ─────────────────────────────────────────────
+
+fn _mf(p:*float, i:int) -> float:
+  v:float = 0.0
+  unsafe:
+    v = p[i]
+  ret v
+
+fn _mi(p:*int, i:int) -> int:
+  v:int = 0
+  unsafe:
+    v = p[i]
+  ret v
+
+// ─────────────────────────────────────────────
+// Classification Metrics
+// ─────────────────────────────────────────────
+
+// Accuracy: fraction of samples where argmax(pred) == target.
+// preds:   [n x n_classes] logit/probability matrix
+// targets: [n] integer class labels
+// n:       number of samples
+// n_classes: number of output classes
+fn accuracy(preds:*float, targets:*int, n:int, n_classes:int) -> float:
+  if preds == 0 as *float || targets == 0 as *int || n <= 0 || n_classes <= 0:
+    ret 0.0
+  correct:int = 0
+  i:int = 0
+  while i < n:
+    // Find argmax for this row
+    best_j:int = 0
+    best_v:float = _mf(preds, i * n_classes)
+    j:int = 1
+    while j < n_classes:
+      v:float = _mf(preds, i * n_classes + j)
+      if v > best_v:
+        best_v = v
+        best_j = j
+      j = j + 1
+    if best_j == _mi(targets, i):
+      correct = correct + 1
+    i = i + 1
+  ret (correct as float) / (n as float)
+
+// Top-K accuracy: 1 if the true label is among the top-k predictions.
+fn accuracy_topk(preds:*float, targets:*int, n:int, n_classes:int, top_k:int) -> float:
+  if preds == 0 as *float || targets == 0 as *int || n <= 0 || n_classes <= 0:
+    ret 0.0
+  if top_k >= n_classes:
+    ret 1.0
+  correct:int = 0
+  i:int = 0
+  while i < n:
+    target_cls:int = _mi(targets, i)
+    // Count how many classes have higher logit than the target
+    target_val:float = _mf(preds, i * n_classes + target_cls)
+    rank:int = 0
+    j:int = 0
+    while j < n_classes:
+      if j != target_cls && _mf(preds, i * n_classes + j) > target_val:
+        rank = rank + 1
+      j = j + 1
+    if rank < top_k:
+      correct = correct + 1
+    i = i + 1
+  ret (correct as float) / (n as float)
+
+// ─────────────────────────────────────────────
+// Binary Classification Metrics (F1, Precision, Recall)
+// ─────────────────────────────────────────────
+
+// All binary metrics use threshold 0.5 on scalar predictions.
+// preds_bin:   [n] float32 predictions (0.0 or 1.0, or probabilities)
+// targets_bin: [n] float32 labels (0.0 or 1.0)
+
+// Compute TP, FP, TN, FN for binary classification.
+fn _binary_counts(preds:*float, targets:*float, n:int, tp:*int, fp:*int, tn:*int, fn_:*int) -> int:
+  (*tp) = 0
+  (*fp) = 0
+  (*tn) = 0
+  (*fn_) = 0
+  i:int = 0
+  while i < n:
+    p:int = 0
+    t:int = 0
+    if _mf(preds, i) >= 0.5:
+      p = 1
+    if _mf(targets, i) >= 0.5:
+      t = 1
+    if p == 1 && t == 1:
+      (*tp) = (*tp) + 1
+    if p == 1 && t == 0:
+      (*fp) = (*fp) + 1
+    if p == 0 && t == 0:
+      (*tn) = (*tn) + 1
+    if p == 0 && t == 1:
+      (*fn_) = (*fn_) + 1
+    i = i + 1
+  ret 0
+
+fn precision_binary(preds:*float, targets:*float, n:int) -> float:
+  tp:int = 0; fp:int = 0; tn:int = 0; fn_:int = 0
+  _binary_counts(preds, targets, n, &tp, &fp, &tn, &fn_)
+  denom:int = tp + fp
+  if denom == 0:
+    ret 0.0
+  ret (tp as float) / (denom as float)
+
+fn recall_binary(preds:*float, targets:*float, n:int) -> float:
+  tp:int = 0; fp:int = 0; tn:int = 0; fn_:int = 0
+  _binary_counts(preds, targets, n, &tp, &fp, &tn, &fn_)
+  denom:int = tp + fn_
+  if denom == 0:
+    ret 0.0
+  ret (tp as float) / (denom as float)
+
+fn f1_binary(preds:*float, targets:*float, n:int) -> float:
+  p:float = precision_binary(preds, targets, n)
+  r:float = recall_binary(preds, targets, n)
+  if p + r < 1.0e-9:
+    ret 0.0
+  ret 2.0 * p * r / (p + r)
+
+// Matthews Correlation Coefficient — robust metric even for imbalanced classes.
+fn mcc(preds:*float, targets:*float, n:int) -> float:
+  tp:int = 0; fp:int = 0; tn:int = 0; fn_:int = 0
+  _binary_counts(preds, targets, n, &tp, &fp, &tn, &fn_)
+  num:float = (tp * tn - fp * fn_) as float
+  d1:float = ((tp + fp) * (tp + fn_) * (tn + fp) * (tn + fn_)) as float
+  if d1 <= 0.0:
+    ret 0.0
+  ret num / math.sqrt(d1)
+
+// ─────────────────────────────────────────────
+// Regression Metrics
+// ─────────────────────────────────────────────
+
+// Mean Squared Error.
+fn mse(preds:*float, targets:*float, n:int) -> float:
+  if preds == 0 as *float || targets == 0 as *float || n <= 0:
+    ret 0.0
+  sum:float = 0.0
+  i:int = 0
+  while i < n:
+    d:float = _mf(preds, i) - _mf(targets, i)
+    sum = sum + d * d
+    i = i + 1
+  ret sum / (n as float)
+
+// Root Mean Squared Error.
+fn rmse(preds:*float, targets:*float, n:int) -> float:
+  ret math.sqrt(mse(preds, targets, n))
+
+// Mean Absolute Error.
+fn mae(preds:*float, targets:*float, n:int) -> float:
+  if preds == 0 as *float || targets == 0 as *float || n <= 0:
+    ret 0.0
+  sum:float = 0.0
+  i:int = 0
+  while i < n:
+    d:float = _mf(preds, i) - _mf(targets, i)
+    if d < 0.0:
+      d = 0.0 - d
+    sum = sum + d
+    i = i + 1
+  ret sum / (n as float)
+
+// R-squared (coefficient of determination).
+fn r_squared(preds:*float, targets:*float, n:int) -> float:
+  if preds == 0 as *float || targets == 0 as *float || n <= 0:
+    ret 0.0
+  // Compute target mean
+  mean_t:float = 0.0
+  i:int = 0
+  while i < n:
+    mean_t = mean_t + _mf(targets, i)
+    i = i + 1
+  mean_t = mean_t / (n as float)
+  // SS_res and SS_tot
+  ss_res:float = 0.0
+  ss_tot:float = 0.0
+  i = 0
+  while i < n:
+    d:float = _mf(targets, i) - _mf(preds, i)
+    ss_res = ss_res + d * d
+    dt:float = _mf(targets, i) - mean_t
+    ss_tot = ss_tot + dt * dt
+    i = i + 1
+  if ss_tot < 1.0e-15:
+    ret 1.0
+  ret 1.0 - ss_res / ss_tot
+
+// ─────────────────────────────────────────────
+// Language Model Metrics
+// ─────────────────────────────────────────────
+
+// Perplexity from log-probabilities: exp(-mean(log_probs)).
+// log_probs: [n_tokens] array of log probabilities (natural log).
+// n_tokens: number of tokens
+fn perplexity(log_probs:*float, n_tokens:int) -> float:
+  if log_probs == 0 as *float || n_tokens <= 0:
+    ret 0.0
+  sum:float = 0.0
+  i:int = 0
+  while i < n_tokens:
+    lp:float = _mf(log_probs, i)
+    // Guard against invalid log probs
+    if lp > 0.0:
+      lp = 0.0
+    if lp < 0.0 - 100.0:
+      lp = 0.0 - 100.0
+    sum = sum + lp
+    i = i + 1
+  avg_nll:float = 0.0 - sum / (n_tokens as float)
+  ret math.exp(avg_nll)
+
+// Cross-entropy loss between logits and integer target tokens.
+// logits:  [n_tokens x vocab_size] float array
+// targets: [n_tokens] int array of target token IDs
+// vocab_size: vocabulary size
+fn cross_entropy(logits:*float, targets:*int, n_tokens:int, vocab_size:int) -> float:
+  if logits == 0 as *float || targets == 0 as *int || n_tokens <= 0 || vocab_size <= 0:
+    ret 0.0
+  loss:float = 0.0
+  i:int = 0
+  while i < n_tokens:
+    // Log-sum-exp for numerical stability
+    base:int = i * vocab_size
+    max_logit:float = _mf(logits, base)
+    j:int = 1
+    while j < vocab_size:
+      v:float = _mf(logits, base + j)
+      if v > max_logit:
+        max_logit = v
+      j = j + 1
+    sum_exp:float = 0.0
+    j = 0
+    while j < vocab_size:
+      sum_exp = sum_exp + math.exp(_mf(logits, base + j) - max_logit)
+      j = j + 1
+    log_sum:float = math.log(sum_exp) + max_logit
+    target_logit:float = _mf(logits, base + _mi(targets, i))
+    loss = loss + (log_sum - target_logit)
+    i = i + 1
+  ret loss / (n_tokens as float)
+
+// ─────────────────────────────────────────────
+// Simple BLEU Score (1-gram + 2-gram)
+// ─────────────────────────────────────────────
+// A lightweight BLEU approximation for text generation evaluation.
+// pred_tokens, ref_tokens: integer token arrays
+// pred_len, ref_len: lengths
+
+fn bleu_1gram(pred:*int, pred_len:int, ref:*int, ref_len:int) -> float:
+  if pred == 0 as *int || ref == 0 as *int || pred_len <= 0 || ref_len <= 0:
+    ret 0.0
+  matches:int = 0
+  i:int = 0
+  while i < pred_len:
+    pt:int = _mi(pred, i)
+    j:int = 0
+    while j < ref_len:
+      if pt == _mi(ref, j):
+        matches = matches + 1
+        break
+      j = j + 1
+    i = i + 1
+  // Brevity penalty
+  bp:float = 1.0
+  if pred_len < ref_len:
+    bp = math.exp(1.0 - (ref_len as float) / (pred_len as float))
+  precision:float = (matches as float) / (pred_len as float)
+  ret bp * precision
+
+fn bleu_2gram(pred:*int, pred_len:int, ref:*int, ref_len:int) -> float:
+  if pred_len < 2 || ref_len < 2:
+    ret bleu_1gram(pred, pred_len, ref, ref_len)
+  matches:int = 0
+  i:int = 0
+  while i < pred_len - 1:
+    pt0:int = _mi(pred, i)
+    pt1:int = _mi(pred, i + 1)
+    j:int = 0
+    while j < ref_len - 1:
+      if pt0 == _mi(ref, j) && pt1 == _mi(ref, j + 1):
+        matches = matches + 1
+        break
+      j = j + 1
+    i = i + 1
+  bp:float = 1.0
+  if pred_len < ref_len:
+    bp = math.exp(1.0 - (ref_len as float) / (pred_len as float))
+  precision:float = (matches as float) / ((pred_len - 1) as float)
+  // Geometric mean of 1-gram and 2-gram
+  b1:float = bleu_1gram(pred, pred_len, ref, ref_len)
+  if precision <= 0.0 || b1 <= 0.0:
+    ret 0.0
+  ret bp * math.sqrt(b1 * precision)
+
+// ─────────────────────────────────────────────
+// Confusion Matrix
+// ─────────────────────────────────────────────
+
+// Print confusion matrix for n_classes classes.
+// preds_cls: [n] int array of predicted class IDs
+// targets_cls: [n] int array of true class IDs
+fn confusion_matrix(preds_cls:*int, targets_cls:*int, n:int, n_classes:int) -> int:
+  if preds_cls == 0 as *int || targets_cls == 0 as *int || n <= 0 || n_classes <= 0:
+    ret 0 - 1
+  // Allocate n_classes x n_classes matrix
+  mat_raw:*char = malloc(n_classes * n_classes * 8)
+  if mat_raw == 0:
+    ret 0 - 1
+  mat:*int = mat_raw as *int
+  // Zero
+  i:int = 0
+  while i < n_classes * n_classes:
+    unsafe:
+      mat[i] = 0
+    i = i + 1
+  // Fill
+  i = 0
+  while i < n:
+    p:int = _mi(preds_cls, i)
+    t:int = _mi(targets_cls, i)
+    if p >= 0 && p < n_classes && t >= 0 && t < n_classes:
+      unsafe:
+        mat[t * n_classes + p] = mat[t * n_classes + p] + 1
+    i = i + 1
+  // Print
+  say "[Confusion Matrix] (rows=actual, cols=predicted)"
+  r:int = 0
+  while r < n_classes:
+    row_str:str = str.str_dup("")
+    c:int = 0
+    while c < n_classes:
+      val:int = 0
+      unsafe:
+        val = mat[r * n_classes + c]
+      val_str:str = str.int_to_str(val)
+      val_padded:str = str.str_pad_right(val_str, 6)
+      free(val_str)
+      temp_str:str = str.str_cat(row_str, val_padded)
+      free(val_padded)
+      free(row_str)
+      row_str = temp_str
+      c = c + 1
+    say "  class ", r, " | ", row_str
+    free(row_str)
+    r = r + 1
+  unsafe:
+    free(mat_raw)
+  ret 0
+
+// ─────────────────────────────────────────────
+// Metric Reporter
+// ─────────────────────────────────────────────
+
+// Print a full classification report (accuracy, precision, recall, F1).
+fn classification_report(preds:*float, targets:*float, n:int) -> int:
+  acc_val:float = 0.0
+  tp:int = 0; fp:int = 0; tn:int = 0; fn_:int = 0
+  _binary_counts(preds, targets, n, &tp, &fp, &tn, &fn_)
+  acc_val = (tp + tn) as float / (n as float)
+  prec:float = precision_binary(preds, targets, n)
+  rec:float = recall_binary(preds, targets, n)
+  f1:float = f1_binary(preds, targets, n)
+  mcc_v:float = mcc(preds, targets, n)
+  say "╔═══════════════════════════════════════╗"
+  say "║      Classification Report             ║"
+  say "╚═══════════════════════════════════════╝"
+  say "  Accuracy  : ", acc_val
+  say "  Precision : ", prec
+  say "  Recall    : ", rec
+  say "  F1 Score  : ", f1
+  say "  MCC       : ", mcc_v
+  say "  TP=", tp, " FP=", fp, " TN=", tn, " FN=", fn_
+  ret 0
+
+// Print regression report (MSE, RMSE, MAE, R²).
+fn regression_report(preds:*float, targets:*float, n:int) -> int:
+  mse_v:float = mse(preds, targets, n)
+  rmse_v:float = rmse(preds, targets, n)
+  mae_v:float = mae(preds, targets, n)
+  r2:float = r_squared(preds, targets, n)
+  say "╔═══════════════════════════════════════╗"
+  say "║        Regression Report               ║"
+  say "╚═══════════════════════════════════════╝"
+  say "  MSE  : ", mse_v
+  say "  RMSE : ", rmse_v
+  say "  MAE  : ", mae_v
+  say "  R²   : ", r2
+  ret 0

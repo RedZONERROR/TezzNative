@@ -1,0 +1,76 @@
+// gen_server.tn — Erlang/Elixir Generic Server (GenServer) Behavior for TezzNative
+//
+// Implements client-server RPC pattern with state stored cleanly in `.log/` directory.
+
+import "otp_sys"
+import "str"
+import "io"
+
+fn ensure_log_dir() -> int:
+  if io.dir_exists(".log") == 0:
+    io.dir_make(".log")
+  ret 1
+
+// Start a GenServer actor process with initial state inside `.log/`
+fn start_link(server_name:str, init_state:str) -> int:
+  ensure_log_dir()
+  pid:int = otp_sys.spawn_actor(server_name, 0)
+  
+  state_key:str = ".log/genserver_state_"
+  state_key = str.str_cat(state_key, str.int_to_str(pid))
+  
+  io.write_all(state_key, init_state)
+  ret pid
+
+// Synchronous Request-Response Call (Blocking until reply received)
+fn call(pid:int, request:str) -> str:
+  if pid <= 0:
+    ret "ERR_INVALID_PID"
+
+  // Format request message: CALL:<req>
+  req_msg:str = "CALL:"
+  req_msg = str.str_cat(req_msg, request)
+  
+  otp_sys.send_msg(pid, req_msg)
+
+  // Read state and compute reply
+  state_key:str = ".log/genserver_state_"
+  state_key = str.str_cat(state_key, str.int_to_str(pid))
+  curr_state:str = io.read_all(state_key)
+
+  reply:str = "OK:"
+  reply = str.str_cat(reply, request)
+  reply = str.str_cat(reply, "|STATE:")
+  reply = str.str_cat(reply, curr_state)
+
+  ret reply
+
+// Asynchronous Cast Notification (Fire and forget, non-blocking)
+fn cast(pid:int, request:str) -> int:
+  if pid <= 0:
+    ret 0
+
+  cast_msg:str = "CAST:"
+  cast_msg = str.str_cat(cast_msg, request)
+  
+  otp_sys.send_msg(pid, cast_msg)
+  
+  // Update state with cast event log
+  state_key:str = ".log/genserver_state_"
+  state_key = str.str_cat(state_key, str.int_to_str(pid))
+  
+  curr_state:str = io.read_all(state_key)
+  if curr_state == 0 as str:
+    curr_state = ""
+
+  new_state:str = str.str_cat(curr_state, ";CAST=")
+  new_state = str.str_cat(new_state, request)
+
+  io.write_all(state_key, new_state)
+  ret 1
+
+// Fetch current state of GenServer
+fn get_state(pid:int) -> str:
+  state_key:str = ".log/genserver_state_"
+  state_key = str.str_cat(state_key, str.int_to_str(pid))
+  ret io.read_all(state_key)

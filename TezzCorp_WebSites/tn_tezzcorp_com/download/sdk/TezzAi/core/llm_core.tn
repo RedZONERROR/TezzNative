@@ -1,0 +1,1185 @@
+import "std"
+import "io"
+import "tokenizer"
+import "tensor"
+import "modelio"
+
+let LLM_OK:int = 0
+let LLM_ERR:int = 0 - 1
+
+let LLM_META_CREATOR_ORG:str = "TezzCorp"
+let LLM_META_CREATOR_NAME:str = "Rohit Pathak"
+let LLM_META_COUNTRY:str = "India"
+let LLM_META_ORIGIN:str = "Made in India"
+
+struct LlmConfig:
+  vocab:int
+  d_model:int
+  max_seq:int
+  seed:int
+  train_steps:int
+
+struct LlmTrainStats:
+  samples:int
+  tokens:int
+  steps:int
+  avg_loss:float
+
+struct LlmModel:
+  cfg:LlmConfig
+  tok:*Tokenizer
+  emb:*Tensor
+  pos:*Tensor
+  wq:*Tensor
+  wk:*Tensor
+  wv:*Tensor
+  wo:*Tensor
+  wout:*Tensor
+  bout:*Tensor
+
+fn _null_model() -> *LlmModel:
+  unsafe:
+    ret 0 as *LlmModel
+
+fn _streq(a:str, b:str) -> int:
+  if a == 0 || b == 0:
+    ret 0
+  i:int = 0
+  while 1:
+    unsafe:
+      if a[i] != b[i]:
+        ret 0
+      if a[i] == 0:
+        break
+    i = i + 1
+  ret 1
+
+fn _is_empty(s:str) -> int:
+  if s == 0:
+    ret 1
+  if len(s) == 0:
+    ret 1
+  ret 0
+
+fn _str_join2(a:str, b:str) -> str:
+  if a == 0:
+    a = ""
+  if b == 0:
+    b = ""
+  al:int = len(a)
+  bl:int = len(b)
+  out:*char
+  unsafe:
+    out = (*char)malloc(al + bl + 1)
+  if out == 0:
+    ret ""
+  i:int = 0
+  unsafe:
+    while i < al:
+      out[i] = a[i]
+      i = i + 1
+  j:int = 0
+  unsafe:
+    while j < bl:
+      out[al + j] = b[j]
+      j = j + 1
+    out[al + bl] = 0 as char
+    ret out as str
+
+fn _str_join3(a:str, b:str, c:str) -> str:
+  ab:str = _str_join2(a, b)
+  out:str = _str_join2(ab, c)
+  unsafe:
+    if ab != 0:
+      free(ab as *char)
+  ret out
+
+fn _str_dispose(s:str) -> int:
+  if s == 0:
+    ret 0
+  unsafe:
+    free(s as *char)
+  ret 0
+
+fn _parse_int(s:str, fallback:int) -> int:
+  if s == 0:
+    ret fallback
+  i:int = 0
+  while 1:
+    stop_ws:int = 0
+    unsafe:
+      if s[i] == 0 as char:
+        ret fallback
+      if s[i] != 32 as char && s[i] != 9 as char && s[i] != 10 as char && s[i] != 13 as char:
+        stop_ws = 1
+    if stop_ws != 0:
+      break
+    i = i + 1
+  sign:int = 1
+  unsafe:
+    if s[i] == 45 as char:
+      sign = 0 - 1
+      i = i + 1
+  n:int = 0
+  seen:int = 0
+  while 1:
+    c:int = 0
+    unsafe:
+      if s[i] == 0 as char:
+        break
+      c = s[i] as int
+    if c < 48 || c > 57:
+      break
+    n = n * 10 + (c - 48)
+    seen = 1
+    i = i + 1
+  if seen == 0:
+    ret fallback
+  ret n * sign
+
+fn _starts_with(s:str, pref:str) -> int:
+  if s == 0 || pref == 0:
+    ret 0
+  i:int = 0
+  while 1:
+    unsafe:
+      if pref[i] == 0:
+        ret 1
+      if s[i] == 0:
+        ret 0
+      if s[i] != pref[i]:
+        ret 0
+    i = i + 1
+  ret 0
+
+fn _find_char_from(s:str, ch:int, start:int) -> int:
+  if s == 0:
+    ret 0 - 1
+  i:int = start
+  while i < len(s):
+    unsafe:
+      if (s[i] as int) == ch:
+        ret i
+    i = i + 1
+  ret 0 - 1
+
+fn _kv_get(txt:str, key:str) -> str:
+  if _is_empty(txt) != 0 || _is_empty(key) != 0:
+    ret ""
+  key_eq:str = _str_join2(key, "=")
+  if _is_empty(key_eq) != 0:
+    ret ""
+  i:int = 0
+  line_start:int = 0
+  n:int = len(txt)
+  while i <= n:
+    at_end:int = 0
+    if i == n:
+      at_end = 1
+    else:
+      unsafe:
+        if txt[i] == 10 as char:
+          at_end = 1
+    if at_end != 0:
+      line_len:int = i - line_start
+      if line_len > 0:
+        line:str = _slice_dup(txt, line_start, i)
+        if _starts_with(line, key_eq) != 0:
+          out:str = _slice_dup(line, len(key_eq), len(line))
+          _str_dispose(line)
+          _str_dispose(key_eq)
+          ret out
+        _str_dispose(line)
+      line_start = i + 1
+    i = i + 1
+  _str_dispose(key_eq)
+  ret ""
+
+fn _slice_dup(s:str, a:int, b:int) -> str:
+  if s == 0:
+    ret ""
+  if a < 0:
+    a = 0
+  if b < a:
+    ret ""
+  if b > len(s):
+    b = len(s)
+  n:int = b - a
+  out:*char
+  unsafe:
+    out = (*char)malloc(n + 1)
+  if out == 0:
+    ret ""
+  i:int = 0
+  unsafe:
+    while i < n:
+      out[i] = s[a + i]
+      i = i + 1
+    out[n] = 0 as char
+    ret out as str
+
+fn _int_to_str(x:int) -> str:
+  neg:int = 0
+  v:int = x
+  if v < 0:
+    neg = 1
+    v = 0 - v
+  buf:[char;32]
+  i:int = 0
+  if v == 0:
+    buf[0] = 48 as char
+    i = 1
+  while v > 0 && i < 31:
+    d:int = v % 10
+    buf[i] = (48 + d) as char
+    i = i + 1
+    v = v / 10
+  if neg != 0 && i < 31:
+    buf[i] = 45 as char
+    i = i + 1
+  out:*char
+  unsafe:
+    out = (*char)malloc(i + 1)
+  if out == 0:
+    ret ""
+  j:int = 0
+  unsafe:
+    while j < i:
+      out[j] = buf[i - 1 - j]
+      j = j + 1
+    out[i] = 0 as char
+    ret out as str
+
+fn _exp_fast(x:float) -> float:
+  xv:float = x
+  if xv > 10.0:
+    xv = 10.0
+  if xv < 0.0 - 10.0:
+    xv = 0.0 - 10.0
+  x2:float = xv * xv
+  x3:float = x2 * xv
+  x4:float = x3 * xv
+  x5:float = x4 * xv
+  ret 1.0 + xv + (0.5 * x2) + ((1.0 / 6.0) * x3) + ((1.0 / 24.0) * x4) + ((1.0 / 120.0) * x5)
+
+fn _ln_fast_pos(x:float) -> float:
+  if x <= 0.0:
+    ret 0.0 - 20.0
+  v:float = x
+  k:int = 0
+  while v > 2.0:
+    v = v * 0.5
+    k = k + 1
+  while v < 0.5:
+    v = v * 2.0
+    k = k - 1
+  y:float = (v - 1.0) / (v + 1.0)
+  y2:float = y * y
+  t1:float = y
+  t2:float = t1 * y2
+  t3:float = t2 * y2
+  t4:float = t3 * y2
+  ln_v:float = 2.0 * (t1 + (t2 / 3.0) + (t3 / 5.0) + (t4 / 7.0))
+  ret ln_v + ((k as float) * 0.69314718056)
+
+fn _rng_next(seed:*int) -> int:
+  if seed == 0:
+    ret 1
+  unsafe:
+    s:int = *seed
+    s = s * 1103515245 + 12345
+    *seed = s
+    if s < 0:
+      s = 0 - s
+    ret s
+
+fn _rand_signed(seed:*int, scale:float) -> float:
+  r:int = _rng_next(seed)
+  unit:float = (r % 100000) as float / 100000.0
+  ret (unit - 0.5) * scale
+
+fn _new_tensor_2d(rows:int, cols:int) -> *Tensor:
+  shape:[int;2]
+  shape[0] = rows
+  shape[1] = cols
+  sp:*int
+  unsafe:
+    sp = &shape[0]
+  ret tensor.tensor_new_dtype(sp, 2, 0, 0)
+
+fn _new_tensor_1d(n:int) -> *Tensor:
+  shape:[int;1]
+  shape[0] = n
+  sp:*int
+  unsafe:
+    sp = &shape[0]
+  ret tensor.tensor_new_dtype(sp, 1, 0, 0)
+
+fn _fill_tensor_rand(t:*Tensor, seed:*int, scale:float) -> int:
+  if t == 0:
+    ret LLM_ERR
+  n:int = tensor.tensor_len(t)
+  i:int = 0
+  while i < n:
+    tensor.tensor_set_f(t, i, _rand_signed(seed, scale))
+    i = i + 1
+  ret LLM_OK
+
+fn _zero_tensor(t:*Tensor) -> int:
+  if t == 0:
+    ret LLM_ERR
+  n:int = tensor.tensor_len(t)
+  i:int = 0
+  while i < n:
+    tensor.tensor_set_f(t, i, 0.0)
+    i = i + 1
+  ret LLM_OK
+
+fn _model_sidecar(model_path:str, suffix:str) -> str:
+  ret _str_join2(model_path, suffix)
+
+fn _free_model(m:*LlmModel) -> int:
+  if m == 0:
+    ret LLM_OK
+  unsafe:
+    if (*m).tok != 0:
+      tokenizer.tok_free((*m).tok)
+      (*m).tok = 0 as *Tokenizer
+    if (*m).emb != 0:
+      tensor.tensor_free((*m).emb)
+    if (*m).pos != 0:
+      tensor.tensor_free((*m).pos)
+    if (*m).wq != 0:
+      tensor.tensor_free((*m).wq)
+    if (*m).wk != 0:
+      tensor.tensor_free((*m).wk)
+    if (*m).wv != 0:
+      tensor.tensor_free((*m).wv)
+    if (*m).wo != 0:
+      tensor.tensor_free((*m).wo)
+    if (*m).wout != 0:
+      tensor.tensor_free((*m).wout)
+    if (*m).bout != 0:
+      tensor.tensor_free((*m).bout)
+    free(m as *char)
+  ret LLM_OK
+
+fn _new_model(cfg:LlmConfig) -> *LlmModel:
+  if cfg.vocab <= 1 || cfg.d_model <= 1 || cfg.max_seq <= 1:
+    ret _null_model()
+  m:*LlmModel
+  unsafe:
+    m = (*LlmModel)malloc(sizeof(LlmModel))
+  if m == 0:
+    ret _null_model()
+  unsafe:
+    (*m).cfg = cfg
+    (*m).tok = 0 as *Tokenizer
+    (*m).emb = 0 as *Tensor
+    (*m).pos = 0 as *Tensor
+    (*m).wq = 0 as *Tensor
+    (*m).wk = 0 as *Tensor
+    (*m).wv = 0 as *Tensor
+    (*m).wo = 0 as *Tensor
+    (*m).wout = 0 as *Tensor
+    (*m).bout = 0 as *Tensor
+    (*m).tok = tokenizer.tok_new()
+    if (*m).tok == 0:
+      _free_model(m)
+      ret _null_model()
+    (*m).emb = _new_tensor_2d(cfg.vocab, cfg.d_model)
+    (*m).pos = _new_tensor_2d(cfg.max_seq, cfg.d_model)
+    (*m).wq = _new_tensor_2d(cfg.d_model, cfg.d_model)
+    (*m).wk = _new_tensor_2d(cfg.d_model, cfg.d_model)
+    (*m).wv = _new_tensor_2d(cfg.d_model, cfg.d_model)
+    (*m).wo = _new_tensor_2d(cfg.d_model, cfg.d_model)
+    (*m).wout = _new_tensor_2d(cfg.d_model, cfg.vocab)
+    (*m).bout = _new_tensor_1d(cfg.vocab)
+    if (*m).emb == 0 || (*m).pos == 0 || (*m).wq == 0 || (*m).wk == 0 || (*m).wv == 0 || (*m).wo == 0 || (*m).wout == 0 || (*m).bout == 0:
+      _free_model(m)
+      ret _null_model()
+    seed_local:int = cfg.seed
+    _fill_tensor_rand((*m).emb, &seed_local, 0.20)
+    _fill_tensor_rand((*m).pos, &seed_local, 0.08)
+    _fill_tensor_rand((*m).wq, &seed_local, 0.16)
+    _fill_tensor_rand((*m).wk, &seed_local, 0.16)
+    _fill_tensor_rand((*m).wv, &seed_local, 0.16)
+    _fill_tensor_rand((*m).wo, &seed_local, 0.16)
+    _fill_tensor_rand((*m).wout, &seed_local, 0.10)
+    _zero_tensor((*m).bout)
+  ret m
+
+fn _save_model_meta(model_path:str, cfg:LlmConfig) -> int:
+  if _is_empty(model_path) != 0:
+    ret LLM_ERR
+  h:*char = fopen(model_path, "wb")
+  if h == 0:
+    ret LLM_ERR
+  n:int = 0
+  n = n + write_line(h, "tezz_llm_transformer_v1")
+  n = n + write_line(h, _str_join2("creator_org=", LLM_META_CREATOR_ORG))
+  n = n + write_line(h, _str_join2("creator_name=", LLM_META_CREATOR_NAME))
+  n = n + write_line(h, _str_join2("country=", LLM_META_COUNTRY))
+  n = n + write_line(h, _str_join2("origin=", LLM_META_ORIGIN))
+  n = n + write_line(h, _str_join2("vocab=", _int_to_str(cfg.vocab)))
+  n = n + write_line(h, _str_join2("d_model=", _int_to_str(cfg.d_model)))
+  n = n + write_line(h, _str_join2("max_seq=", _int_to_str(cfg.max_seq)))
+  n = n + write_line(h, _str_join2("seed=", _int_to_str(cfg.seed)))
+  n = n + write_line(h, _str_join2("train_steps=", _int_to_str(cfg.train_steps)))
+  fclose(h)
+  if n < 10:
+    ret LLM_ERR
+  ret LLM_OK
+
+fn _load_model_meta(model_path:str, cfg:*LlmConfig) -> int:
+  if _is_empty(model_path) != 0 || cfg == 0:
+    ret LLM_ERR
+  txt:str = io.read_all(model_path)
+  if txt == 0 || len(txt) <= 0:
+    ret LLM_ERR
+  line0_end:int = _find_char_from(txt, 10, 0)
+  if line0_end < 0:
+    line0_end = len(txt)
+  hdr:str = _slice_dup(txt, 0, line0_end)
+  if _streq(hdr, "tezz_llm_transformer_v1") == 0:
+    _str_dispose(hdr)
+    _str_dispose(txt)
+    ret LLM_ERR
+  _str_dispose(hdr)
+  v_vocab:str = _kv_get(txt, "vocab")
+  v_d:str = _kv_get(txt, "d_model")
+  v_seq:str = _kv_get(txt, "max_seq")
+  v_seed:str = _kv_get(txt, "seed")
+  v_steps:str = _kv_get(txt, "train_steps")
+  unsafe:
+    (*cfg).vocab = _parse_int(v_vocab, 256)
+    (*cfg).d_model = _parse_int(v_d, 32)
+    (*cfg).max_seq = _parse_int(v_seq, 128)
+    (*cfg).seed = _parse_int(v_seed, 1337)
+    (*cfg).train_steps = _parse_int(v_steps, 0)
+  _str_dispose(v_vocab)
+  _str_dispose(v_d)
+  _str_dispose(v_seq)
+  _str_dispose(v_seed)
+  _str_dispose(v_steps)
+  _str_dispose(txt)
+  ok_cfg:int = 0
+  unsafe:
+    if (*cfg).vocab > 1 && (*cfg).d_model > 1 && (*cfg).max_seq > 1:
+      ok_cfg = 1
+  if ok_cfg == 0:
+    ret LLM_ERR
+  ret LLM_OK
+
+fn _save_model_checkpoint(model_path:str, m:*LlmModel) -> int:
+  if _is_empty(model_path) != 0 || m == 0:
+    ret LLM_ERR
+  cfg_local:LlmConfig
+  tok_local:*Tokenizer
+  emb_local:*Tensor
+  pos_local:*Tensor
+  wq_local:*Tensor
+  wk_local:*Tensor
+  wv_local:*Tensor
+  wo_local:*Tensor
+  wout_local:*Tensor
+  bout_local:*Tensor
+  unsafe:
+    cfg_local = (*m).cfg
+    tok_local = (*m).tok
+    emb_local = (*m).emb
+    pos_local = (*m).pos
+    wq_local = (*m).wq
+    wk_local = (*m).wk
+    wv_local = (*m).wv
+    wo_local = (*m).wo
+    wout_local = (*m).wout
+    bout_local = (*m).bout
+  if _save_model_meta(model_path, cfg_local) != 0:
+    ret LLM_ERR
+  tok_path:str = _model_sidecar(model_path, ".llm_tok.tnxb")
+  emb_path:str = _model_sidecar(model_path, ".llm_emb.tnxb")
+  pos_path:str = _model_sidecar(model_path, ".llm_pos.tnxb")
+  wq_path:str = _model_sidecar(model_path, ".llm_wq.tnxb")
+  wk_path:str = _model_sidecar(model_path, ".llm_wk.tnxb")
+  wv_path:str = _model_sidecar(model_path, ".llm_wv.tnxb")
+  wo_path:str = _model_sidecar(model_path, ".llm_wo.tnxb")
+  wout_path:str = _model_sidecar(model_path, ".llm_wout.tnxb")
+  bout_path:str = _model_sidecar(model_path, ".llm_bout.tnxb")
+  ok:int = 1
+  if tokenizer.tok_save(tok_local, tok_path) != 0:
+    ok = 0
+  if modelio.tensor_save_tnxb(emb_local, emb_path) != 0:
+    ok = 0
+  if modelio.tensor_save_tnxb(pos_local, pos_path) != 0:
+    ok = 0
+  if modelio.tensor_save_tnxb(wq_local, wq_path) != 0:
+    ok = 0
+  if modelio.tensor_save_tnxb(wk_local, wk_path) != 0:
+    ok = 0
+  if modelio.tensor_save_tnxb(wv_local, wv_path) != 0:
+    ok = 0
+  if modelio.tensor_save_tnxb(wo_local, wo_path) != 0:
+    ok = 0
+  if modelio.tensor_save_tnxb(wout_local, wout_path) != 0:
+    ok = 0
+  if modelio.tensor_save_tnxb(bout_local, bout_path) != 0:
+    ok = 0
+  _str_dispose(tok_path)
+  _str_dispose(emb_path)
+  _str_dispose(pos_path)
+  _str_dispose(wq_path)
+  _str_dispose(wk_path)
+  _str_dispose(wv_path)
+  _str_dispose(wo_path)
+  _str_dispose(wout_path)
+  _str_dispose(bout_path)
+  if ok == 0:
+    ret LLM_ERR
+  ret LLM_OK
+
+fn _load_model_checkpoint(model_path:str) -> *LlmModel:
+  cfg:LlmConfig
+  cfgp:*LlmConfig
+  unsafe:
+    cfgp = &cfg
+  if _load_model_meta(model_path, cfgp) != 0:
+    ret _null_model()
+  m:*LlmModel = _new_model(cfg)
+  if m == 0:
+    ret _null_model()
+  tok_path:str = _model_sidecar(model_path, ".llm_tok.tnxb")
+  emb_path:str = _model_sidecar(model_path, ".llm_emb.tnxb")
+  pos_path:str = _model_sidecar(model_path, ".llm_pos.tnxb")
+  wq_path:str = _model_sidecar(model_path, ".llm_wq.tnxb")
+  wk_path:str = _model_sidecar(model_path, ".llm_wk.tnxb")
+  wv_path:str = _model_sidecar(model_path, ".llm_wv.tnxb")
+  wo_path:str = _model_sidecar(model_path, ".llm_wo.tnxb")
+  wout_path:str = _model_sidecar(model_path, ".llm_wout.tnxb")
+  bout_path:str = _model_sidecar(model_path, ".llm_bout.tnxb")
+  tok_loaded:*Tokenizer = tokenizer.tok_load(tok_path)
+  emb_loaded:*Tensor = modelio.tensor_load_tnxb(emb_path)
+  pos_loaded:*Tensor = modelio.tensor_load_tnxb(pos_path)
+  wq_loaded:*Tensor = modelio.tensor_load_tnxb(wq_path)
+  wk_loaded:*Tensor = modelio.tensor_load_tnxb(wk_path)
+  wv_loaded:*Tensor = modelio.tensor_load_tnxb(wv_path)
+  wo_loaded:*Tensor = modelio.tensor_load_tnxb(wo_path)
+  wout_loaded:*Tensor = modelio.tensor_load_tnxb(wout_path)
+  bout_loaded:*Tensor = modelio.tensor_load_tnxb(bout_path)
+  _str_dispose(tok_path)
+  _str_dispose(emb_path)
+  _str_dispose(pos_path)
+  _str_dispose(wq_path)
+  _str_dispose(wk_path)
+  _str_dispose(wv_path)
+  _str_dispose(wo_path)
+  _str_dispose(wout_path)
+  _str_dispose(bout_path)
+  if tok_loaded == 0 || emb_loaded == 0 || pos_loaded == 0 || wq_loaded == 0 || wk_loaded == 0 || wv_loaded == 0 || wo_loaded == 0 || wout_loaded == 0 || bout_loaded == 0:
+    if tok_loaded != 0:
+      tokenizer.tok_free(tok_loaded)
+    if emb_loaded != 0:
+      tensor.tensor_free(emb_loaded)
+    if pos_loaded != 0:
+      tensor.tensor_free(pos_loaded)
+    if wq_loaded != 0:
+      tensor.tensor_free(wq_loaded)
+    if wk_loaded != 0:
+      tensor.tensor_free(wk_loaded)
+    if wv_loaded != 0:
+      tensor.tensor_free(wv_loaded)
+    if wo_loaded != 0:
+      tensor.tensor_free(wo_loaded)
+    if wout_loaded != 0:
+      tensor.tensor_free(wout_loaded)
+    if bout_loaded != 0:
+      tensor.tensor_free(bout_loaded)
+    _free_model(m)
+    ret _null_model()
+  unsafe:
+    tokenizer.tok_free((*m).tok)
+    tensor.tensor_free((*m).emb)
+    tensor.tensor_free((*m).pos)
+    tensor.tensor_free((*m).wq)
+    tensor.tensor_free((*m).wk)
+    tensor.tensor_free((*m).wv)
+    tensor.tensor_free((*m).wo)
+    tensor.tensor_free((*m).wout)
+    tensor.tensor_free((*m).bout)
+    (*m).tok = tok_loaded
+    (*m).emb = emb_loaded
+    (*m).pos = pos_loaded
+    (*m).wq = wq_loaded
+    (*m).wk = wk_loaded
+    (*m).wv = wv_loaded
+    (*m).wo = wo_loaded
+    (*m).wout = wout_loaded
+    (*m).bout = bout_loaded
+  ret m
+
+fn _clamp_token_id(m:*LlmModel, id:int) -> int:
+  if m == 0:
+    ret 0
+  vocab:int = 0
+  unsafe:
+    vocab = (*m).cfg.vocab
+  if id < 0:
+    ret 0
+  if id >= vocab:
+    ret vocab - 1
+  ret id
+
+fn _row_vec_from_token(m:*LlmModel, token_id:int, pos_idx:int, out:*float) -> int:
+  if m == 0 || out == 0:
+    ret LLM_ERR
+  d:int = 0
+  max_seq:int = 0
+  emb_t:*Tensor
+  pos_t:*Tensor
+  unsafe:
+    d = (*m).cfg.d_model
+    max_seq = (*m).cfg.max_seq
+    emb_t = (*m).emb
+    pos_t = (*m).pos
+  tid:int = _clamp_token_id(m, token_id)
+  p:int = pos_idx
+  if p < 0:
+    p = 0
+  if max_seq > 0:
+    p = p % max_seq
+  i:int = 0
+  while i < d:
+    e_idx:int = tid * d + i
+    p_idx:int = p * d + i
+    ev:float = tensor.tensor_get_f(emb_t, e_idx)
+    pv:float = tensor.tensor_get_f(pos_t, p_idx)
+    unsafe:
+      out[i] = ev + pv
+    i = i + 1
+  ret LLM_OK
+
+fn _vec_mat_mul(inp:*float, mat:*Tensor, rows:int, cols:int, out:*float) -> int:
+  if inp == 0 || out == 0 || mat == 0:
+    ret LLM_ERR
+  c:int = 0
+  while c < cols:
+    sum:float = 0.0
+    r:int = 0
+    while r < rows:
+      w_idx:int = r * cols + c
+      unsafe:
+        sum = sum + inp[r] * tensor.tensor_get_f(mat, w_idx)
+      r = r + 1
+    unsafe:
+      out[c] = sum
+    c = c + 1
+  ret LLM_OK
+
+fn _dot(a:*float, b:*float, n:int) -> float:
+  s:float = 0.0
+  i:int = 0
+  while i < n:
+    unsafe:
+      s = s + a[i] * b[i]
+    i = i + 1
+  ret s
+
+fn _forward_hidden(m:*LlmModel, ids:*int, ctx_len:int, out_h:*float) -> int:
+  if m == 0 || ids == 0 || out_h == 0:
+    ret LLM_ERR
+  if ctx_len <= 0:
+    ret LLM_ERR
+  d:int = 0
+  wq_t:*Tensor
+  wk_t:*Tensor
+  wv_t:*Tensor
+  wo_t:*Tensor
+  unsafe:
+    d = (*m).cfg.d_model
+    wq_t = (*m).wq
+    wk_t = (*m).wk
+    wv_t = (*m).wv
+    wo_t = (*m).wo
+  x:*float
+  q:*float
+  k:*float
+  v:*float
+  ctx:*float
+  tmp:*float
+  scores:*float
+  unsafe:
+    x = (*float)malloc(sizeof(float) * d)
+    q = (*float)malloc(sizeof(float) * d)
+    k = (*float)malloc(sizeof(float) * d)
+    v = (*float)malloc(sizeof(float) * d)
+    ctx = (*float)malloc(sizeof(float) * d)
+    tmp = (*float)malloc(sizeof(float) * d)
+    scores = (*float)malloc(sizeof(float) * ctx_len)
+  if x == 0 || q == 0 || k == 0 || v == 0 || ctx == 0 || tmp == 0 || scores == 0:
+    if x != 0:
+      unsafe:
+        free(x as *char)
+    if q != 0:
+      unsafe:
+        free(q as *char)
+    if k != 0:
+      unsafe:
+        free(k as *char)
+    if v != 0:
+      unsafe:
+        free(v as *char)
+    if ctx != 0:
+      unsafe:
+        free(ctx as *char)
+    if tmp != 0:
+      unsafe:
+        free(tmp as *char)
+    if scores != 0:
+      unsafe:
+        free(scores as *char)
+    ret LLM_ERR
+  unsafe:
+    token_cur:int = ids[ctx_len - 1]
+    _row_vec_from_token(m, token_cur, ctx_len - 1, x)
+    _vec_mat_mul(x, wq_t, d, d, q)
+    i0:int = 0
+    while i0 < d:
+      ctx[i0] = 0.0
+      i0 = i0 + 1
+    max_s:float = 0.0 - 1000000000.0
+    j:int = 0
+    while j < ctx_len:
+      tj:int = ids[j]
+      _row_vec_from_token(m, tj, j, tmp)
+      _vec_mat_mul(tmp, wk_t, d, d, k)
+      score:float = _dot(q, k, d) / ((d as float) + 0.000001)
+      scores[j] = score
+      if score > max_s:
+        max_s = score
+      j = j + 1
+    sum_w:float = 0.0
+    j = 0
+    while j < ctx_len:
+      w:float = _exp_fast(scores[j] - max_s)
+      scores[j] = w
+      sum_w = sum_w + w
+      j = j + 1
+    if sum_w <= 0.0:
+      sum_w = 1.0
+    j = 0
+    while j < ctx_len:
+      tj2:int = ids[j]
+      _row_vec_from_token(m, tj2, j, tmp)
+      _vec_mat_mul(tmp, wv_t, d, d, v)
+      wj:float = scores[j] / sum_w
+      i1:int = 0
+      while i1 < d:
+        ctx[i1] = ctx[i1] + (wj * v[i1])
+        i1 = i1 + 1
+      j = j + 1
+    _vec_mat_mul(ctx, wo_t, d, d, tmp)
+    i2:int = 0
+    while i2 < d:
+      out_h[i2] = x[i2] + tmp[i2]
+      i2 = i2 + 1
+  unsafe:
+    free(x as *char)
+    free(q as *char)
+    free(k as *char)
+    free(v as *char)
+    free(ctx as *char)
+    free(tmp as *char)
+    free(scores as *char)
+  ret LLM_OK
+
+fn _softmax(logits:*float, probs:*float, n:int) -> int:
+  if logits == 0 || probs == 0 || n <= 0:
+    ret LLM_ERR
+  max_v:float
+  unsafe:
+    max_v = logits[0]
+  i:int = 1
+  while i < n:
+    unsafe:
+      if logits[i] > max_v:
+        max_v = logits[i]
+    i = i + 1
+  sum_e:float = 0.0
+  i = 0
+  while i < n:
+    ev:float = 0.0
+    unsafe:
+      ev = _exp_fast(logits[i] - max_v)
+      probs[i] = ev
+    sum_e = sum_e + ev
+    i = i + 1
+  if sum_e <= 0.0:
+    sum_e = 1.0
+  i = 0
+  while i < n:
+    unsafe:
+      probs[i] = probs[i] / sum_e
+    i = i + 1
+  ret LLM_OK
+
+fn _train_step(m:*LlmModel, ids:*int, ctx_len:int, target:int, lr:float) -> float:
+  if m == 0 || ids == 0:
+    ret 0.0
+  d:int = 0
+  vocab:int = 0
+  wout_t:*Tensor
+  bout_t:*Tensor
+  emb_t:*Tensor
+  pos_t:*Tensor
+  max_seq:int = 0
+  unsafe:
+    d = (*m).cfg.d_model
+    vocab = (*m).cfg.vocab
+    wout_t = (*m).wout
+    bout_t = (*m).bout
+    emb_t = (*m).emb
+    pos_t = (*m).pos
+    max_seq = (*m).cfg.max_seq
+  h:*float
+  logits:*float
+  probs:*float
+  dh:*float
+  unsafe:
+    h = (*float)malloc(sizeof(float) * d)
+    logits = (*float)malloc(sizeof(float) * vocab)
+    probs = (*float)malloc(sizeof(float) * vocab)
+    dh = (*float)malloc(sizeof(float) * d)
+  if h == 0 || logits == 0 || probs == 0 || dh == 0:
+    if h != 0:
+      unsafe:
+        free(h as *char)
+    if logits != 0:
+      unsafe:
+        free(logits as *char)
+    if probs != 0:
+      unsafe:
+        free(probs as *char)
+    if dh != 0:
+      unsafe:
+        free(dh as *char)
+    ret 0.0
+  tgt:int = _clamp_token_id(m, target)
+  pt:float = 0.0
+  loss:float = 0.0
+  v:int = 0
+  unsafe:
+    _forward_hidden(m, ids, ctx_len, h)
+    v = 0
+    while v < vocab:
+      sum:float = tensor.tensor_get_f(bout_t, v)
+      i:int = 0
+      while i < d:
+        w_idx:int = i * vocab + v
+        wv:float = tensor.tensor_get_f(wout_t, w_idx)
+        sum = sum + (h[i] * wv)
+        i = i + 1
+      logits[v] = sum
+      v = v + 1
+    _softmax(logits, probs, vocab)
+    pt = probs[tgt]
+  if pt < 0.0000001:
+    pt = 0.0000001
+  loss = 0.0 - _ln_fast_pos(pt)
+  i2:int = 0
+  while i2 < d:
+    unsafe:
+      dh[i2] = 0.0
+    i2 = i2 + 1
+  v = 0
+  while v < vocab:
+    grad:float = 0.0
+    unsafe:
+      grad = probs[v]
+    if v == tgt:
+      grad = grad - 1.0
+    i3:int = 0
+    unsafe:
+      while i3 < d:
+        w_idx2:int = i3 * vocab + v
+        old_w:float = tensor.tensor_get_f(wout_t, w_idx2)
+        dh[i3] = dh[i3] + (grad * old_w)
+        new_w:float = old_w - (lr * h[i3] * grad)
+        tensor.tensor_set_f(wout_t, w_idx2, new_w)
+        i3 = i3 + 1
+    b_old:float = tensor.tensor_get_f(bout_t, v)
+    tensor.tensor_set_f(bout_t, v, b_old - (lr * grad))
+    v = v + 1
+  unsafe:
+    cur_tok:int = ids[ctx_len - 1]
+    pos_idx:int = (ctx_len - 1)
+    if max_seq > 0:
+      pos_idx = pos_idx % max_seq
+    cur_tok = _clamp_token_id(m, cur_tok)
+    i4:int = 0
+    while i4 < d:
+      e_idx:int = cur_tok * d + i4
+      p_idx:int = pos_idx * d + i4
+      ev:float = tensor.tensor_get_f(emb_t, e_idx)
+      pv:float = tensor.tensor_get_f(pos_t, p_idx)
+      tensor.tensor_set_f(emb_t, e_idx, ev - (lr * 0.05 * dh[i4]))
+      tensor.tensor_set_f(pos_t, p_idx, pv - (lr * 0.02 * dh[i4]))
+      i4 = i4 + 1
+  unsafe:
+    free(h as *char)
+    free(logits as *char)
+    free(probs as *char)
+    free(dh as *char)
+  ret loss
+
+fn _fit_tokenizer_from_data(tok:*Tokenizer, data_path:str, max_samples:int) -> int:
+  if tok == 0 || _is_empty(data_path) != 0:
+    ret 0
+  f:*File = io.file_open(data_path, "rb")
+  ok:int = 0
+  unsafe:
+    if f != 0 && (*f).h != 0:
+      ok = 1
+  if ok == 0:
+    ret 0
+  learned:int = 0
+  while io.file_eof(f) == 0:
+    line:str = io.file_read_line(f)
+    if line == 0:
+      continue
+    ln:int = len(line)
+    if ln > 0:
+      tab:int = _find_char_from(line, 9, 0)
+      if tab >= 0 && (tab + 1) < ln:
+        text:str = _slice_dup(line, tab + 1, ln)
+        tokenizer.tok_fit_text(tok, text)
+        _str_dispose(text)
+        learned = learned + 1
+        if max_samples > 0 && learned >= max_samples:
+          unsafe:
+            free(line as *char)
+          break
+    unsafe:
+      free(line as *char)
+  io.file_close(f)
+  ret learned
+
+fn llm_transformer_init(model_path:str, vocab:int, d_model:int, max_seq:int, seed:int) -> int:
+  cfg:LlmConfig
+  cfg.vocab = vocab
+  cfg.d_model = d_model
+  cfg.max_seq = max_seq
+  cfg.seed = seed
+  cfg.train_steps = 0
+  m:*LlmModel = _new_model(cfg)
+  if m == 0:
+    ret LLM_ERR
+  rc:int = _save_model_checkpoint(model_path, m)
+  _free_model(m)
+  ret rc
+
+fn llm_transformer_train(model_path:str, data_path:str, epochs:int, max_samples:int, lr_milli:int, show_progress:int) -> LlmTrainStats:
+  st:LlmTrainStats
+  st.samples = 0
+  st.tokens = 0
+  st.steps = 0
+  st.avg_loss = 0.0
+  if _is_empty(model_path) != 0 || _is_empty(data_path) != 0:
+    ret st
+  m:*LlmModel = _load_model_checkpoint(model_path)
+  if m == 0:
+    ret st
+  if epochs <= 0:
+    epochs = 1
+  if max_samples < 0:
+    max_samples = 0
+  if lr_milli <= 0:
+    lr_milli = 8
+  lr:float = (lr_milli as float) / 1000.0
+  tok_local:*Tokenizer
+  unsafe:
+    tok_local = (*m).tok
+  fit_count:int = _fit_tokenizer_from_data(tok_local, data_path, max_samples)
+  if fit_count <= 0:
+    _free_model(m)
+    ret st
+  if show_progress != 0:
+    say "llm-train: tokenizer fit samples:"
+    say fit_count
+  ep:int = 0
+  total_loss:float = 0.0
+  while ep < epochs:
+    f:*File = io.file_open(data_path, "rb")
+    f_ok:int = 0
+    unsafe:
+      if f != 0 && (*f).h != 0:
+        f_ok = 1
+    if f_ok == 0:
+      _free_model(m)
+      ret st
+    seen:int = 0
+    while io.file_eof(f) == 0:
+      line:str = io.file_read_line(f)
+      if line == 0:
+        continue
+      ln:int = len(line)
+      if ln > 0:
+        tab:int = _find_char_from(line, 9, 0)
+        if tab >= 0 && (tab + 1) < ln:
+          text:str = _slice_dup(line, tab + 1, ln)
+          ids:[int;512]
+          ids_ptr:*int
+          unsafe:
+            ids_ptr = &ids[0]
+          n_ids:int = tokenizer.tok_encode(tok_local, text, ids_ptr, 512)
+          if n_ids > 1:
+            pos:int = 0
+            while pos < (n_ids - 1):
+              tgt:int = ids[pos + 1]
+              loss:float = _train_step(m, ids_ptr, pos + 1, tgt, lr)
+              total_loss = total_loss + loss
+              st.steps = st.steps + 1
+              st.tokens = st.tokens + 1
+              pos = pos + 1
+              unsafe:
+                (*m).cfg.train_steps = (*m).cfg.train_steps + 1
+            st.samples = st.samples + 1
+          _str_dispose(text)
+          seen = seen + 1
+          if max_samples > 0 && seen >= max_samples:
+            unsafe:
+              free(line as *char)
+            break
+      unsafe:
+        free(line as *char)
+    io.file_close(f)
+    if show_progress != 0:
+      say "llm-train: epoch done"
+      say ep + 1
+      say "  samples:"
+      say st.samples
+      say "  steps:"
+      say st.steps
+    ep = ep + 1
+  if st.steps > 0:
+    st.avg_loss = total_loss / (st.steps as float)
+  _save_model_checkpoint(model_path, m)
+  _free_model(m)
+  ret st
+
+fn _argmax_f(arr:*float, n:int) -> int:
+  if arr == 0 || n <= 0:
+    ret 0
+  best_i:int = 0
+  best_v:float
+  unsafe:
+    best_v = arr[0]
+  i:int = 1
+  while i < n:
+    unsafe:
+      if arr[i] > best_v:
+        best_v = arr[i]
+        best_i = i
+    i = i + 1
+  ret best_i
+
+fn llm_transformer_infer(model_path:str, prompt:str, max_new:int) -> str:
+  if _is_empty(model_path) != 0:
+    ret ""
+  if _is_empty(prompt) != 0:
+    prompt = "hello"
+  if max_new <= 0:
+    max_new = 48
+  m:*LlmModel = _load_model_checkpoint(model_path)
+  if m == 0:
+    ret ""
+  ids:[int;1024]
+  tok_local:*Tokenizer
+  wout_t:*Tensor
+  bout_t:*Tensor
+  d:int = 0
+  vocab:int = 0
+  unsafe:
+    tok_local = (*m).tok
+    wout_t = (*m).wout
+    bout_t = (*m).bout
+    d = (*m).cfg.d_model
+    vocab = (*m).cfg.vocab
+  ids_ptr:*int
+  unsafe:
+    ids_ptr = &ids[0]
+  n_ids:int = tokenizer.tok_encode(tok_local, prompt, ids_ptr, 1024)
+  if n_ids <= 0:
+    unsafe:
+      ids[0] = 0
+    n_ids = 1
+  h:*float
+  logits:*float
+  probs:*float
+  unsafe:
+    h = (*float)malloc(sizeof(float) * d)
+    logits = (*float)malloc(sizeof(float) * vocab)
+    probs = (*float)malloc(sizeof(float) * vocab)
+  if h == 0 || logits == 0 || probs == 0:
+    if h != 0:
+      unsafe:
+        free(h as *char)
+    if logits != 0:
+      unsafe:
+        free(logits as *char)
+    if probs != 0:
+      unsafe:
+        free(probs as *char)
+    _free_model(m)
+    ret ""
+  t:int = 0
+  v:int = 0
+  while t < max_new && n_ids < 1024:
+    unsafe:
+      _forward_hidden(m, ids_ptr, n_ids, h)
+    v = 0
+    while v < vocab:
+      sum:float = tensor.tensor_get_f(bout_t, v)
+      i:int = 0
+      while i < d:
+        w_idx:int = i * vocab + v
+        wv:float = tensor.tensor_get_f(wout_t, w_idx)
+        unsafe:
+          sum = sum + (h[i] * wv)
+        i = i + 1
+      unsafe:
+        logits[v] = sum
+      v = v + 1
+    next_id:int = 0
+    unsafe:
+      _softmax(logits, probs, vocab)
+      next_id = _argmax_f(probs, vocab)
+      ids[n_ids] = next_id
+    n_ids = n_ids + 1
+    t = t + 1
+  out:str = tokenizer.tok_decode(tok_local, ids_ptr, n_ids)
+  unsafe:
+    free(h as *char)
+    free(logits as *char)
+    free(probs as *char)
+  _free_model(m)
+  ret out
+
+fn llm_transformer_ready(model_path:str) -> int:
+  if _is_empty(model_path) != 0:
+    ret 0
+  if path_exists(model_path) == 0:
+    ret 0
+  tok_path:str = _model_sidecar(model_path, ".llm_tok.tnxb")
+  emb_path:str = _model_sidecar(model_path, ".llm_emb.tnxb")
+  wout_path:str = _model_sidecar(model_path, ".llm_wout.tnxb")
+  ok:int = 1
+  if path_exists(tok_path) == 0:
+    ok = 0
+  if path_exists(emb_path) == 0:
+    ok = 0
+  if path_exists(wout_path) == 0:
+    ok = 0
+  _str_dispose(tok_path)
+  _str_dispose(emb_path)
+  _str_dispose(wout_path)
+  ret ok

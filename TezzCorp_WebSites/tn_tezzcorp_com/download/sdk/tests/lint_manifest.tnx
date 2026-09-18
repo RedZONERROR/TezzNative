@@ -1,0 +1,2 @@
+tests/lint_unused_var.tn|tests/expected/lint_unused_var.out.txt
+tests/lint_shadowed_var.tn|tests/expected/lint_shadowed_var.out.txt

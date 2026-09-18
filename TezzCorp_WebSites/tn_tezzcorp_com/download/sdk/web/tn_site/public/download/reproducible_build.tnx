@@ -1,0 +1,7 @@
+artifact_pass1 = build/tezzc.repro1.exe
+artifact_pass2 = build/tezzc.repro2.exe
+size_pass1 = 835806
+size_pass2 = 835806
+crc_pass1 = 5BCF61B3
+crc_pass2 = 5BCF61B3
+result = PASS

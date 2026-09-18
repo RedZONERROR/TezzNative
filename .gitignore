@@ -62,3 +62,16 @@ benchmarks/results/**
 # Exclude compiled binaries and node_modules inside extension
 tezznative-vscode/node_modules/
 tezznative-vscode/*.vsix
+
+# ── TezzCorp Language Portal Website Sources ─────────────────────────────────
+!TezzCorp_WebSites/
+!TezzCorp_WebSites/tn_tezzcorp_com/
+!TezzCorp_WebSites/tn_tezzcorp_com/**
+
+# Never commit real secrets / log files
+TezzCorp_WebSites/tn_tezzcorp_com/.env
+TezzCorp_WebSites/tn_tezzcorp_com/logs/
+TezzCorp_WebSites/tn_tezzcorp_com/logs/**
+TezzCorp_WebSites/tn_tezzcorp_com/storage/
+TezzCorp_WebSites/tn_tezzcorp_com/storage/**
+

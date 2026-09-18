@@ -1,0 +1,8 @@
+@mut
+fn alias_pair(a:str, b:str) -> int:
+  ret 0
+
+fn main() -> int:
+  p:str = "borrowed"
+  alias_pair(p, p)
+  ret 0

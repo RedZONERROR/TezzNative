@@ -1,0 +1,24 @@
+import "event"
+
+fn main() -> int:
+  q:TzEventQueue
+  ev:TzEvent
+  unsafe:
+    if event.tz_event_queue_init(&q) != 0:
+      ret 1
+    if event.tz_event_push_key(&q, 7) == 0:
+      ret 1
+    if event.tz_event_push_pointer(&q, 10, 20, 1, 0) == 0:
+      ret 1
+    say event.tz_event_queue_len(&q)
+    if event.tz_event_pop(&q, &ev) == 0:
+      ret 1
+    say ev.kind
+    say ev.key
+    if event.tz_event_pop(&q, &ev) == 0:
+      ret 1
+    say ev.kind
+    say ev.x
+    say ev.y
+    say event.tz_event_queue_len(&q)
+  ret 0

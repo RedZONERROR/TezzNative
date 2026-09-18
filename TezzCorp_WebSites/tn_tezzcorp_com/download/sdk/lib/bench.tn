@@ -1,0 +1,545 @@
+// bench module — benchmark measurement helpers for TezzNative
+// Stability: Beta
+//
+// Aligned with the BENCHMARKS.md CSV/JSON schema.
+// Uses time.time_now_ms() for wall-clock timing.
+//
+// Usage:
+//   import "bench"
+//   import "time"
+//
+//   bh:*BenchHandle = bench_start("matrix_mul", "math", 1000)
+//   i:int = 0
+//   while i < bench_iters(bh):
+//     bench_iter_start(bh, i)
+//     // ... work ...
+//     bench_iter_end(bh, i)
+//     i = i + 1
+//   bench_report(bh)
+//   bench_free(bh)
+
+import "time"
+import "runtime"
+
+// ---------------------------------------------------------------------------
+// Schema constant (matches BENCHMARKS.md)
+// ---------------------------------------------------------------------------
+
+let BENCH_SCHEMA:str = "tn-bench-v1"
+
+// ---------------------------------------------------------------------------
+// Structs
+// ---------------------------------------------------------------------------
+
+struct BenchHandle:
+  name:str
+  category:str
+  iterations:int
+  completed:int
+  skipped:int
+  skip_reason:str
+  samples:*float   // ms per iteration, heap-owned
+  samples_cap:int
+  t_start:int      // ms timestamp for current iter
+
+// ---------------------------------------------------------------------------
+// Internal: integer to heap-string
+// ---------------------------------------------------------------------------
+
+fn _bench_int_to_str(n:int) -> str:
+  neg:int = 0
+  v:int = n
+  if v < 0:
+    neg = 1
+    v = 0 - v
+  buf:[char;24]
+  i:int = 0
+  if v == 0:
+    buf[i] = 48 as char
+    i = i + 1
+  else:
+    while v > 0:
+      buf[i] = (48 + v % 10) as char
+      i = i + 1
+      v = v / 10
+  total:int = i
+  if neg != 0:
+    total = total + 1
+  out:*char = (*char)malloc(total + 1)
+  if out == 0:
+    ret 0 as str
+  wi:int = 0
+  if neg != 0:
+    out[wi] = 45 as char
+    wi = wi + 1
+  j:int = i - 1
+  while j >= 0:
+    out[wi] = buf[j]
+    wi = wi + 1
+    j = j - 1
+  out[wi] = 0 as char
+  ret out as str
+
+// ---------------------------------------------------------------------------
+// Internal: float to heap-string (3 decimal places)
+// ---------------------------------------------------------------------------
+
+fn _bench_float_to_str(f:float) -> str:
+  neg:int = 0
+  v:float = f
+  if v < 0.0:
+    neg = 1
+    v = 0.0 - v
+  whole:int = v as int
+  frac:float = v - (whole as float)
+  frac3:int = (frac * 1000.0) as int
+  // Build "W.FFF"
+  ws:str = _bench_int_to_str(whole)
+  fs:str = _bench_int_to_str(frac3)
+  wl:int = 0
+  fl:int = 0
+  if ws != 0:
+    wl = len(ws)
+  if fs != 0:
+    fl = len(fs)
+  // pad frac to 3 digits
+  out:*char = (*char)malloc(wl + 5 + 2)
+  if out == 0:
+    if ws != 0:
+      free(ws as *char)
+    if fs != 0:
+      free(fs as *char)
+    ret 0 as str
+  wi:int = 0
+  if neg != 0:
+    out[wi] = 45 as char
+    wi = wi + 1
+  i:int = 0
+  while i < wl:
+    out[wi] = ws[i]
+    wi = wi + 1
+    i = i + 1
+  out[wi] = 46 as char  // '.'
+  wi = wi + 1
+  // pad to 3 digits
+  pad:int = 3 - fl
+  while pad > 0:
+    out[wi] = 48 as char
+    wi = wi + 1
+    pad = pad - 1
+  i = 0
+  while i < fl:
+    out[wi] = fs[i]
+    wi = wi + 1
+    i = i + 1
+  out[wi] = 0 as char
+  if ws != 0:
+    free(ws as *char)
+  if fs != 0:
+    free(fs as *char)
+  ret out as str
+
+// ---------------------------------------------------------------------------
+// Internal: say a multi-segment line (avoid heap where possible)
+// ---------------------------------------------------------------------------
+
+fn _bench_say_line(parts:str, nparts:int) -> int:
+  // simple single-part version
+  say parts
+  ret 0
+
+fn _bench_concat6(a:str, b:str, c:str, d:str, e:str, f:str) -> str:
+  al:int = 0
+  bl:int = 0
+  cl:int = 0
+  dl:int = 0
+  el:int = 0
+  fl:int = 0
+  if a != 0:
+    al = len(a)
+  if b != 0:
+    bl = len(b)
+  if c != 0:
+    cl = len(c)
+  if d != 0:
+    dl = len(d)
+  if e != 0:
+    el = len(e)
+  if f != 0:
+    fl = len(f)
+  total:int = al + bl + cl + dl + el + fl + 1
+  buf:*char = (*char)malloc(total)
+  if buf == 0:
+    ret 0 as str
+  wi:int = 0
+  i:int = 0
+  while i < al:
+    buf[wi] = a[i]
+    wi = wi + 1
+    i = i + 1
+  i = 0
+  while i < bl:
+    buf[wi] = b[i]
+    wi = wi + 1
+    i = i + 1
+  i = 0
+  while i < cl:
+    buf[wi] = c[i]
+    wi = wi + 1
+    i = i + 1
+  i = 0
+  while i < dl:
+    buf[wi] = d[i]
+    wi = wi + 1
+    i = i + 1
+  i = 0
+  while i < el:
+    buf[wi] = e[i]
+    wi = wi + 1
+    i = i + 1
+  i = 0
+  while i < fl:
+    buf[wi] = f[i]
+    wi = wi + 1
+    i = i + 1
+  buf[wi] = 0 as char
+  ret buf as str
+
+// ---------------------------------------------------------------------------
+// Constructor
+// ---------------------------------------------------------------------------
+
+fn bench_start(name:str, category:str, iterations:int) -> *BenchHandle:
+  if iterations <= 0:
+    iterations = 1
+  bh:*BenchHandle = (*BenchHandle)malloc(sizeof(BenchHandle))
+  if bh == 0:
+    ret 0 as *BenchHandle
+  unsafe:
+    runtime.memset(bh as *char, 0, sizeof(BenchHandle))
+  (*bh).name      = name
+  (*bh).category  = category
+  (*bh).iterations = iterations
+  samples:*float = (*float)malloc(iterations * sizeof(float))
+  if samples == 0:
+    free(bh)
+    ret 0 as *BenchHandle
+  unsafe:
+    runtime.memset(samples as *char, 0, iterations * sizeof(float))
+  (*bh).samples     = samples
+  (*bh).samples_cap = iterations
+  ret bh
+
+// ---------------------------------------------------------------------------
+// Iteration control
+// ---------------------------------------------------------------------------
+
+fn bench_iters(bh:*BenchHandle) -> int:
+  if bh == 0:
+    ret 0
+  ret (*bh).iterations
+
+fn bench_iter_start(bh:*BenchHandle, idx:int) -> int:
+  if bh == 0:
+    ret 0 - 1
+  (*bh).t_start = time.now_ms()
+  ret 0
+
+fn bench_iter_end(bh:*BenchHandle, idx:int) -> int:
+  if bh == 0:
+    ret 0 - 1
+  now:int = time.now_ms()
+  start:int = (*bh).t_start
+  ms:float = (now - start) as float
+  if ms < 0.0:
+    ms = 0.0
+  iters:int = (*bh).iterations
+  if idx >= 0 && idx < iters:
+    samples:*float = (*bh).samples
+    unsafe:
+      samples[idx] = ms
+  cc:int = (*bh).completed
+  (*bh).completed = cc + 1
+  ret 0
+
+// Record a pre-measured sample (ms)
+fn bench_record(bh:*BenchHandle, idx:int, ms:float) -> int:
+  if bh == 0:
+    ret 0 - 1
+  iters:int = (*bh).iterations
+  if idx >= 0 && idx < iters:
+    samples:*float = (*bh).samples
+    unsafe:
+      samples[idx] = ms
+  cc:int = (*bh).completed
+  (*bh).completed = cc + 1
+  ret 0
+
+// Skip this benchmark with a reason
+fn bench_skip(bh:*BenchHandle, reason:str) -> int:
+  if bh == 0:
+    ret 0 - 1
+  (*bh).skipped = 1
+  (*bh).skip_reason = reason
+  ret 0
+
+// ---------------------------------------------------------------------------
+// Statistics
+// ---------------------------------------------------------------------------
+
+fn bench_min(bh:*BenchHandle) -> float:
+  if bh == 0:
+    ret 0.0
+  cc:int = (*bh).completed
+  if cc <= 0:
+    ret 0.0
+  samples:*float = (*bh).samples
+  min_v:float = 0.0
+  unsafe:
+    min_v = samples[0]
+  i:int = 1
+  while i < cc:
+    v:float = 0.0
+    unsafe:
+      v = samples[i]
+    if v < min_v:
+      min_v = v
+    i = i + 1
+  ret min_v
+
+fn bench_max(bh:*BenchHandle) -> float:
+  if bh == 0:
+    ret 0.0
+  cc:int = (*bh).completed
+  if cc <= 0:
+    ret 0.0
+  samples:*float = (*bh).samples
+  max_v:float = 0.0
+  unsafe:
+    max_v = samples[0]
+  i:int = 1
+  while i < cc:
+    v:float = 0.0
+    unsafe:
+      v = samples[i]
+    if v > max_v:
+      max_v = v
+    i = i + 1
+  ret max_v
+
+fn bench_avg(bh:*BenchHandle) -> float:
+  if bh == 0:
+    ret 0.0
+  cc:int = (*bh).completed
+  if cc <= 0:
+    ret 0.0
+  samples:*float = (*bh).samples
+  total:float = 0.0
+  i:int = 0
+  while i < cc:
+    v:float = 0.0
+    unsafe:
+      v = samples[i]
+    total = total + v
+    i = i + 1
+  ret total / (cc as float)
+
+// Simple median: sort samples in-place (insertion sort) then pick middle
+fn bench_median(bh:*BenchHandle) -> float:
+  if bh == 0:
+    ret 0.0
+  cc:int = (*bh).completed
+  if cc <= 0:
+    ret 0.0
+  if cc == 1:
+    samples:*float = (*bh).samples
+    v:float = 0.0
+    unsafe:
+      v = samples[0]
+    ret v
+  // Copy samples to avoid mutating originals
+  cp:*float = (*float)malloc(cc * sizeof(float))
+  if cp == 0:
+    ret bench_avg(bh)
+  // Copy samples as floats to preserve float type tags in the VM
+  k:int = 0
+  while k < cc:
+    unsafe:
+      cp[k] = (*bh).samples[k]
+    k = k + 1
+  // Insertion sort
+  i:int = 1
+  while i < cc:
+    key:float = 0.0
+    unsafe:
+      key = cp[i]
+    j:int = i - 1
+    while j >= 0:
+      vj:float = 0.0
+      unsafe:
+        vj = cp[j]
+      if vj <= key:
+        break
+      unsafe:
+        cp[j + 1] = vj
+      j = j - 1
+    unsafe:
+      cp[j + 1] = key
+    i = i + 1
+  mid:int = cc / 2
+  med:float = 0.0
+  unsafe:
+    med = cp[mid]
+  if cc % 2 == 0:
+    lo:float = 0.0
+    unsafe:
+      lo = cp[mid - 1]
+    med = (lo + med) / 2.0
+  free(cp)
+  ret med
+
+// ---------------------------------------------------------------------------
+// Report
+// ---------------------------------------------------------------------------
+
+fn bench_report(bh:*BenchHandle) -> int:
+  if bh == 0:
+    ret 0 - 1
+  name:str = (*bh).name
+  cat:str  = (*bh).category
+  if name == 0:
+    name = "unnamed"
+  if cat == 0:
+    cat = ""
+  skipped:int = (*bh).skipped
+  if skipped != 0:
+    skip_reason:str = (*bh).skip_reason
+    if skip_reason == 0:
+      skip_reason = "no reason given"
+    line:str = _bench_concat6("BENCH_SKIP name=", name, " reason=", skip_reason, "", "")
+    if line != 0:
+      say line
+      free(line as *char)
+    ret 0
+  completed:int = (*bh).completed
+  avg_v:float    = bench_avg(bh)
+  med_v:float    = bench_median(bh)
+  min_v:float    = bench_min(bh)
+  max_v:float    = bench_max(bh)
+  avgs:str = _bench_float_to_str(avg_v)
+  meds:str = _bench_float_to_str(med_v)
+  mins:str = _bench_float_to_str(min_v)
+  maxs:str = _bench_float_to_str(max_v)
+  ns:str   = _bench_int_to_str(completed)
+  // "BENCH name=N category=C iterations=I avg_ms=A median_ms=M min_ms=n max_ms=x"
+  line2:str = _bench_concat6("BENCH name=", name, " category=", cat, " iterations=", ns)
+  if line2 != 0:
+    say line2
+    free(line2 as *char)
+  line3:str = _bench_concat6("  avg_ms=", avgs, " median_ms=", meds, " min_ms=", mins)
+  if line3 != 0:
+    say line3
+    free(line3 as *char)
+  line4:str = _bench_concat6("  max_ms=", maxs, "", "", "", "")
+  if line4 != 0:
+    say line4
+    free(line4 as *char)
+  if avgs != 0:
+    free(avgs as *char)
+  if meds != 0:
+    free(meds as *char)
+  if mins != 0:
+    free(mins as *char)
+  if maxs != 0:
+    free(maxs as *char)
+  if ns != 0:
+    free(ns as *char)
+  ret 0
+
+// ---------------------------------------------------------------------------
+// CSV row output (matches BENCHMARKS.md schema)
+// ---------------------------------------------------------------------------
+
+fn bench_csv_row(bh:*BenchHandle, idx:int) -> str:
+  if bh == 0:
+    ret 0 as str
+  name:str = (*bh).name
+  cat:str  = (*bh).category
+  if name == 0:
+    name = "unnamed"
+  if cat == 0:
+    cat = ""
+  samples:*float = (*bh).samples
+  v:float = 0.0
+  if idx >= 0 && idx < (*bh).completed:
+    unsafe:
+      v = samples[idx]
+  vs:str   = _bench_float_to_str(v)
+  is_str:str = _bench_int_to_str(idx + 1)
+  // schema: "tn-bench-v1,name,category,TezzNative,native,run,i,v,0,0,0,ok,,"
+  row:str = _bench_concat6(BENCH_SCHEMA, ",", name, ",", cat, ",TezzNative,native,run,")
+  if row == 0:
+    if vs != 0:
+      free(vs as *char)
+    if is_str != 0:
+      free(is_str as *char)
+    ret 0 as str
+  rl:int = len(row)
+  vl:int = 0
+  il:int = 0
+  if vs != 0:
+    vl = len(vs)
+  if is_str != 0:
+    il = len(is_str)
+  full:*char = (*char)malloc(rl + il + vl + 20)
+  if full == 0:
+    free(row as *char)
+    if vs != 0:
+      free(vs as *char)
+    if is_str != 0:
+      free(is_str as *char)
+    ret 0 as str
+  wi:int = 0
+  i:int = 0
+  while i < rl:
+    full[wi] = row[i]
+    wi = wi + 1
+    i = i + 1
+  i = 0
+  while i < il:
+    full[wi] = is_str[i]
+    wi = wi + 1
+    i = i + 1
+  full[wi] = 44 as char  // ','
+  wi = wi + 1
+  i = 0
+  while i < vl:
+    full[wi] = vs[i]
+    wi = wi + 1
+    i = i + 1
+  suffix:str = ",0,0,0,ok,,"
+  i = 0
+  while suffix[i] != 0 as char:
+    full[wi] = suffix[i]
+    wi = wi + 1
+    i = i + 1
+  full[wi] = 0 as char
+  free(row as *char)
+  if vs != 0:
+    free(vs as *char)
+  if is_str != 0:
+    free(is_str as *char)
+  ret full as str
+
+// ---------------------------------------------------------------------------
+// Free
+// ---------------------------------------------------------------------------
+
+fn bench_free(bh:*BenchHandle) -> int:
+  if bh == 0:
+    ret 0
+  samples:*float = (*bh).samples
+  if samples != 0:
+    free(samples)
+  free(bh)
+  ret 0

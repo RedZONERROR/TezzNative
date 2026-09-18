@@ -1,0 +1,311 @@
+// ai_classify.tn — TezzNative CSV Classification Demo
+//
+// Demonstrates the full on-device AI training pipeline:
+//   1. Load a CSV dataset via dataloader
+//   2. Normalize features
+//   3. Train an MLP classifier with Adam
+//   4. Evaluate on validation set (accuracy, F1)
+//   5. Print full classification report
+//
+// The example uses synthetic Iris-like 4-feature, 3-class data
+// if no CSV is provided, making it self-contained.
+//
+// Run: tezzc run examples/ai_classify.tn
+//   or: tezzc run examples/ai_classify.tn data.csv 4 3
+
+import "ai"
+import "nn"
+import "optim"
+import "grad"
+import "dataloader"
+import "metric"
+import "device"
+import "math"
+
+fn main() -> int:
+  unsafe:
+    say "╔══════════════════════════════════════════════════════╗"
+    say "║       TezzNative On-Device AI — Classifier Demo       ║"
+    say "╚══════════════════════════════════════════════════════╝"
+    say ""
+
+    ai.init_quiet()
+    say "Backend: ", ai.best_backend_name()
+    say ""
+
+    // ── Hyperparameters ───────────────────────────────────────
+    let N_FEATURES:int  = 4      // input dimensions
+    let N_CLASSES:int   = 3      // output classes
+    let N_HIDDEN:int    = 32     // hidden layer width
+    let EPOCHS:int      = 50
+    let BATCH:int       = 8
+    let LR:float        = 3.0e-4
+    let TRAIN_RATIO:float = 0.8
+
+    // ── Synthetic dataset (Iris-like) ──────────────────────────
+    // 150 samples, 4 features + 1 label (0, 1, 2)
+    let N_SAMPLES:int = 150
+    let NC:int = 5  // 4 features + 1 label col
+
+    say "Generating synthetic Iris-like dataset (150 samples, 4 features, 3 classes)..."
+
+    slab_raw:*char = malloc(N_SAMPLES * NC * 8)
+    if slab_raw == 0:
+      say "ERROR: OOM"
+      ret 1
+    slab:*float = slab_raw as *float
+
+    // Generate 3 clusters of 50 samples each
+    rng:int = 99887766
+    i:int = 0
+    while i < N_SAMPLES:
+      cls:int = i / 50   // class 0, 1, or 2
+      // Feature means differ by class
+      mean0:float = (cls as float) * 1.5
+      mean1:float = 4.0 - (cls as float) * 0.8
+      mean2:float = (cls as float) * 1.2 + 0.3
+      mean3:float = (cls as float) * 0.7 + 0.1
+      // Add Gaussian noise
+      rng = rng * 1664525 + 1013904223
+      n0:float = (((rng >> 8) & 16383) as float / 8192.0) - 1.0
+      rng = rng * 1664525 + 1013904223
+      n1:float = (((rng >> 8) & 16383) as float / 8192.0) - 1.0
+      rng = rng * 1664525 + 1013904223
+      n2:float = (((rng >> 8) & 16383) as float / 8192.0) - 1.0
+      rng = rng * 1664525 + 1013904223
+      n3:float = (((rng >> 8) & 16383) as float / 8192.0) - 1.0
+      unsafe:
+        slab[i * NC + 0] = mean0 + n0 * 0.5
+        slab[i * NC + 1] = mean1 + n1 * 0.4
+        slab[i * NC + 2] = mean2 + n2 * 0.6
+        slab[i * NC + 3] = mean3 + n3 * 0.3
+        slab[i * NC + 4] = cls as float
+      i = i + 1
+
+    // ── DataLoader setup ──────────────────────────────────────
+    say "Setting up DataLoader (train/val split ", TRAIN_RATIO, ")..."
+    dl:*DataLoader = dataloader.from_slab(slab, N_SAMPLES, N_FEATURES, 1)
+    if dl == 0 as *DataLoader:
+      say "ERROR: DataLoader init failed"
+      free(slab_raw)
+      ret 1
+
+    dataloader.shuffle(dl, 42)
+
+    // Compute feature statistics and normalize
+    means_raw:*char = malloc(N_FEATURES * 8)
+    stds_raw:*char = malloc(N_FEATURES * 8)
+    means:*float = means_raw as *float
+    stds:*float = stds_raw as *float
+    dataloader.compute_stats(dl, means, stds)
+    dataloader.normalize_inplace(dl, means, stds)
+
+    // Split: 80% train, 20% val
+    val_dl:*DataLoader = dataloader.split_val(dl, TRAIN_RATIO)
+    say "Train samples: ", (*dl).n_samples
+    if val_dl != 0 as *DataLoader:
+      say "Val samples:   ", (*val_dl).n_samples
+    say ""
+
+    // ── Build MLP ─────────────────────────────────────────────
+    say "Building MLP: ", N_FEATURES, " → ", N_HIDDEN, " → ", N_CLASSES
+    net:*float = ai.new_mlp(N_FEATURES, N_HIDDEN, N_CLASSES)
+    if net == 0 as *float:
+      say "ERROR: Could not allocate network"
+      ret 1
+
+    // Allocate Adam moment buffers
+    n_weights:int = nn._si(net, 2)
+    m1:*float = optim.alloc_state(n_weights)
+    m2:*float = optim.alloc_state(n_weights)
+    tape:*float = grad.tape_new(n_weights)
+
+    if m1 == 0 as *float || m2 == 0 as *float || tape == 0 as *float:
+      say "ERROR: OOM for optimizer state"
+      ai.free_net(net)
+      ret 1
+
+    // ── Training Loop ─────────────────────────────────────────
+    say "Training for ", EPOCHS, " epochs with AdamW (lr=", LR, ")..."
+    say ""
+
+    x_buf_raw:*char = malloc(BATCH * N_FEATURES * 8)
+    y_buf_raw:*char = malloc(BATCH * 8)  // 1 label per sample
+    in_slab_raw:*char = malloc(N_FEATURES * 8)
+    out_slab_raw:*char = malloc(N_CLASSES * 8)
+    x_buf:*float = x_buf_raw as *float
+    y_buf:*float = y_buf_raw as *float
+    in_slab:*float = in_slab_raw as *float
+    out_slab:*float = out_slab_raw as *float
+
+    global_step:int = 0
+    ep:int = 0
+    while ep < EPOCHS:
+      dataloader.shuffle(dl, ep + 100)
+      dataloader.reset(dl)
+      epoch_loss:float = 0.0
+      n_batches:int = 0
+
+      while dataloader.has_next(dl) != 0:
+        actual:int = dataloader.next_batch(dl, x_buf, y_buf, BATCH)
+        if actual <= 0:
+          break
+
+        // Train each sample in the mini-batch
+        bi:int = 0
+        while bi < actual:
+          // Build one-hot target from class label
+          cls_int:int = 0
+          unsafe:
+            cls_int = y_buf[bi] as int
+          if cls_int < 0: cls_int = 0
+          if cls_int >= N_CLASSES: cls_int = N_CLASSES - 1
+
+          // Copy features to nn slab
+          j:int = 0
+          while j < N_FEATURES:
+            unsafe:
+              in_slab[j] = x_buf[bi * N_FEATURES + j]
+            j = j + 1
+
+          // One-hot label
+          j = 0
+          while j < N_CLASSES:
+            unsafe:
+              out_slab[j] = 0.0
+            j = j + 1
+          unsafe:
+            out_slab[cls_int] = 1.0
+
+          // Forward + backward
+          ai.forward(net, in_slab, in_slab)
+          loss:float = nn.nn_backward(net, in_slab, out_slab, 0.0)  // LR=0: get grads only
+          epoch_loss = epoch_loss + loss
+          n_batches = n_batches + 1
+          bi = bi + 1
+
+        // AdamW step with gradient tape
+        global_step = global_step + 1
+        cur_lr:float = optim.lr_warmup_cosine(LR, global_step, 50, EPOCHS * ((*dl).n_samples / BATCH + 1))
+        optim.adamw_step(net + nn._wb(n_weights), tape, m1, m2, n_weights, cur_lr, global_step, 0.9, 0.999, 1.0e-8, 0.01)
+        grad.zero(tape, n_weights)
+
+      if n_batches > 0:
+        epoch_loss = epoch_loss / (n_batches as float)
+      if ep % 100 == 0 || ep == EPOCHS - 1:
+        say "Epoch ", ep, " | Loss: ", epoch_loss, " | LR: ", optim.lr_warmup_cosine(LR, global_step, 50, EPOCHS * 20)
+      ep = ep + 1
+
+    say ""
+    say "Training complete!"
+    say ""
+
+    // ── Evaluation ────────────────────────────────────────────
+    say "Evaluating on validation set..."
+
+    if val_dl != 0 as *DataLoader:
+      n_val:int = (*val_dl).n_samples
+      preds_f_raw:*char = malloc(n_val * N_CLASSES * 8)
+      targets_i_raw:*char = malloc(n_val * 8)
+      preds_f:*float = preds_f_raw as *float
+      targets_i:*int = targets_i_raw as *int
+
+      vx_raw:*char = malloc(N_FEATURES * 8)
+      vy_raw:*char = malloc(8)
+      vx:*float = vx_raw as *float
+      vy:*float = vy_raw as *float
+
+      vi:int = 0
+      while vi < n_val:
+        // Get sample
+        dataloader.reset(val_dl)  // rewind each time (simple)
+        skip:int = vi
+        // Actually extract sample vi directly from indices
+        row_idx:int = dataloader._di((*val_dl).indices, vi)
+        nc:int = (*val_dl).n_cols
+        j:int = 0
+        while j < N_FEATURES:
+          unsafe:
+            in_slab[j] = slab[row_idx * nc + j]
+          j = j + 1
+        cls_true:int = 0
+        unsafe:
+          cls_true = slab[row_idx * nc + N_FEATURES] as int
+
+        // Predict
+        nn.nn_forward(net, in_slab, out_slab)
+
+        // Store predictions and targets
+        j = 0
+        while j < N_CLASSES:
+          unsafe:
+            preds_f[vi * N_CLASSES + j] = out_slab[j]
+          j = j + 1
+        unsafe:
+          targets_i[vi] = cls_true
+
+        vi = vi + 1
+
+      // Compute accuracy
+      acc:float = metric.accuracy(preds_f, targets_i, n_val, N_CLASSES)
+      say "Validation Accuracy: ", acc
+      say ""
+
+      // Confusion matrix
+      pred_cls_raw:*char = malloc(n_val * 8)
+      pred_cls:*int = pred_cls_raw as *int
+      vi = 0
+      while vi < n_val:
+        p_base:int = vi * N_CLASSES
+        best:int = 0
+        best_v:float = 0.0
+        unsafe:
+          best_v = preds_f[p_base]
+        j:int = 1
+        vv:float = 0.0
+        while j < N_CLASSES:
+          unsafe:
+            vv = preds_f[p_base + j]
+          if vv > best_v:
+            best_v = vv
+            best = j
+          j = j + 1
+        unsafe:
+          pred_cls[vi] = best
+        vi = vi + 1
+
+      metric.confusion_matrix(pred_cls, targets_i, n_val, N_CLASSES)
+
+      free(preds_f_raw)
+      free(targets_i_raw)
+      free(pred_cls_raw)
+      free(vx_raw)
+      free(vy_raw)
+      dataloader.dl_free(val_dl)
+
+    // ── Save model ────────────────────────────────────────────
+    say ""
+    say "Saving model to classifier.tnw..."
+    ai.save_net(net, "classifier.tnw")
+    say "Done."
+
+    // Cleanup
+    free(x_buf_raw)
+    free(y_buf_raw)
+    free(in_slab_raw)
+    free(out_slab_raw)
+    free(means_raw)
+    free(stds_raw)
+    optim.free_state(m1)
+    optim.free_state(m2)
+    grad.tape_free(tape)
+    ai.free_net(net)
+    dataloader.dl_free(dl)
+    free(slab_raw)
+    ai.shutdown()
+
+    say ""
+    say "╔══════════════════════════════════════════════════════╗"
+    say "║           Classification Demo Complete!               ║"
+    say "╚══════════════════════════════════════════════════════╝"
+    ret 0

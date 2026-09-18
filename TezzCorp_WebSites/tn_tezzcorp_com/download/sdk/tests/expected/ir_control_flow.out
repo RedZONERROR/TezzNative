@@ -1,0 +1,43 @@
+func reducer (regs=26)
+L0:
+  alloca  r2 = (size=8, align=8)
+  iconst  r3 = 0
+  store   [r2] = r3 (size=8)
+  alloca  r4 = (size=8, align=8)
+  store   [r4] = r3 (size=8)
+  mov     r7 = r0
+  iconst  r10 = 1
+L1:
+  load    r6 = [r2] (size=8)
+  lt     r8 = r6, r7
+  jz      r8 -> L2
+  load    r9 = [r2] (size=8)
+  and    r11 = r9, r10
+  eq     r13 = r11, r3
+  jz      r13 -> L3
+  load    r14 = [r4] (size=8)
+  load    r15 = [r2] (size=8)
+  add    r16 = r14, r15
+  store   [r4] = r16 (size=8)
+  jmp     L4
+L3:
+  load    r17 = [r4] (size=8)
+  sub    r19 = r17, r10
+  store   [r4] = r19 (size=8)
+L4:
+  load    r20 = [r2] (size=8)
+  add    r22 = r20, r10
+  store   [r2] = r22 (size=8)
+  jmp     L1
+L2:
+  load    r23 = [r4] (size=8)
+  ret     r23
+
+func main (regs=4)
+L0:
+  iconst  r0 = 6
+  call    r1 = reducer(r0)
+  call    r2 = say(r1)
+  iconst  r3 = 0
+  ret     r3
+

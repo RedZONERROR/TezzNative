@@ -1,0 +1,304 @@
+// quant module - TezzNative Quantization Utilities
+//
+// INT8 symmetric, INT4 block, and FP16 conversion for
+// running large AI models on device with reduced memory.
+//
+// All INT8/INT4 buffers use *char with manual bit manipulation
+// since TezzNative uses *char for signed bytes.
+
+import "math"
+
+let QUANT_BLOCK_SIZE:int = 32
+let QUANT_INT8_MAX:int   = 127
+let QUANT_INT4_MAX:int   = 7
+
+fn _qf(p:*float, i:int) -> float:
+  v:float = 0.0
+  unsafe:
+    v = p[i]
+  ret v
+
+fn _qw(p:*float, i:int, v:float) -> int:
+  unsafe:
+    p[i] = v
+  ret 0
+
+// Read a signed byte from a char buffer as an integer [-128..127].
+fn _qbr(p:*char, i:int) -> int:
+  b:int = p[i] as int & 255
+  if b >= 128:
+    b = b - 256
+  ret b
+
+// Write a clamped signed byte to a char buffer.
+fn _qbw(p:*char, i:int, v:int) -> int:
+  if v > 127:
+    v = 127
+  if v < 0 - 127:
+    v = 0 - 127
+  if v < 0:
+    v = v + 256
+  p[i] = (v & 255) as char
+  ret 0
+
+// Number of scale entries needed for n elements at given block size.
+fn n_scales(n:int, block:int) -> int:
+  if block <= 0:
+    ret n
+  ret (n + block - 1) / block
+
+// Quantize float64 to INT8 (per-block symmetric).
+// scales: caller-allocated float array of size n_scales(n, block).
+fn f64_to_i8(in:*float, out:*char, scales:*float, n:int, block:int) -> int:
+  if in == 0 as *float || out == 0 as *char || scales == 0 as *float:
+    ret 0 - 1
+  if n <= 0 || block <= 0:
+    ret 0 - 1
+  i:int = 0
+  while i < n:
+    end:int = i + block
+    if end > n:
+      end = n
+    max_abs:float = 0.0
+    j:int = i
+    while j < end:
+      v:float = _qf(in, j)
+      if v < 0.0:
+        v = 0.0 - v
+      if v > max_abs:
+        max_abs = v
+      j = j + 1
+    sc:float = max_abs / 127.0
+    if sc < 1.0e-30:
+      sc = 1.0e-30
+    block_idx:int = i / block
+    _qw(scales, block_idx, sc)
+    inv_sc:float = 1.0 / sc
+    j = i
+    while j < end:
+      v:float = _qf(in, j) * inv_sc
+      q:int = v as int
+      _qbw(out, j, q)
+      j = j + 1
+    i = i + block
+  ret 0
+
+// Dequantize INT8 back to float64.
+fn i8_to_f64(in:*char, out:*float, scales:*float, n:int, block:int) -> int:
+  if in == 0 as *char || out == 0 as *float || scales == 0 as *float:
+    ret 0 - 1
+  if n <= 0 || block <= 0:
+    ret 0 - 1
+  i:int = 0
+  while i < n:
+    end:int = i + block
+    if end > n:
+      end = n
+    block_idx:int = i / block
+    sc:float = _qf(scales, block_idx)
+    j:int = i
+    while j < end:
+      q:int = _qbr(in, j)
+      _qw(out, j, (q as float) * sc)
+      j = j + 1
+    i = i + block
+  ret 0
+
+// Bytes needed for INT4 packed storage (2 values per byte).
+fn i4_packed_bytes(n:int) -> int:
+  ret (n + 1) / 2
+
+// Quantize float64 to INT4 packed format (2 values per byte).
+// out must be >= i4_packed_bytes(n) bytes.
+fn f64_to_i4_packed(in:*float, out:*char, scales:*float, n:int, block:int) -> int:
+  if in == 0 as *float || out == 0 as *char || scales == 0 as *float:
+    ret 0 - 1
+  if n <= 0 || block <= 0:
+    ret 0 - 1
+  i:int = 0
+  while i < n:
+    end:int = i + block
+    if end > n:
+      end = n
+    max_abs:float = 0.0
+    j:int = i
+    while j < end:
+      v:float = _qf(in, j)
+      if v < 0.0:
+        v = 0.0 - v
+      if v > max_abs:
+        max_abs = v
+      j = j + 1
+    sc:float = max_abs / 7.0
+    if sc < 1.0e-30:
+      sc = 1.0e-30
+    block_idx:int = i / block
+    _qw(scales, block_idx, sc)
+    inv_sc:float = 1.0 / sc
+    j = i
+    while j < end:
+      v:float = _qf(in, j) * inv_sc
+      q:int = v as int
+      if q > 7: q = 7
+      if q < 0 - 7: q = 0 - 7
+      // Pack into nibble
+      byte_idx:int = j / 2
+      cur:int = out[byte_idx] as int & 255
+      if j % 2 == 0:
+        // High nibble
+        out[byte_idx] = (((q & 15) << 4) | (cur & 15)) as char
+      else:
+        // Low nibble
+        out[byte_idx] = ((cur & 240) | (q & 15)) as char
+      j = j + 1
+    i = i + block
+  ret 0
+
+// Dequantize INT4 packed to float64.
+fn i4_to_f64(in:*char, out:*float, scales:*float, n:int, block:int) -> int:
+  if in == 0 as *char || out == 0 as *float || scales == 0 as *float:
+    ret 0 - 1
+  if n <= 0 || block <= 0:
+    ret 0 - 1
+  i:int = 0
+  while i < n:
+    end:int = i + block
+    if end > n:
+      end = n
+    block_idx:int = i / block
+    sc:float = _qf(scales, block_idx)
+    j:int = i
+    while j < end:
+      byte_idx:int = j / 2
+      raw:int = in[byte_idx] as int & 255
+      nibble:int = 0
+      if j % 2 == 0:
+        nibble = (raw >> 4) & 15
+      else:
+        nibble = raw & 15
+      // Sign extend: if >= 8 subtract 16
+      if nibble >= 8:
+        nibble = nibble - 16
+      _qw(out, j, (nibble as float) * sc)
+      j = j + 1
+    i = i + block
+  ret 0
+
+// Pack a float64 into IEEE 754 FP16 bits (returned as int).
+fn _f64_to_f16_bits(v:float) -> int:
+  // NaN
+  if v != v:
+    ret 32256
+  sign:int = 0
+  if v < 0.0:
+    sign = 32768
+    v = 0.0 - v
+  if v == 0.0:
+    ret sign
+  // Clamp to fp16 max
+  if v > 65504.0:
+    ret sign | 31744
+  // Subnormal
+  if v < 6.1035156e-5:
+    sv:float = v / 5.960464e-8
+    m:int = sv as int
+    if m > 1023: m = 1023
+    ret sign | m
+  // Normal
+  exp:int = 0
+  tv:float = v
+  while tv >= 2.0:
+    tv = tv / 2.0
+    exp = exp + 1
+  while tv < 1.0 && tv > 0.0:
+    tv = tv * 2.0
+    exp = exp - 1
+  e16:int = exp + 15
+  if e16 <= 0: ret sign
+  if e16 >= 31: ret sign | 31744
+  m:int = ((tv - 1.0) * 1024.0) as int
+  if m > 1023: m = 1023
+  if m < 0: m = 0
+  ret sign | (e16 << 10) | m
+
+// Recover float64 from FP16 bits.
+fn _f16_bits_to_f64(bits:int) -> float:
+  sign:int = (bits >> 15) & 1
+  exp:int  = (bits >> 10) & 31
+  mant:int = bits & 1023
+  if exp == 31:
+    if mant != 0: ret 0.0
+    big:float = 65504.0 * 2.0
+    if sign != 0: big = 0.0 - big
+    ret big
+  if exp == 0:
+    v:float = (mant as float) * 5.960464e-8
+    if sign != 0: v = 0.0 - v
+    ret v
+  v:float = 1.0 + (mant as float) / 1024.0
+  e:int = exp - 15
+  i2:int = 0
+  if e > 0:
+    while i2 < e:
+      v = v * 2.0
+      i2 = i2 + 1
+  if e < 0:
+    i2 = 0
+    while i2 < 0 - e:
+      v = v / 2.0
+      i2 = i2 + 1
+  if sign != 0: v = 0.0 - v
+  ret v
+
+// Quantize float64 array to FP16 (2 bytes per value, LE).
+fn f64_to_f16(in:*float, out:*char, n:int) -> int:
+  if in == 0 as *float || out == 0 as *char || n <= 0:
+    ret 0 - 1
+  i:int = 0
+  while i < n:
+    h:int = _f64_to_f16_bits(_qf(in, i))
+    out[i * 2]     = (h & 255) as char
+    out[i * 2 + 1] = ((h >> 8) & 255) as char
+    i = i + 1
+  ret 0
+
+// Dequantize FP16 array to float64.
+fn f16_to_f64(in:*char, out:*float, n:int) -> int:
+  if in == 0 as *char || out == 0 as *float || n <= 0:
+    ret 0 - 1
+  i:int = 0
+  while i < n:
+    lo:int = in[i * 2] as int & 255
+    hi:int = in[i * 2 + 1] as int & 255
+    h:int = lo | (hi << 8)
+    _qw(out, i, _f16_bits_to_f64(h))
+    i = i + 1
+  ret 0
+
+// Bytes needed for FP16 storage of n values.
+fn f16_bytes(n:int) -> int:
+  ret n * 2
+
+// Compute quantization MSE between original and INT8 round-tripped values.
+fn quant_mse_i8(original:*float, i8_buf:*char, scales:*float, n:int, block:int) -> float:
+  if original == 0 as *float || i8_buf == 0 as *char || scales == 0 as *float:
+    ret 0.0
+  tmp_raw:*char = malloc(n * 8)
+  if tmp_raw == 0:
+    ret 0.0
+  tmp:*float = tmp_raw as *float
+  i8_to_f64(i8_buf, tmp, scales, n, block)
+  mse:float = 0.0
+  i:int = 0
+  while i < n:
+    diff:float = _qf(original, i) - _qf(tmp, i)
+    mse = mse + diff * diff
+    i = i + 1
+  free(tmp_raw)
+  ret mse / (n as float)
+
+// Print quantization summary.
+fn quant_info(n:int, block:int, dtype:str) -> int:
+  n_sc:int = n_scales(n, block)
+  say "[Quant] dtype=", dtype, " n=", n, " block=", block, " n_scales=", n_sc
+  ret 0

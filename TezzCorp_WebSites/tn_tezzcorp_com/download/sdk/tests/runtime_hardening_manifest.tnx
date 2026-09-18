@@ -1,0 +1,5 @@
+tests/runtime_loop_sum.tn
+tests/runtime_call_multiarg.tn
+tests/runtime_io_roundtrip.tn
+tests/runtime_missing_file.tn
+tests/runtime_dir_listing.tn

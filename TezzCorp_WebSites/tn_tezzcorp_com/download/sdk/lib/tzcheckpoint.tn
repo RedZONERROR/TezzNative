@@ -1,0 +1,39 @@
+// lib/tzcheckpoint.tn -- TezzNative Model Checkpoint v1.0
+// Save and load model weights in the TZKP binary format.
+//
+// Usage:
+//   import "tzcheckpoint"
+//   tzcheckpoint.save("model.tnck", ptrs_buf, sizes_buf, names_buf, n)
+//   n: int = tzcheckpoint.load("model.tnck", ptrs_buf, sizes_buf, -1)
+//   tzcheckpoint.info("model.tnck")
+//
+// ptrs_buf:  int buffer of int64 pointers to float32 weight arrays
+// sizes_buf: int buffer of int64 element counts per weight
+// names_buf: int buffer of int64 pointers to name strings
+
+extern fn tz_checkpoint_save(path: int, ptrs: int, sizes: int, names: int, n_tensors: int) -> int
+extern fn tz_checkpoint_load(path: int, ptrs: int, sizes: int, n_tensors_expected: int) -> int
+extern fn tz_checkpoint_n_tensors(path: int) -> int
+extern fn tz_checkpoint_info(path: int) -> int
+
+// save: Write all weights to file.
+//   path:      string address (use get_path_ptr helper or pass literal addr)
+//   ptrs:      int64 array of weight buffer pointers (alloc via tz_cpu_malloc(n*8))
+//   sizes:     int64 array of element counts (alloc via tz_cpu_malloc(n*8))
+//   names:     int64 array of name pointers  (alloc via tz_cpu_malloc(n*8))
+//   n:         number of weight tensors
+fn save(path: int, ptrs: int, sizes: int, names: int, n: int) -> int:
+  ret tz_checkpoint_save(path, ptrs, sizes, names, n)
+
+// load: Load weights from file into existing buffers.
+// Returns number of tensors loaded. Pass -1 for n_expected to load all.
+fn load(path: int, ptrs: int, sizes: int, n_expected: int) -> int:
+  ret tz_checkpoint_load(path, ptrs, sizes, n_expected)
+
+// info: Print checkpoint metadata (tensor names + sizes) to stdout.
+fn info(path: int) -> int:
+  ret tz_checkpoint_info(path)
+
+// n_tensors: Return number of tensors in a checkpoint file.
+fn n_tensors(path: int) -> int:
+  ret tz_checkpoint_n_tensors(path)

@@ -1,0 +1,265 @@
+// optim module - TezzNative Optimizer Library
+//
+// SGD, Adam, AdamW, RMSProp, Adagrad + learning rate schedules.
+// All operate on flat float64 parameter slabs (nn.tn compatible).
+
+import "math"
+
+fn _of(p:*float, i:int) -> float:
+  v:float = 0.0
+  unsafe:
+    v = p[i]
+  ret v
+
+fn _ow(p:*float, i:int, v:float) -> int:
+  unsafe:
+    p[i] = v
+  ret 0
+
+// Compute global L2 norm of a gradient vector.
+fn grad_norm(grads:*float, n:int) -> float:
+  if grads == 0 as *float || n <= 0:
+    ret 0.0
+  sum_sq:float = 0.0
+  i:int = 0
+  while i < n:
+    g:float = _of(grads, i)
+    sum_sq = sum_sq + g * g
+    i = i + 1
+  ret math.sqrt(sum_sq)
+
+// Clip gradients so global L2 norm <= max_norm. Returns pre-clip norm.
+fn grad_clip_norm(grads:*float, n:int, max_norm:float) -> float:
+  if grads == 0 as *float || n <= 0 || max_norm <= 0.0:
+    ret 0.0
+  gn:float = grad_norm(grads, n)
+  if gn > max_norm && gn > 0.0:
+    scale:float = max_norm / gn
+    i:int = 0
+    while i < n:
+      _ow(grads, i, _of(grads, i) * scale)
+      i = i + 1
+  ret gn
+
+// Clip gradients element-wise to [-clip_val, clip_val].
+fn grad_clip_value(grads:*float, n:int, clip_val:float) -> int:
+  if grads == 0 as *float || n <= 0 || clip_val <= 0.0:
+    ret 0 - 1
+  i:int = 0
+  while i < n:
+    g:float = _of(grads, i)
+    if g > clip_val:
+      g = clip_val
+    if g < 0.0 - clip_val:
+      g = 0.0 - clip_val
+    _ow(grads, i, g)
+    i = i + 1
+  ret 0
+
+// SGD with optional momentum, Nesterov, and weight decay.
+// Pass velocity=0 for plain SGD.
+fn sgd_step(params:*float, grads:*float, velocity:*float, n:int, lr:float, momentum:float, weight_decay:float, nesterov:int) -> int:
+  if params == 0 as *float || grads == 0 as *float || n <= 0 || lr <= 0.0:
+    ret 0 - 1
+  i:int = 0
+  while i < n:
+    g:float = _of(grads, i)
+    p:float = _of(params, i)
+    if weight_decay > 0.0:
+      g = g + weight_decay * p
+    if velocity != 0 as *float && momentum > 0.0:
+      v:float = momentum * _of(velocity, i) + g
+      _ow(velocity, i, v)
+      if nesterov != 0:
+        _ow(params, i, p - lr * (momentum * v + g))
+      else:
+        _ow(params, i, p - lr * v)
+    else:
+      _ow(params, i, p - lr * g)
+    i = i + 1
+  ret 0
+
+// Plain SGD with no momentum.
+fn sgd_simple(params:*float, grads:*float, n:int, lr:float) -> int:
+  null_v:*float = 0 as *float
+  ret sgd_step(params, grads, null_v, n, lr, 0.0, 0.0, 0)
+
+// Adam optimizer (bias-corrected adaptive moment estimation).
+fn adam_step(params:*float, grads:*float, m1:*float, m2:*float, n:int, lr:float, step:int, beta1:float, beta2:float, eps:float) -> int:
+  if params == 0 as *float || grads == 0 as *float:
+    ret 0 - 1
+  if m1 == 0 as *float || m2 == 0 as *float:
+    ret 0 - 1
+  if n <= 0 || lr <= 0.0 || step <= 0:
+    ret 0 - 1
+  bc1:float = 1.0 - math.pow(beta1, step as float)
+  bc2:float = 1.0 - math.pow(beta2, step as float)
+  if bc1 < 1.0e-10:
+    bc1 = 1.0e-10
+  if bc2 < 1.0e-10:
+    bc2 = 1.0e-10
+  i:int = 0
+  while i < n:
+    g:float = _of(grads, i)
+    p:float = _of(params, i)
+    new_m1:float = beta1 * _of(m1, i) + (1.0 - beta1) * g
+    _ow(m1, i, new_m1)
+    new_m2:float = beta2 * _of(m2, i) + (1.0 - beta2) * g * g
+    _ow(m2, i, new_m2)
+    m1_hat:float = new_m1 / bc1
+    m2_hat:float = new_m2 / bc2
+    _ow(params, i, p - lr * m1_hat / (math.sqrt(m2_hat) + eps))
+    i = i + 1
+  ret 0
+
+// Adam with standard defaults.
+fn adam_default(params:*float, grads:*float, m1:*float, m2:*float, n:int, lr:float, step:int) -> int:
+  ret adam_step(params, grads, m1, m2, n, lr, step, 0.9, 0.999, 1.0e-8)
+
+// AdamW - Adam with decoupled weight decay (Loshchilov & Hutter 2017).
+fn adamw_step(params:*float, grads:*float, m1:*float, m2:*float, n:int, lr:float, step:int, beta1:float, beta2:float, eps:float, weight_decay:float) -> int:
+  if params == 0 as *float || grads == 0 as *float:
+    ret 0 - 1
+  if m1 == 0 as *float || m2 == 0 as *float:
+    ret 0 - 1
+  if n <= 0 || lr <= 0.0 || step <= 0:
+    ret 0 - 1
+  bc1:float = 1.0 - math.pow(beta1, step as float)
+  bc2:float = 1.0 - math.pow(beta2, step as float)
+  if bc1 < 1.0e-10:
+    bc1 = 1.0e-10
+  if bc2 < 1.0e-10:
+    bc2 = 1.0e-10
+  i:int = 0
+  while i < n:
+    g:float = _of(grads, i)
+    p:float = _of(params, i)
+    if weight_decay > 0.0:
+      p = p * (1.0 - lr * weight_decay)
+      _ow(params, i, p)
+    new_m1:float = beta1 * _of(m1, i) + (1.0 - beta1) * g
+    _ow(m1, i, new_m1)
+    new_m2:float = beta2 * _of(m2, i) + (1.0 - beta2) * g * g
+    _ow(m2, i, new_m2)
+    m1_hat:float = new_m1 / bc1
+    m2_hat:float = new_m2 / bc2
+    _ow(params, i, p - lr * m1_hat / (math.sqrt(m2_hat) + eps))
+    i = i + 1
+  ret 0
+
+// AdamW with transformer defaults (wd=0.01).
+fn adamw_default(params:*float, grads:*float, m1:*float, m2:*float, n:int, lr:float, step:int) -> int:
+  ret adamw_step(params, grads, m1, m2, n, lr, step, 0.9, 0.999, 1.0e-8, 0.01)
+
+// RMSProp optimizer.
+fn rmsprop_step(params:*float, grads:*float, sq_avg:*float, momentum_buf:*float, n:int, lr:float, alpha:float, eps:float, momentum:float) -> int:
+  if params == 0 as *float || grads == 0 as *float || sq_avg == 0 as *float:
+    ret 0 - 1
+  if n <= 0 || lr <= 0.0:
+    ret 0 - 1
+  i:int = 0
+  while i < n:
+    g:float = _of(grads, i)
+    p:float = _of(params, i)
+    new_sq:float = alpha * _of(sq_avg, i) + (1.0 - alpha) * g * g
+    _ow(sq_avg, i, new_sq)
+    rms:float = math.sqrt(new_sq) + eps
+    step_size:float = lr * g / rms
+    if momentum_buf != 0 as *float && momentum > 0.0:
+      new_mb:float = momentum * _of(momentum_buf, i) + step_size
+      _ow(momentum_buf, i, new_mb)
+      _ow(params, i, p - new_mb)
+    else:
+      _ow(params, i, p - step_size)
+    i = i + 1
+  ret 0
+
+// Adagrad optimizer.
+fn adagrad_step(params:*float, grads:*float, sum_sq:*float, n:int, lr:float, eps:float, weight_decay:float) -> int:
+  if params == 0 as *float || grads == 0 as *float || sum_sq == 0 as *float:
+    ret 0 - 1
+  if n <= 0 || lr <= 0.0:
+    ret 0 - 1
+  i:int = 0
+  while i < n:
+    g:float = _of(grads, i)
+    p:float = _of(params, i)
+    if weight_decay > 0.0:
+      g = g + weight_decay * p
+    new_ss:float = _of(sum_sq, i) + g * g
+    _ow(sum_sq, i, new_ss)
+    _ow(params, i, p - lr * g / (math.sqrt(new_ss) + eps))
+    i = i + 1
+  ret 0
+
+// Linear warmup schedule.
+fn lr_warmup(base_lr:float, step:int, warmup_steps:int) -> float:
+  if step <= 0 || warmup_steps <= 0:
+    ret base_lr
+  if step >= warmup_steps:
+    ret base_lr
+  ret base_lr * (step as float) / (warmup_steps as float)
+
+// Step decay schedule.
+fn lr_step_decay(base_lr:float, step:int, decay_steps:int, gamma:float) -> float:
+  if decay_steps <= 0 || gamma <= 0.0:
+    ret base_lr
+  epochs:int = step / decay_steps
+  lr:float = base_lr
+  i:int = 0
+  while i < epochs:
+    lr = lr * gamma
+    i = i + 1
+  ret lr
+
+// Cosine annealing schedule.
+fn lr_cosine_annealing(lr_max:float, lr_min:float, step:int, period:int) -> float:
+  if period <= 0:
+    ret lr_max
+  t:int = step % period
+  cos_val:float = math.cos(3.14159265358979 * (t as float) / (period as float))
+  ret lr_min + 0.5 * (lr_max - lr_min) * (1.0 + cos_val)
+
+// Linear warmup + cosine annealing (standard for transformers).
+fn lr_warmup_cosine(base_lr:float, step:int, warmup_steps:int, total_steps:int) -> float:
+  if step < warmup_steps:
+    ret lr_warmup(base_lr, step, warmup_steps)
+  if total_steps <= warmup_steps:
+    ret base_lr
+  progress:float = (step - warmup_steps) as float / (total_steps - warmup_steps) as float
+  cos_val:float = math.cos(3.14159265358979 * progress)
+  ret base_lr * 0.5 * (1.0 + cos_val)
+
+// Allocate a zero-initialized float buffer (for moment buffers).
+fn alloc_state(n:int) -> *float:
+  if n <= 0:
+    ret 0 as *float
+  raw:*char = malloc(n * 8)
+  if raw == 0:
+    ret 0 as *float
+  buf:*float = raw as *float
+  i:int = 0
+  while i < n:
+    unsafe:
+      buf[i] = 0.0
+    i = i + 1
+  ret buf
+
+// Free an optimizer state buffer.
+fn free_state(p:*float) -> int:
+  if p == 0 as *float:
+    ret 0
+  unsafe:
+    free(p as *char)
+  ret 0
+
+// Zero all entries in a state buffer.
+fn zero_state(p:*float, n:int) -> int:
+  if p == 0 as *float || n <= 0:
+    ret 0 - 1
+  i:int = 0
+  while i < n:
+    unsafe:
+      p[i] = 0.0
+    i = i + 1
+  ret 0

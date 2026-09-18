@@ -1,0 +1,48 @@
+// Optional native C-kernel bridge for AI hot loops.
+// These functions are intended for native builds that link matching C objects.
+
+@abi("C")
+extern fn tezz_ai_vec_add_f32(out:*float, a:*float, b:*float, n:int) -> int
+@abi("C")
+extern fn tezz_ai_vec_mul_f32(out:*float, a:*float, b:*float, n:int) -> int
+@abi("C")
+extern fn tezz_ai_vec_axpy_f32(out:*float, a:*float, b:*float, alpha:float, n:int) -> int
+@abi("C")
+extern fn tezz_ai_dot_f32(a:*float, b:*float, n:int, out:*float) -> int
+@abi("C")
+extern fn tezz_ai_matmul_f32(out:*float, a:*float, b:*float, m:int, n:int, k:int) -> int
+@abi("C")
+extern fn tezz_ai_rmsnorm_rows_f32(out:*float, x:*float, weight:*float, rows:int, cols:int, eps:float) -> int
+
+fn vec_add_f32(out:*float, a:*float, b:*float, n:int) -> int:
+  if out == 0 || a == 0 || b == 0 || n <= 0:
+    ret 0 - 1
+  ret tezz_ai_vec_add_f32(out, a, b, n)
+
+fn vec_mul_f32(out:*float, a:*float, b:*float, n:int) -> int:
+  if out == 0 || a == 0 || b == 0 || n <= 0:
+    ret 0 - 1
+  ret tezz_ai_vec_mul_f32(out, a, b, n)
+
+fn vec_axpy_f32(out:*float, a:*float, b:*float, alpha:float, n:int) -> int:
+  if out == 0 || a == 0 || b == 0 || n <= 0:
+    ret 0 - 1
+  ret tezz_ai_vec_axpy_f32(out, a, b, alpha, n)
+
+fn dot_f32(a:*float, b:*float, n:int) -> float:
+  if a == 0 || b == 0 || n <= 0:
+    ret 0.0
+  out:[float;1] = [0.0]
+  if tezz_ai_dot_f32(a, b, n, &out[0]) != 0:
+    ret 0.0
+  ret out[0]
+
+fn matmul_f32(out:*float, a:*float, b:*float, m:int, n:int, k:int) -> int:
+  if out == 0 || a == 0 || b == 0 || m <= 0 || n <= 0 || k <= 0:
+    ret 0 - 1
+  ret tezz_ai_matmul_f32(out, a, b, m, n, k)
+
+fn rmsnorm_rows_f32(out:*float, x:*float, weight:*float, rows:int, cols:int, eps:float) -> int:
+  if out == 0 || x == 0 || rows <= 0 || cols <= 0:
+    ret 0 - 1
+  ret tezz_ai_rmsnorm_rows_f32(out, x, weight, rows, cols, eps)

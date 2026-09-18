@@ -1,0 +1,3 @@
+tests/runtime_loop_sum.tn
+tests/fmt_control_flow.tn
+tests/ir_struct_array.tn

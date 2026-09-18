@@ -1,0 +1,21 @@
+import "gui"
+
+fn _fail(msg:str) -> int:
+  say msg
+  ret 1
+
+fn main() -> int:
+  ev:GuiEvent
+  if gui.gui_event_push_key(65) == 0:
+    ret _fail("gui_event_push_key failed")
+  unsafe:
+    if gui.gui_event_next(&ev) == 0:
+      ret _fail("gui_event_next missing key event")
+  if ev.kind != 1:
+    ret _fail("unexpected gui event kind")
+  if ev.key != 65:
+    ret _fail("unexpected gui event key")
+  unsafe:
+    if gui.gui_event_next(&ev) != 0:
+      ret _fail("unexpected extra gui event")
+  ret 0

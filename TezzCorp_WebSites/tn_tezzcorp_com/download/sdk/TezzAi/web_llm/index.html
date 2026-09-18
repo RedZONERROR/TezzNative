@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>TezzAi LLM Service</title>
+  <link rel="stylesheet" href="/style.css"/>
+</head>
+<body>
+  <main class="llm-wrap">
+    <aside class="llm-side">
+      <h2>TezzAi LLM</h2>
+      <div id="auth-state" class="muted">not signed in</div>
+      <div class="auth-grid">
+        <input id="username" placeholder="username"/>
+        <input id="password" type="password" placeholder="password"/>
+        <button id="register">Register</button>
+        <button id="login">Login</button>
+        <button id="new-session">New Session</button>
+      </div>
+      <div class="muted top-gap">Sessions</div>
+      <div id="sessions" class="sessions"></div>
+    </aside>
+    <section class="llm-main">
+      <header>
+        <h1>TezzAi local neural service</h1>
+        <p id="meta" class="muted">ready</p>
+      </header>
+      <div id="chat" class="chat"></div>
+      <footer class="composer">
+        <textarea id="prompt" rows="4" placeholder="Ask TezzAi..."></textarea>
+        <div class="row">
+          <button id="send">Send</button>
+          <button id="copy">Copy Last</button>
+        </div>
+      </footer>
+    </section>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>

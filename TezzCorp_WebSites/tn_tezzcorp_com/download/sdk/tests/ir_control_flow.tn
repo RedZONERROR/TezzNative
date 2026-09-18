@@ -1,0 +1,14 @@
+fn reducer(limit:int) -> int:
+  i:int = 0
+  acc:int = 0
+  while i < limit:
+    if (i & 1) == 0:
+      acc = acc + i
+    else:
+      acc = acc - 1
+    i = i + 1
+  ret acc
+
+fn main() -> int:
+  say reducer(6)
+  ret 0

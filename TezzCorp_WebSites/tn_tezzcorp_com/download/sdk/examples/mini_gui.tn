@@ -1,0 +1,13 @@
+import "gui_win"
+
+fn main() -> int:
+  say "Starting GUI window..."
+  r:int = gui_win.fb_init_ex("TezzNative GUI Test", 400, 300)
+  say "fb_init_ex returned: "; say r
+  gui_win.fb_fill(1710638)
+  gui_win.fb_text(40, 40, "Hello TezzNative v2.2.1 GUI!", 16777215)
+  gui_win.fb_present()
+  say "Window displayed! Sleeping 500ms..."
+  gui_win.sleep_ms(500)
+  say "GUI Done!"
+  ret 0

@@ -1,0 +1,505 @@
+// cli module — command-line argument parser for TezzNative
+// Stability: Beta
+// Depends: runtime
+
+import "runtime"
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+let CLI_FLAG_BOOL:int   = 0
+let CLI_FLAG_INT:int    = 1
+let CLI_FLAG_STR:int    = 2
+
+let CLI_MAX_FLAGS:int   = 64
+let CLI_MAX_ARGS:int    = 256
+
+// ---------------------------------------------------------------------------
+// Structs
+// ---------------------------------------------------------------------------
+
+struct CliFlagDef:
+  kind:int
+  long_name:str
+  short_name:str
+  description:str
+  default_str:str
+  default_int:int
+  str_val:str
+  int_val:int
+  is_set:int
+
+struct CliParser:
+  prog_name:str
+  description:str
+  flags:*CliFlagDef
+  flag_count:int
+  pos_args:*str
+  pos_count:int
+  error_msg:str
+  help_requested:int
+
+// ---------------------------------------------------------------------------
+// Constructor
+// ---------------------------------------------------------------------------
+
+fn cli_new(prog_name:str, description:str) -> *CliParser:
+  p:*CliParser = (*CliParser)malloc(sizeof(CliParser))
+  if p == 0:
+    ret 0 as *CliParser
+  (*p).prog_name      = prog_name
+  (*p).description    = description
+  (*p).flag_count     = 0
+  (*p).pos_count      = 0
+  (*p).error_msg      = 0 as str
+  (*p).help_requested = 0
+
+  flags:*CliFlagDef = (*CliFlagDef)malloc(CLI_MAX_FLAGS * sizeof(CliFlagDef))
+  if flags == 0:
+    free(p)
+    ret 0 as *CliParser
+  // Zero-initialize flag definitions
+  i:int = 0
+  while i < CLI_MAX_FLAGS:
+    f:*CliFlagDef = flags + i
+    (*f).kind        = 0
+    (*f).long_name   = 0 as str
+    (*f).short_name  = 0 as str
+    (*f).description = 0 as str
+    (*f).default_str = 0 as str
+    (*f).default_int = 0
+    (*f).str_val     = 0 as str
+    (*f).int_val     = 0
+    (*f).is_set      = 0
+    i = i + 1
+  (*p).flags = flags
+
+  pos_args:*str = (*str)malloc(CLI_MAX_ARGS * sizeof(str))
+  if pos_args == 0:
+    free(flags)
+    free(p)
+    ret 0 as *CliParser
+  i = 0
+  while i < CLI_MAX_ARGS:
+    unsafe:
+      pos_args[i] = 0 as str
+    i = i + 1
+  (*p).pos_args = pos_args
+  ret p
+
+// ---------------------------------------------------------------------------
+// Flag registration
+// ---------------------------------------------------------------------------
+
+fn cli_flag_bool(p:*CliParser, long_name:str, short_name:str, description:str) -> int:
+  if p == 0:
+    ret 0 - 1
+  fc:int = (*p).flag_count
+  if fc >= CLI_MAX_FLAGS:
+    ret 0 - 1
+  f:*CliFlagDef = (*p).flags + fc
+  (*f).kind        = CLI_FLAG_BOOL
+  (*f).long_name   = long_name
+  (*f).short_name  = short_name
+  (*f).description = description
+  (*f).default_int = 0
+  (*f).int_val     = 0
+  (*f).is_set      = 0
+  (*p).flag_count  = fc + 1
+  ret 0
+
+fn cli_flag_int(p:*CliParser, long_name:str, short_name:str, description:str, default_val:int) -> int:
+  if p == 0:
+    ret 0 - 1
+  fc:int = (*p).flag_count
+  if fc >= CLI_MAX_FLAGS:
+    ret 0 - 1
+  f:*CliFlagDef = (*p).flags + fc
+  (*f).kind        = CLI_FLAG_INT
+  (*f).long_name   = long_name
+  (*f).short_name  = short_name
+  (*f).description = description
+  (*f).default_int = default_val
+  (*f).int_val     = default_val
+  (*f).is_set      = 0
+  (*p).flag_count  = fc + 1
+  ret 0
+
+fn cli_flag_str(p:*CliParser, long_name:str, short_name:str, description:str, default_val:str) -> int:
+  if p == 0:
+    ret 0 - 1
+  fc:int = (*p).flag_count
+  if fc >= CLI_MAX_FLAGS:
+    ret 0 - 1
+  f:*CliFlagDef = (*p).flags + fc
+  (*f).kind        = CLI_FLAG_STR
+  (*f).long_name   = long_name
+  (*f).short_name  = short_name
+  (*f).description = description
+  (*f).default_str = default_val
+  (*f).str_val     = default_val
+  (*f).is_set      = 0
+  (*p).flag_count  = fc + 1
+  ret 0
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+fn _cli_str_eq(a:str, b:str) -> int:
+  if a == 0 && b == 0:
+    ret 1
+  if a == 0 || b == 0:
+    ret 0
+  ret strcmp(a, b) == 0
+
+fn _cli_find_flag(p:*CliParser, name:str) -> *CliFlagDef:
+  fc:int = (*p).flag_count
+  flags:*CliFlagDef = (*p).flags
+  i:int = 0
+  while i < fc:
+    f:*CliFlagDef = flags + i
+    if _cli_str_eq((*f).long_name, name) != 0:
+      ret f
+    if _cli_str_eq((*f).short_name, name) != 0:
+      ret f
+    i = i + 1
+  ret 0 as *CliFlagDef
+
+fn _cli_starts_with(s:str, prefix:str) -> int:
+  if s == 0 || prefix == 0:
+    ret 0
+  i:int = 0
+  while prefix[i] != 0 as char:
+    if s[i] != prefix[i]:
+      ret 0
+    i = i + 1
+  ret 1
+
+fn _cli_format_flag_line(kind:int, sn:str, ln:str, fdesc:str, def_i:int, def_s:str) -> str:
+  buf:*char = runtime.rt_alloc_str(512)
+  if buf == 0:
+    ret 0 as str
+  unsafe:
+    buf[0] = 0 as char
+  runtime.strcat(buf, "  ")
+  if sn != 0:
+    runtime.strcat(buf, sn)
+    runtime.strcat(buf, ", ")
+  runtime.strcat(buf, ln)
+  if kind == CLI_FLAG_INT:
+    runtime.strcat(buf, " <int>")
+  else if kind == CLI_FLAG_STR:
+    runtime.strcat(buf, " <str>")
+  runtime.strcat(buf, "\t\t")
+  if fdesc != 0:
+    runtime.strcat(buf, fdesc)
+  if kind == CLI_FLAG_INT:
+    runtime.strcat(buf, " (default: ")
+    ds:str = runtime.rt_int_to_str(def_i)
+    if ds != 0:
+      runtime.strcat(buf, ds)
+      free(ds as *char)
+    runtime.strcat(buf, ")")
+  else if kind == CLI_FLAG_STR:
+    if def_s != 0:
+      runtime.strcat(buf, " (default: ")
+      runtime.strcat(buf, def_s)
+      runtime.strcat(buf, ")")
+  ret buf as str
+
+// ---------------------------------------------------------------------------
+// Parse
+// ---------------------------------------------------------------------------
+
+fn cli_parse(p:*CliParser, argc:int, argv:**char) -> int:
+  if p == 0:
+    ret 0 - 1
+  i:int = 1
+  while i < argc:
+    arg:str = 0 as str
+    unsafe:
+      arg = (argv[i]) as str
+    if _cli_str_eq(arg, "--help") != 0 || _cli_str_eq(arg, "-h") != 0:
+      (*p).help_requested = 1
+      ret 0
+    if _cli_starts_with(arg, "-") != 0:
+      eq_pos:int = 0 - 1
+      j:int = 0
+      while arg[j] != 0 as char:
+        if arg[j] as int == 61:
+          eq_pos = j
+          break
+        j = j + 1
+      flag_name:str = arg
+      flag_val_str:str = 0 as str
+      if eq_pos >= 0:
+        name_buf:*char = runtime.rt_alloc_str(eq_pos)
+        if name_buf == 0:
+          ret 0 - 1
+        k:int = 0
+        while k < eq_pos:
+          unsafe:
+            name_buf[k] = arg[k]
+          k = k + 1
+        unsafe:
+          name_buf[eq_pos] = 0 as char
+        flag_name = name_buf as str
+        
+        arg_ptr:*char = 0 as *char
+        unsafe:
+          arg_ptr = arg as *char
+          flag_val_str = (arg_ptr + eq_pos + 1) as str
+      
+      f:*CliFlagDef = _cli_find_flag(p, flag_name)
+      if eq_pos >= 0:
+        free(flag_name as *char)
+      
+      if f == 0:
+        errbuf:*char = runtime.rt_alloc_str(256)
+        if errbuf != 0:
+          runtime.sprintf_str(errbuf, "unknown flag: %s", arg)
+          (*p).error_msg = errbuf as str
+        ret 0 - 1
+
+      kind:int = (*f).kind
+      if kind == CLI_FLAG_BOOL:
+        (*f).int_val = 1
+        (*f).is_set  = 1
+      else if kind == CLI_FLAG_INT:
+        val_s:str = flag_val_str
+        if val_s == 0:
+          i = i + 1
+          if i >= argc:
+            errbuf2:*char = runtime.rt_alloc_str(256)
+            if errbuf2 != 0:
+              runtime.sprintf_str(errbuf2, "flag %s requires a value", arg)
+              (*p).error_msg = errbuf2 as str
+            ret 0 - 1
+          unsafe:
+            val_s = (argv[i]) as str
+        (*f).int_val = runtime.atoi(val_s)
+        (*f).is_set  = 1
+      else if kind == CLI_FLAG_STR:
+        val_s2:str = flag_val_str
+        if val_s2 == 0:
+          i = i + 1
+          if i >= argc:
+            errbuf3:*char = runtime.rt_alloc_str(256)
+            if errbuf3 != 0:
+              runtime.sprintf_str(errbuf3, "flag %s requires a value", arg)
+              (*p).error_msg = errbuf3 as str
+            ret 0 - 1
+          unsafe:
+            val_s2 = (argv[i]) as str
+        (*f).str_val = val_s2
+        (*f).is_set  = 1
+    else:
+      pc:int = (*p).pos_count
+      if pc < CLI_MAX_ARGS:
+        pos_args:*str = (*p).pos_args
+        unsafe:
+          pos_args[pc] = arg
+        (*p).pos_count = pc + 1
+    i = i + 1
+  ret 0
+
+// Parse using the built-in system arguments count and values
+fn cli_parse_builtins(p:*CliParser) -> int:
+  if p == 0:
+    ret 0 - 1
+  ac:int = args_count()
+  i:int = 1
+  while i < ac:
+    arg:str = arg(i)
+    if _cli_str_eq(arg, "--help") != 0 || _cli_str_eq(arg, "-h") != 0:
+      (*p).help_requested = 1
+      ret 0
+    if _cli_starts_with(arg, "-") != 0:
+      eq_pos:int = 0 - 1
+      j:int = 0
+      while arg[j] != 0 as char:
+        if arg[j] as int == 61:
+          eq_pos = j
+          break
+        j = j + 1
+      flag_name:str = arg
+      flag_val_str:str = 0 as str
+      if eq_pos >= 0:
+        name_buf:*char = runtime.rt_alloc_str(eq_pos)
+        if name_buf == 0:
+          ret 0 - 1
+        k:int = 0
+        while k < eq_pos:
+          unsafe:
+            name_buf[k] = arg[k]
+          k = k + 1
+        unsafe:
+          name_buf[eq_pos] = 0 as char
+        flag_name = name_buf as str
+        
+        arg_ptr:*char = 0 as *char
+        unsafe:
+          arg_ptr = arg as *char
+          flag_val_str = (arg_ptr + eq_pos + 1) as str
+      
+      f:*CliFlagDef = _cli_find_flag(p, flag_name)
+      if eq_pos >= 0:
+        free(flag_name as *char)
+      
+      if f == 0:
+        errbuf:*char = runtime.rt_alloc_str(256)
+        if errbuf != 0:
+          runtime.sprintf_str(errbuf, "unknown flag: %s", arg)
+          (*p).error_msg = errbuf as str
+        ret 0 - 1
+
+      kind:int = (*f).kind
+      if kind == CLI_FLAG_BOOL:
+        (*f).int_val = 1
+        (*f).is_set  = 1
+      else if kind == CLI_FLAG_INT:
+        val_s:str = flag_val_str
+        if val_s == 0:
+          i = i + 1
+          if i >= ac:
+            errbuf2:*char = runtime.rt_alloc_str(256)
+            if errbuf2 != 0:
+              runtime.sprintf_str(errbuf2, "flag %s requires a value", arg)
+              (*p).error_msg = errbuf2 as str
+            ret 0 - 1
+          val_s = arg(i)
+        (*f).int_val = runtime.atoi(val_s)
+        (*f).is_set  = 1
+      else if kind == CLI_FLAG_STR:
+        val_s2:str = flag_val_str
+        if val_s2 == 0:
+          i = i + 1
+          if i >= ac:
+            errbuf3:*char = runtime.rt_alloc_str(256)
+            if errbuf3 != 0:
+              runtime.sprintf_str(errbuf3, "flag %s requires a value", arg)
+              (*p).error_msg = errbuf3 as str
+            ret 0 - 1
+          val_s2 = arg(i)
+        (*f).str_val = val_s2
+        (*f).is_set  = 1
+    else:
+      pc:int = (*p).pos_count
+      if pc < CLI_MAX_ARGS:
+        pos_args:*str = (*p).pos_args
+        unsafe:
+          pos_args[pc] = arg
+        (*p).pos_count = pc + 1
+    i = i + 1
+  ret 0
+
+// ---------------------------------------------------------------------------
+// Getters
+// ---------------------------------------------------------------------------
+
+fn cli_get_str(p:*CliParser, flag_name:str) -> str:
+  if p == 0:
+    ret 0 as str
+  f:*CliFlagDef = _cli_find_flag(p, flag_name)
+  if f == 0:
+    ret 0 as str
+  ret (*f).str_val
+
+fn cli_get_int(p:*CliParser, flag_name:str) -> int:
+  if p == 0:
+    ret 0
+  f:*CliFlagDef = _cli_find_flag(p, flag_name)
+  if f == 0:
+    ret 0
+  ret (*f).int_val
+
+fn cli_get_bool(p:*CliParser, flag_name:str) -> int:
+  ret cli_get_int(p, flag_name)
+
+fn cli_is_set(p:*CliParser, flag_name:str) -> int:
+  if p == 0:
+    ret 0
+  f:*CliFlagDef = _cli_find_flag(p, flag_name)
+  if f == 0:
+    ret 0
+  ret (*f).is_set
+
+fn cli_pos_count(p:*CliParser) -> int:
+  if p == 0:
+    ret 0
+  ret (*p).pos_count
+
+fn cli_pos_arg(p:*CliParser, idx:int) -> str:
+  if p == 0:
+    ret 0 as str
+  pc:int = (*p).pos_count
+  if idx < 0 || idx >= pc:
+    ret 0 as str
+  pos_args:*str = (*p).pos_args
+  sv:str = 0 as str
+  unsafe:
+    sv = pos_args[idx]
+  ret sv
+
+fn cli_help_requested(p:*CliParser) -> int:
+  if p == 0:
+    ret 0
+  ret (*p).help_requested
+
+fn cli_error(p:*CliParser) -> str:
+  if p == 0:
+    ret 0 as str
+  ret (*p).error_msg
+
+// ---------------------------------------------------------------------------
+// Help printer
+// ---------------------------------------------------------------------------
+
+fn cli_print_help(p:*CliParser) -> int:
+  if p == 0:
+    ret 0 - 1
+  pn:str = (*p).prog_name
+  desc:str = (*p).description
+  if pn != 0:
+    say pn
+  if desc != 0:
+    say desc
+  say ""
+  say "Options:"
+  fc:int = (*p).flag_count
+  flags:*CliFlagDef = (*p).flags
+  i:int = 0
+  while i < fc:
+    f:*CliFlagDef = flags + i
+    kind:int = (*f).kind
+    sn:str = (*f).short_name
+    ln:str = (*f).long_name
+    fdesc:str = (*f).description
+    line:str = _cli_format_flag_line(kind, sn, ln, fdesc, (*f).default_int, (*f).default_str)
+    if line != 0:
+      say line
+      free(line as *char)
+    i = i + 1
+  say "  --help, -h\t\tShow this help message"
+  ret 0
+
+// ---------------------------------------------------------------------------
+// Free
+// ---------------------------------------------------------------------------
+
+fn cli_free(p:*CliParser) -> int:
+  if p == 0:
+    ret 0
+  flags:*CliFlagDef = (*p).flags
+  if flags != 0:
+    free(flags)
+  pos_args:*str = (*p).pos_args
+  if pos_args != 0:
+    free(pos_args)
+  em:str = (*p).error_msg
+  if em != 0:
+    free(em as *char)
+  free(p)
+  ret 0

@@ -1,0 +1,60 @@
+import "tnui"
+import "tzgui"
+
+fn _fail(msg:str) -> int:
+  say msg
+  ret 1
+
+fn main() -> int:
+  caps:TzGuiCaps
+  unsafe:
+    if tzgui.detect_caps(&caps) != 0:
+      ret _fail("gui_first_app: detect_caps failed")
+
+  if caps.windowing == 0:
+    say "gui_first_app: host-window backend unavailable; install SDL2 and rerun"
+    ret 0
+
+  app:TnUiApp
+  unsafe:
+    if tnui.init(&app, "TezzNative First GUI App", 900, 560) != 0:
+      ret _fail("gui_first_app: tnui.init failed")
+    tnui.request_full_redraw(&app, 4)
+
+  primary_active:int = 0
+  while 1:
+    keep_running:int = 0
+    unsafe:
+      keep_running = tnui.running(&app)
+    if keep_running == 0:
+      break
+
+    unsafe:
+      if tnui.begin(&app) != 0:
+        ret _fail("gui_first_app: tnui.begin failed")
+
+      tnui.frame(&app, 1, 24, 24, 852, 500, "TezzNative First GUI App")
+      tnui.label(&app, 2, 48, 70, "This is your first production-lane native GUI window.")
+      tnui.label(&app, 3, 48, 94, "It is rendered through tnui + host-window backend.")
+      if primary_active == 0:
+        tnui.label(&app, 4, 48, 124, "Status: waiting for primary button click")
+      else:
+        tnui.label(&app, 4, 48, 124, "Status: primary button clicked")
+
+      tnui.button(&app, 5, 48, 168, 220, 38, "Primary Action")
+      tnui.button(&app, 6, 280, 168, 160, 38, "Quit")
+
+      if tnui.button_clicked(&app, 5) != 0:
+        primary_active = 1 - primary_active
+      if tnui.button_clicked(&app, 6) != 0:
+        tnui.close(&app)
+
+      k:int = tnui.last_key(&app)
+      if k == 27 || k == 113 || k == 81:
+        tnui.close(&app)
+
+      tnui.end(&app)
+
+  unsafe:
+    tnui.close(&app)
+  ret 0

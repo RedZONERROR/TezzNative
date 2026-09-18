@@ -1,0 +1,132 @@
+import "nn"
+import "llm"
+import "tokenizer"
+import "color"
+
+fn main() -> int:
+  unsafe:
+    say "--- Testing AI/ML Stack ---"
+
+    // ──────────────────────────────────────────────────────────
+    // 1. Test Embedding layer
+    // ──────────────────────────────────────────────────────────
+    tokens:[int;3]
+    tokens[0] = 0
+    tokens[1] = 1
+    tokens[2] = 2
+    
+    // flattened embed table: vocab_sz=3, dim=4
+    embed_table_raw:*char = malloc(3 * 4 * 8)
+    embed_table:*float = embed_table_raw as *float
+    i:int = 0
+    while i < 12:
+      nn._sw(embed_table, i, i as float * 0.1)
+      i = i + 1
+    
+    out_embed_raw:*char = malloc(3 * 4 * 8)
+    out_embed:*float = out_embed_raw as *float
+    
+    nn.nn_embed(&tokens[0], out_embed, embed_table, 3, 4)
+    
+    // Verification
+    if nn._sf(out_embed, 0) != 0.0 || nn._sf(out_embed, 4) != 0.4 || nn._sf(out_embed, 8) != 0.8:
+      say "FAIL: 1. Embedding Layer"
+      ret 1
+    say "1. Embedding Layer: PASSED"
+
+    // ──────────────────────────────────────────────────────────
+    // 2. Test LayerNorm layer
+    // ──────────────────────────────────────────────────────────
+    gamma:[float;4]
+    beta:[float;4]
+    j:int = 0
+    while j < 4:
+      gamma[j] = 1.0
+      beta[j] = 0.0
+      j = j + 1
+      
+    out_ln_raw:*char = malloc(3 * 4 * 8)
+    out_ln:*float = out_ln_raw as *float
+    
+    nn.nn_layernorm(out_embed, out_ln, &gamma[0], &beta[0], 3, 4)
+    
+    // Mean of first row (0.0 + 0.1 + 0.2 + 0.3) / 4 = 0.15
+    // Mean of third row (0.8 + 0.9 + 1.0 + 1.1) / 4 = 0.95
+    // Output should have mean very close to 0 and std close to 1
+    sum_ln:float = 0.0
+    j = 0
+    while j < 4:
+      sum_ln = sum_ln + nn._sf(out_ln, j)
+      j = j + 1
+    mean_ln:float = sum_ln / 4.0
+    if mean_ln < 0.0 - 1e-05 || mean_ln > 1e-05:
+      say "FAIL: 2. LayerNorm"
+      ret 1
+    say "2. LayerNorm: PASSED"
+
+    // ──────────────────────────────────────────────────────────
+    // 3. Test Multi-Head Causal Attention
+    // ──────────────────────────────────────────────────────────
+    // shape: [3, 4] (seq_len=3, dim=4, heads=2, d=2)
+    q_raw:*char = malloc(3 * 4 * 8)
+    k_raw:*char = malloc(3 * 4 * 8)
+    v_raw:*char = malloc(3 * 4 * 8)
+    out_attn_raw:*char = malloc(3 * 4 * 8)
+    
+    q:*float = q_raw as *float
+    k:*float = k_raw as *float
+    v:*float = v_raw as *float
+    out_attn:*float = out_attn_raw as *float
+    
+    i = 0
+    while i < 12:
+      nn._sw(q, i, 1.0)
+      nn._sw(k, i, 1.0)
+      nn._sw(v, i, i as float)
+      i = i + 1
+      
+    // SDPA with causal masking enabled
+    nn.nn_attention(q, k, v, out_attn, 3, 4, 2, 1)
+    
+    // Since causal mask is active, first row (t=0) only attends to itself.
+    // So output should equal v[0] = {0, 1} and v[0] = {2, 3} (for heads 0 and 1)
+    if nn._sf(out_attn, 0) != 0.0 || nn._sf(out_attn, 1) != 1.0 || nn._sf(out_attn, 2) != 2.0:
+      say "FAIL: 3. Attention"
+      ret 1
+    say "3. Attention: PASSED"
+
+    // ──────────────────────────────────────────────────────────
+    // 4. Test LLM Step & Serving
+    // ──────────────────────────────────────────────────────────
+    // Initialize a tiny default model config (vocab_size=10, dim=8, heads=2, layers=1)
+    model:*float = llm.llm_new(10, 8, 2, 1, 32)
+    if model == 0 as *float:
+      say "FAIL: 4. LLM creation"
+      ret 1
+      
+    logits_raw:*char = malloc(10 * 8)
+    logits:*float = logits_raw as *float
+    
+    // Run forward pass on token ID 5 at step 0
+    llm.llm_forward_step(model, 5, 0, logits)
+    
+    // Sample next token with temp=0.8, top_k=5, top_p=0.9
+    next_tok:int = llm.llm_sample(logits, 10, 0.8, 5, 0.9)
+    if next_tok < 0 || next_tok >= 10:
+      say "FAIL: 4. LLM sampling"
+      ret 1
+    say "4. LLM forward pass & sampling: PASSED"
+
+    // Cleanup allocations
+    free(embed_table_raw)
+    free(out_embed_raw)
+    free(out_ln_raw)
+    free(q_raw)
+    free(k_raw)
+    free(v_raw)
+    free(out_attn_raw)
+    free(logits_raw)
+    llm.llm_free(model)
+
+    color.say_ok("All AI/ML stack tests completed successfully!")
+    ret 0

@@ -1,0 +1,11 @@
+{"ts_ms":1772691567653,"lane":"llm","op":"doctor","status":"warn","detail":"warnings","data":"TezzAi/data/llm_samples.tnxb","model":"TezzAi/data/llm_model.taim","codebook":"TezzAi/data/llm_codebook.tnxb","count":3}
+{"ts_ms":1772691568494,"lane":"llm","op":"llm-init","status":"ok","detail":"transformer_v1","data":"","model":"build/ai_llm_test/model.taim","codebook":"","count":0}
+{"ts_ms":1772691758675,"lane":"llm","op":"llm-init","status":"ok","detail":"transformer_v1","data":"","model":"build/ai_llm_test/model.taim","codebook":"","count":0}
+{"ts_ms":1772692145467,"lane":"llm","op":"llm-init","status":"ok","detail":"transformer_v1","data":"","model":"build/ai_llm_test2/model.taim","codebook":"","count":0}
+{"ts_ms":1772692147524,"lane":"llm","op":"llm-infer","status":"ok","detail":"transformer_v1","data":"","model":"build/ai_llm_test2/model.taim","codebook":"","count":85}
+{"ts_ms":1772692536703,"lane":"llm","op":"llm-init","status":"ok","detail":"transformer_v1","data":"","model":"build/ai_llm_test3/model.taim","codebook":"","count":512}
+{"ts_ms":1772692539158,"lane":"llm","op":"llm-infer","status":"ok","detail":"transformer_v1","data":"","model":"build/ai_llm_test3/model.taim","codebook":"","count":85}
+{"ts_ms":1772692633608,"lane":"llm","op":"llm-train","status":"ok","detail":"transformer_v1","data":"build/ai_prod/samples.tnxb","model":"build/ai_llm_test3/model.taim","codebook":"","count":2}
+{"ts_ms":1772721905526,"lane":"llm","op":"serve","status":"ok","detail":"127.0.0.1:8121","data":"","model":"build/ai_local/model.taim","codebook":"TezzAi/data/llm_codebook.tnxb","count":1}
+{"ts_ms":1772722147162,"lane":"llm","op":"serve","status":"ok","detail":"127.0.0.1:8123","data":"","model":"build/ai_local/model.taim","codebook":"TezzAi/data/llm_codebook.tnxb","count":1}
+{"ts_ms":1772723979655,"lane":"llm","op":"serve","status":"ok","detail":"127.0.0.1:8125","data":"","model":"build/ai_local/model.taim","codebook":"TezzAi/data/llm_codebook.tnxb","count":1}

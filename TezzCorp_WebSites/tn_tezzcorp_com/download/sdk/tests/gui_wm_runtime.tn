@@ -1,0 +1,67 @@
+import "wm"
+import "gui"
+import "event"
+
+fn _fail(msg:str) -> int:
+  say msg
+  ret 1
+
+fn _on_key(key:int) -> int:
+  if key < 0:
+    ret 0 - 1
+  ret 0
+
+fn main() -> int:
+  if wm.wm_init() != 0:
+    ret _fail("gui_wm_runtime: wm_init failed")
+
+  a:int = 0
+  b:int = 0
+  unsafe:
+    a = wm.wm_add_window(24, 24, 220, 140, "A", 0 as *char)
+    b = wm.wm_add_window(80, 52, 260, 150, "B", 0 as *char)
+  if a <= 0 || b <= 0:
+    ret _fail("gui_wm_runtime: wm_add_window failed")
+  if wm.wm_window_count() != 2:
+    ret _fail("gui_wm_runtime: count mismatch after add")
+
+  if wm.wm_focus(a) <= 0:
+    ret _fail("gui_wm_runtime: wm_focus failed")
+  if wm.wm_focus_id() != a:
+    ret _fail("gui_wm_runtime: focus id mismatch")
+
+  // Ensure GUI queue is initialized before injecting synthetic events.
+  gui.gui_mouse_x()
+  q:TzEventQueue
+
+  // Click B title bar and drag it.
+  unsafe:
+    event.tz_event_push_pointer(&q, 300, 60, 0, 0)
+    event.tz_event_push_button(&q, 300, 60, 1, 0)
+  if wm.wm_pump() != 0:
+    ret _fail("gui_wm_runtime: wm_pump press failed")
+  if wm.wm_focus_id() != b:
+    ret _fail("gui_wm_runtime: focus did not switch to B")
+  x0:int = wm.wm_window_x(b)
+  y0:int = wm.wm_window_y(b)
+
+  unsafe:
+    event.tz_event_push_pointer(&q, 336, 96, 1, 0)
+  if wm.wm_pump() != 0:
+    ret _fail("gui_wm_runtime: wm_pump drag failed")
+  x1:int = wm.wm_window_x(b)
+  y1:int = wm.wm_window_y(b)
+  if x1 == x0 && y1 == y0:
+    ret _fail("gui_wm_runtime: expected drag movement")
+
+  unsafe:
+    event.tz_event_push_button(&q, 336, 96, 0, 0)
+  if wm.wm_pump() != 0:
+    ret _fail("gui_wm_runtime: wm_pump release failed")
+
+  if wm.wm_window_remove(a) != 0:
+    ret _fail("gui_wm_runtime: wm_window_remove failed")
+  if wm.wm_window_count() != 1:
+    ret _fail("gui_wm_runtime: count mismatch after remove")
+
+  ret 0

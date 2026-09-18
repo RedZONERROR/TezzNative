@@ -1,0 +1,680 @@
+// ocr module: Hindi-first OCR helpers (production baseline).
+//
+// Backend:
+// - tesseract CLI (cross-platform)
+//
+// Notes:
+// - This module provides deterministic command construction + extraction helpers.
+// - For production OCR quality, install language data for Hindi (`hin`) and English (`eng`).
+
+import "io"
+
+let OCR_ENGINE_NONE:int = 0
+let OCR_ENGINE_TESSERACT:int = 1
+
+let OCR_LANGS_DEFAULT:str = "hin+eng"
+let OCR_PSM_DEFAULT:int = 6
+
+fn engine_none() -> int:
+  ret OCR_ENGINE_NONE
+
+fn engine_tesseract() -> int:
+  ret OCR_ENGINE_TESSERACT
+
+fn default_langs() -> str:
+  ret OCR_LANGS_DEFAULT
+
+fn default_psm() -> int:
+  ret OCR_PSM_DEFAULT
+
+// Language catalogs for production OCR selector UIs.
+fn india_langs() -> str:
+  ret "hin,eng,ben,tam,tel,mar,guj,kan,mal,pan,ori,asm,urd,san,nep"
+
+fn global_langs() -> str:
+  ret "eng,spa,fra,deu,ita,por,rus,jpn,kor,chi_sim,ara"
+
+fn _join2(a:str, b:str) -> str:
+  if a == 0:
+    a = ""
+  if b == 0:
+    b = ""
+  na:int = len(a)
+  nb:int = len(b)
+  out:*char = malloc(na + nb + 1)
+  if out == 0:
+    ret 0 as str
+  if na > 0:
+    unsafe:
+      memcpy(out, a as *char, na)
+  if nb > 0:
+    unsafe:
+      memcpy(out + na, b as *char, nb)
+  out[na + nb] = 0 as char
+  ret out as str
+
+fn _join3(a:str, b:str, c:str) -> str:
+  t0:str = _join2(a, b)
+  if t0 == 0:
+    ret 0 as str
+  out:str = _join2(t0, c)
+  free(t0)
+  ret out
+
+fn _is_abs_path(p:str) -> int:
+  if p == 0 || p[0] == 0 as char:
+    ret 0
+  c0:int = (p[0] as int) & 255
+  if c0 == 47 || c0 == 92:
+    ret 1
+  c1:int = (p[1] as int) & 255
+  if c1 == 58:
+    if (c0 >= 65 && c0 <= 90) || (c0 >= 97 && c0 <= 122):
+      ret 1
+  ret 0
+
+fn _trim_trailing_ws(s:str) -> str:
+  if s == 0:
+    ret 0 as str
+  n:int = len(s)
+  while n > 0:
+    c:int = (s[n - 1] as int) & 255
+    if c == 10 || c == 13 || c == 9 || c == 32:
+      n = n - 1
+    else:
+      break
+  out:*char = malloc(n + 1)
+  if out == 0:
+    ret 0 as str
+  if n > 0:
+    unsafe:
+      memcpy(out, s as *char, n)
+  out[n] = 0 as char
+  ret out as str
+
+fn _cwd_shell() -> str:
+  raw:str = proc_out("pwd")
+  if raw == 0:
+    raw = proc_out("cd")
+    if raw == 0:
+      ret 0 as str
+  if raw[0] == 0 as char:
+    free(raw)
+    raw = proc_out("cd")
+    if raw == 0:
+      ret 0 as str
+  out:str = _trim_trailing_ws(raw)
+  free(raw)
+  ret out
+
+fn abs_path(path:str) -> str:
+  if path == 0 || path[0] == 0 as char:
+    ret 0 as str
+  if _is_abs_path(path) != 0:
+    ret io.path_norm_p(path)
+  cwd:str = _cwd_shell()
+  if cwd == 0:
+    ret io.path_norm_p(path)
+  joined:str = io.path_join2(cwd, path)
+  free(cwd)
+  if joined == 0:
+    ret io.path_norm_p(path)
+  norm:str = io.path_norm_p(joined)
+  free(joined)
+  ret norm
+
+fn _quote_arg(s:str) -> str:
+  if s == 0:
+    s = ""
+  n:int = len(s)
+  out:*char = malloc(n + 3)
+  if out == 0:
+    ret 0 as str
+  out[0] = 34 as char
+  i:int = 0
+  o:int = 1
+  while i < n:
+    c:int = (s[i] as int) & 255
+    if c == 34:
+      out[o] = 39 as char
+    else if c == 10 || c == 13:
+      out[o] = 32 as char
+    else:
+      out[o] = s[i]
+    i = i + 1
+    o = o + 1
+  out[o] = 34 as char
+  out[o + 1] = 0 as char
+  ret out as str
+
+fn _cmd_exists(cmd:str) -> int:
+  if cmd == 0 || cmd[0] == 0 as char:
+    ret 0
+  probe:str = _join3("command -v ", cmd, " >/dev/null 2>/dev/null")
+  if probe == 0:
+    ret 0
+  rc:int = proc_run(probe)
+  free(probe)
+  if rc != 0:
+    probe2:str = _join3("where ", cmd, " >nul 2>nul")
+    if probe2 == 0:
+      ret 0
+    rc = proc_run(probe2)
+    free(probe2)
+  ret rc == 0
+
+fn detect_engine() -> int:
+  if _cmd_exists("tesseract") != 0:
+    ret OCR_ENGINE_TESSERACT
+  ret OCR_ENGINE_NONE
+
+fn engine_name(engine:int) -> str:
+  if engine == OCR_ENGINE_TESSERACT:
+    ret "tesseract"
+  ret "none"
+
+fn available() -> int:
+  ret detect_engine() != OCR_ENGINE_NONE
+
+fn _ascii_lower(c:int) -> int:
+  c = c & 255
+  if c >= 65:
+    if c <= 90:
+      ret c + 32
+  ret c
+
+fn _contains_ci(hay:str, needle:str) -> int:
+  if hay == 0 || needle == 0:
+    ret 0
+  nh:int = len(hay)
+  nn:int = len(needle)
+  if nn <= 0 || nh < nn:
+    ret 0
+  i:int = 0
+  while i <= (nh - nn):
+    j:int = 0
+    while j < nn:
+      hc:int = 0
+      nc:int = 0
+      unsafe:
+        hc = (hay[i + j] as int) & 255
+        nc = (needle[j] as int) & 255
+      if _ascii_lower(hc) != _ascii_lower(nc):
+        break
+      j = j + 1
+    if j == nn:
+      ret 1
+    i = i + 1
+  ret 0
+
+fn _streq_ci(a:str, b:str) -> int:
+  if a == 0 || b == 0:
+    ret 0
+  i:int = 0
+  while 1:
+    av:int = 0
+    bv:int = 0
+    unsafe:
+      av = (a[i] as int) & 255
+      bv = (b[i] as int) & 255
+    if av == 0:
+      break
+    if bv == 0:
+      break
+    if _ascii_lower(av) != _ascii_lower(bv):
+      ret 0
+    i = i + 1
+  end_a:int = 0
+  end_b:int = 0
+  unsafe:
+    end_a = (a[i] as int) & 255
+    end_b = (b[i] as int) & 255
+  if end_a == 0:
+    if end_b == 0:
+      ret 1
+  ret 0
+
+fn normalize_langs(langs:str) -> str:
+  if langs == 0 || langs[0] == 0 as char:
+    ret OCR_LANGS_DEFAULT
+  if _streq_ci(langs, "hindi") != 0:
+    ret "hin+eng"
+  if _streq_ci(langs, "hin") != 0:
+    ret "hin+eng"
+  if _streq_ci(langs, "english") != 0:
+    ret "eng"
+  if _streq_ci(langs, "eng") != 0:
+    ret "eng"
+  if _streq_ci(langs, "bangla") != 0:
+    ret "ben+eng"
+  if _streq_ci(langs, "bengali") != 0:
+    ret "ben+eng"
+  if _streq_ci(langs, "ben") != 0:
+    ret "ben+eng"
+  if _streq_ci(langs, "tamil") != 0:
+    ret "tam+eng"
+  if _streq_ci(langs, "tam") != 0:
+    ret "tam+eng"
+  if _streq_ci(langs, "telugu") != 0:
+    ret "tel+eng"
+  if _streq_ci(langs, "tel") != 0:
+    ret "tel+eng"
+  if _streq_ci(langs, "marathi") != 0:
+    ret "mar+eng"
+  if _streq_ci(langs, "mar") != 0:
+    ret "mar+eng"
+  if _streq_ci(langs, "gujarati") != 0:
+    ret "guj+eng"
+  if _streq_ci(langs, "guj") != 0:
+    ret "guj+eng"
+  if _streq_ci(langs, "kannada") != 0:
+    ret "kan+eng"
+  if _streq_ci(langs, "kan") != 0:
+    ret "kan+eng"
+  if _streq_ci(langs, "malayalam") != 0:
+    ret "mal+eng"
+  if _streq_ci(langs, "mal") != 0:
+    ret "mal+eng"
+  ret langs
+
+fn langs_available() -> str:
+  eng:int = detect_engine()
+  if eng != OCR_ENGINE_TESSERACT:
+    ret 0 as str
+  ret proc_out("tesseract --list-langs")
+
+fn lang_supported(lang:str) -> int:
+  if lang == 0 || lang[0] == 0 as char:
+    ret 0
+  lang = normalize_langs(lang)
+  out:str = langs_available()
+  if out == 0:
+    ret 0
+  ok:int = _contains_ci(out, lang)
+  free(out)
+  ret ok
+
+fn hindi_ready() -> int:
+  if lang_supported("hin") != 0:
+    ret 1
+  if lang_supported("hindi") != 0:
+    ret 1
+  ret 0
+
+fn _itoa(v:int) -> str:
+  neg:int = 0
+  n:int = v
+  if n < 0:
+    neg = 1
+    n = 0 - n
+  tmp:[char;32]
+  i:int = 0
+  if n == 0:
+    tmp[i] = 48 as char
+    i = i + 1
+  while n > 0:
+    d:int = n % 10
+    tmp[i] = (48 + d) as char
+    i = i + 1
+    n = n / 10
+  if neg != 0:
+    tmp[i] = 45 as char
+    i = i + 1
+  out:*char = malloc(i + 1)
+  if out == 0:
+    ret 0 as str
+  j:int = 0
+  while j < i:
+    out[j] = tmp[i - 1 - j]
+    j = j + 1
+  out[i] = 0 as char
+  ret out as str
+
+fn _strip_txt_suffix(path:str) -> str:
+  if path == 0:
+    ret 0 as str
+  n:int = len(path)
+  if n < 5:
+    ret _join2(path, "")
+  c0:int = (path[n - 4] as int) & 255
+  c1:int = (path[n - 3] as int) & 255
+  c2:int = (path[n - 2] as int) & 255
+  c3:int = (path[n - 1] as int) & 255
+  if c0 == 46 && (c1 == 116 || c1 == 84) && (c2 == 120 || c2 == 88) && (c3 == 116 || c3 == 84):
+    out:*char = malloc((n - 3))
+    if out == 0:
+      ret 0 as str
+    if n > 4:
+      unsafe:
+        memcpy(out, path as *char, n - 4)
+    out[n - 4] = 0 as char
+    ret out as str
+  ret _join2(path, "")
+
+// build_extract_command:
+// - to_stdout=1: output text to stdout (capturable via proc_out)
+// - to_stdout=0: write tesseract output using out_txt_path (.txt suffix accepted)
+fn build_extract_command(engine:int, image_path:str, to_stdout:int, langs:str, psm:int, out_txt_path:str) -> str:
+  if engine != OCR_ENGINE_TESSERACT:
+    ret 0 as str
+  if image_path == 0 || image_path[0] == 0 as char:
+    ret 0 as str
+  if langs == 0 || langs[0] == 0 as char:
+    langs = OCR_LANGS_DEFAULT
+  langs = normalize_langs(langs)
+  if psm <= 0:
+    psm = OCR_PSM_DEFAULT
+
+  img_abs:str = abs_path(image_path)
+  if img_abs == 0:
+    ret 0 as str
+  qimg:str = _quote_arg(img_abs)
+  free(img_abs)
+  if qimg == 0:
+    ret 0 as str
+
+  qlangs:str = _quote_arg(langs)
+  if qlangs == 0:
+    free(qimg)
+    ret 0 as str
+  psm_s:str = _itoa(psm)
+  if psm_s == 0:
+    free(qimg)
+    free(qlangs)
+    ret 0 as str
+
+  out_target:str = 0 as str
+  if to_stdout != 0:
+    out_target = _join2("stdout", "")
+  else:
+    if out_txt_path == 0 || out_txt_path[0] == 0 as char:
+      free(qimg)
+      free(qlangs)
+      free(psm_s)
+      ret 0 as str
+    out_abs:str = abs_path(out_txt_path)
+    if out_abs == 0:
+      free(qimg)
+      free(qlangs)
+      free(psm_s)
+      ret 0 as str
+    out_base:str = _strip_txt_suffix(out_abs)
+    free(out_abs)
+    if out_base == 0:
+      free(qimg)
+      free(qlangs)
+      free(psm_s)
+      ret 0 as str
+    out_target = _quote_arg(out_base)
+    free(out_base)
+  if out_target == 0:
+    free(qimg)
+    free(qlangs)
+    free(psm_s)
+    ret 0 as str
+
+  c0:str = _join3("tesseract ", qimg, " ")
+  free(qimg)
+  if c0 == 0:
+    free(qlangs)
+    free(psm_s)
+    free(out_target)
+    ret 0 as str
+  c1:str = _join2(c0, out_target)
+  free(c0)
+  free(out_target)
+  if c1 == 0:
+    free(qlangs)
+    free(psm_s)
+    ret 0 as str
+  c2:str = _join3(c1, " -l ", qlangs)
+  free(c1)
+  free(qlangs)
+  if c2 == 0:
+    free(psm_s)
+    ret 0 as str
+  c3:str = _join3(c2, " --psm ", psm_s)
+  free(c2)
+  free(psm_s)
+  if c3 == 0:
+    ret 0 as str
+
+  if to_stdout != 0:
+    ret c3
+  ret c3
+
+fn extract_text(image_path:str, langs:str, psm:int) -> str:
+  eng:int = detect_engine()
+  if eng == OCR_ENGINE_NONE:
+    ret 0 as str
+  cmd:str = build_extract_command(eng, image_path, 1, langs, psm, "")
+  if cmd == 0:
+    ret 0 as str
+  out:str = proc_out(cmd)
+  free(cmd)
+  ret out
+
+fn extract_to_file(image_path:str, out_txt_path:str, langs:str, psm:int) -> int:
+  eng:int = detect_engine()
+  if eng == OCR_ENGINE_NONE:
+    ret 0 - 1
+  cmd:str = build_extract_command(eng, image_path, 0, langs, psm, out_txt_path)
+  if cmd == 0:
+    ret 0 - 1
+  rc:int = proc_run(cmd)
+  free(cmd)
+  ret rc
+
+// Easy-mode wrappers for concise production code.
+fn extract_auto(image_path:str) -> str:
+  ret extract_text(image_path, OCR_LANGS_DEFAULT, OCR_PSM_DEFAULT)
+
+fn extract_hindi(image_path:str) -> str:
+  ret extract_text(image_path, "hin+eng", OCR_PSM_DEFAULT)
+
+fn extract_auto_to_file(image_path:str, out_txt_path:str) -> int:
+  ret extract_to_file(image_path, out_txt_path, OCR_LANGS_DEFAULT, OCR_PSM_DEFAULT)
+
+fn _path_readable(path:str) -> int:
+  if path == 0 || path[0] == 0 as char:
+    ret 0
+  txt:str = io.read_all(path)
+  if txt == 0:
+    ret 0
+  free(txt)
+  ret 1
+
+fn _pdf_raster_prefix(out_tnx_path:str) -> str:
+  if out_tnx_path == 0 || out_tnx_path[0] == 0 as char:
+    ret 0 as str
+  abs_out:str = abs_path(out_tnx_path)
+  if abs_out == 0:
+    ret 0 as str
+  base:str = _strip_txt_suffix(abs_out)
+  free(abs_out)
+  if base == 0:
+    ret 0 as str
+  pref:str = _join2(base, ".ocr_page")
+  free(base)
+  ret pref
+
+// ocr_extract_pdf:
+// - Rasterizes first PDF page with Poppler (`pdftoppm`) or MuPDF (`mutool`) and then runs OCR.
+// - Writes extracted text to `.tnx`/`.txt` output path.
+// Returns 0 on success; negative on actionable backend errors.
+fn ocr_extract_pdf(pdf_path:str, out_tnx_path:str, lang:str) -> int:
+  if pdf_path == 0 || pdf_path[0] == 0 as char:
+    ret 0 - 1
+  if out_tnx_path == 0 || out_tnx_path[0] == 0 as char:
+    ret 0 - 1
+  if detect_engine() != OCR_ENGINE_TESSERACT:
+    ret 0 - 2
+  if lang == 0 || lang[0] == 0 as char:
+    lang = OCR_LANGS_DEFAULT
+  lang = normalize_langs(lang)
+  pdf_abs:str = abs_path(pdf_path)
+  if pdf_abs == 0:
+    ret 0 - 1
+  pref:str = _pdf_raster_prefix(out_tnx_path)
+  if pref == 0:
+    free(pdf_abs)
+    ret 0 - 1
+  qpdf:str = _quote_arg(pdf_abs)
+  qpref:str = _quote_arg(pref)
+  free(pdf_abs)
+  if qpdf == 0 || qpref == 0:
+    if qpdf != 0:
+      free(qpdf)
+    if qpref != 0:
+      free(qpref)
+    free(pref)
+    ret 0 - 1
+
+  // Preferred raster backend: pdftoppm.
+  c0:str = _join3("pdftoppm -f 1 -singlefile -png ", qpdf, " ")
+  if c0 == 0:
+    free(qpdf)
+    free(qpref)
+    free(pref)
+    ret 0 - 3
+  c1:str = _join2(c0, qpref)
+  free(c0)
+  if c1 == 0:
+    free(qpdf)
+    free(qpref)
+    free(pref)
+    ret 0 - 3
+  rc:int = proc_run(c1)
+  free(c1)
+  if rc != 0:
+    // Fallback raster backend: mutool draw.
+    out_png_q:str = _join2(qpref, ".png")
+    if out_png_q != 0:
+      m0:str = _join3("mutool draw -F png -o ", out_png_q, " ")
+      if m0 != 0:
+        m1:str = _join2(m0, qpdf)
+        free(m0)
+        if m1 != 0:
+          m2:str = _join2(m1, " 1")
+          free(m1)
+          if m2 != 0:
+            rc = proc_run(m2)
+            free(m2)
+      free(out_png_q)
+  free(qpdf)
+  free(qpref)
+
+  img_path:str = _join2(pref, ".png")
+  free(pref)
+  if img_path == 0:
+    ret 0 - 3
+  if rc != 0:
+    free(img_path)
+    ret 0 - 3
+  if _path_readable(img_path) == 0:
+    free(img_path)
+    ret 0 - 3
+  ocr_rc:int = extract_to_file(img_path, out_tnx_path, lang, OCR_PSM_DEFAULT)
+  free(img_path)
+  ret ocr_rc
+
+fn _json_escape(s:str) -> str:
+  if s == 0:
+    ret 0 as str
+  n:int = len(s)
+  out:*char = malloc((n * 2) + 1)
+  if out == 0:
+    ret 0 as str
+  i:int = 0
+  o:int = 0
+  while i < n:
+    c:int = 0
+    unsafe:
+      c = (s[i] as int) & 255
+    if c == 92 || c == 34:
+      out[o] = 92 as char
+      out[o + 1] = c as char
+      o = o + 2
+    else if c == 10:
+      out[o] = 92 as char
+      out[o + 1] = 110 as char
+      o = o + 2
+    else if c == 13:
+      out[o] = 92 as char
+      out[o + 1] = 114 as char
+      o = o + 2
+    else if c == 9:
+      out[o] = 92 as char
+      out[o + 1] = 116 as char
+      o = o + 2
+    else:
+      out[o] = c as char
+      o = o + 1
+    i = i + 1
+  out[o] = 0 as char
+  ret out as str
+
+fn ocr_write_text_format(out_path:str, text:str, format:str) -> int:
+  if out_path == 0 || out_path[0] == 0 as char:
+    ret 0 - 1
+  if text == 0:
+    ret 0 - 1
+  if format == 0 || format[0] == 0 as char:
+    format = "tnx"
+  if _streq_ci(format, "txt") != 0 || _streq_ci(format, "tnx") != 0:
+    ret io.write_all(out_path, text)
+  if _streq_ci(format, "md") != 0 || _streq_ci(format, "markdown") != 0:
+    b0:str = _join2("```text\n", text)
+    if b0 == 0:
+      ret 0 - 2
+    b1:str = _join2(b0, "\n```\n")
+    free(b0)
+    if b1 == 0:
+      ret 0 - 2
+    rc_md:int = io.write_all(out_path, b1)
+    free(b1)
+    ret rc_md
+  if _streq_ci(format, "json") != 0:
+    esc:str = _json_escape(text)
+    if esc == 0:
+      ret 0 - 2
+    j0:str = _join2("{\"format\":\"ocr\",\"text\":\"", esc)
+    free(esc)
+    if j0 == 0:
+      ret 0 - 2
+    j1:str = _join2(j0, "\"}\n")
+    free(j0)
+    if j1 == 0:
+      ret 0 - 2
+    rc_json:int = io.write_all(out_path, j1)
+    free(j1)
+    ret rc_json
+  ret 0 - 3
+
+fn ocr_extract_image_to_format(image_path:str, out_path:str, langs:str, psm:int, format:str) -> int:
+  txt:str = extract_text(image_path, langs, psm)
+  if txt == 0:
+    ret 0 - 1
+  rc:int = ocr_write_text_format(out_path, txt, format)
+  free(txt)
+  ret rc
+
+fn ocr_extract_pdf_to_format(pdf_path:str, out_path:str, lang:str, format:str) -> int:
+  if format == 0 || format[0] == 0 as char:
+    format = "tnx"
+  if _streq_ci(format, "txt") != 0 || _streq_ci(format, "tnx") != 0:
+    ret ocr_extract_pdf(pdf_path, out_path, lang)
+  tmp_out:str = _join2(out_path, ".tmp.tnx")
+  if tmp_out == 0:
+    ret 0 - 1
+  rc_pdf:int = ocr_extract_pdf(pdf_path, tmp_out, lang)
+  if rc_pdf != 0:
+    free(tmp_out)
+    ret rc_pdf
+  txt2:str = io.read_all(tmp_out)
+  free(tmp_out)
+  if txt2 == 0:
+    ret 0 - 2
+  rc_fmt:int = ocr_write_text_format(out_path, txt2, format)
+  free(txt2)
+  ret rc_fmt

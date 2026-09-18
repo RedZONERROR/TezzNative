@@ -1,0 +1,12 @@
+{
+  "language": "TezzNative",
+  "version": "2.2.1",
+  "channel": "release",
+  "api": "v2",
+  "vendor": "TezzCorp Pvt Ltd.",
+  "creator": "Rohit Pathak",
+  "backend": "x64-pe-native",
+  "compiler": "tezzc",
+  "codegen": "ir-v4",
+  "targets": ["x86_64-windows", "x86_64-linux", "aarch64-linux", "x86_64-macos", "aarch64-macos"]
+}

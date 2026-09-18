@@ -1,0 +1,16 @@
+import "tnui"
+
+fn main() -> int:
+  app:TnUiApp
+  if app.ready != 0:
+    app.ready = 0
+  unsafe:
+    tnui.focus_get(&app)
+    tnui.ime_active(&app)
+    tnui.ime_cursor(&app)
+    tnui.ime_length(&app)
+    tnui.control_exists(&app, 1)
+    tnui.control_count(&app)
+    tnui.checkbox_value(&app, 10)
+    tnui.slider_value(&app, 20)
+  ret 0

@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TEZZAI Local</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main class="wrap">
+    <header class="head">
+      <h1>TEZZAI Local</h1>
+      <p>Prompt to TezzNative code</p>
+      <div id="status" class="chip">checking…</div>
+    </header>
+
+    <section class="panel">
+      <label for="prompt">Prompt</label>
+      <textarea id="prompt" rows="6" placeholder="build api websocket route with auth middleware"></textarea>
+      <div class="row">
+        <select id="template">
+          <option value="auto">auto</option>
+          <option value="api">api</option>
+          <option value="cli">cli</option>
+          <option value="service">service</option>
+          <option value="lib">lib</option>
+        </select>
+        <button id="generate">Generate</button>
+        <button id="copy">Copy</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Response</h2>
+      <pre id="meta"></pre>
+      <pre id="code"></pre>
+    </section>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>

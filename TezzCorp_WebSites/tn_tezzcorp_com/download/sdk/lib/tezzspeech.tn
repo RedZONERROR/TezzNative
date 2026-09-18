@@ -1,0 +1,716 @@
+// tezzspeech module: local TezzSpeech IPC protocol (no HTTP).
+//
+// Transport:
+// - TCP loopback service (default 127.0.0.1:8097)
+// - Binary framed protocol for low-latency request/response.
+//
+// Frame layout (12-byte header + payload):
+//   [0..3]  magic "TZS1"
+//   [4]     version (1)
+//   [5]     op
+//   [6]     status (response only; request uses 0)
+//   [7]     reserved
+//   [8..11] payload_len (u32 little-endian)
+//
+// Payload for SPEAK:
+//   lang=<lang>\n
+//   voice=<voice>\n
+//   rate=<int>\n
+//   clone=<voice_ref_path>\n
+//   trace=<request_id>\n
+//   \n
+//   <text>
+
+import "net"
+import "time"
+
+let TEZZSPEECH_OK:int = 0
+let TEZZSPEECH_ERR:int = 0 - 1
+let TEZZSPEECH_ERR_CONNECT:int = 0 - 2
+let TEZZSPEECH_ERR_PROTO:int = 0 - 3
+let TEZZSPEECH_ERR_SERVICE:int = 0 - 4
+
+let TEZZSPEECH_DEFAULT_HOST:str = "127.0.0.1"
+let TEZZSPEECH_DEFAULT_PORT:int = 8097
+let TEZZSPEECH_DEFAULT_TIMEOUT_MS:int = 1500
+let TEZZSPEECH_DEFAULT_MAX_FRAME_BYTES:int = 1048576
+
+let _TZSP_MAGIC0:int = 84
+let _TZSP_MAGIC1:int = 90
+let _TZSP_MAGIC2:int = 83
+let _TZSP_MAGIC3:int = 49
+let _TZSP_VERSION:int = 1
+let _TZSP_HEADER_BYTES:int = 12
+
+let _TZSP_OP_HEALTH:int = 1
+let _TZSP_OP_SPEAK:int = 2
+let _TZSP_OP_STATS:int = 3
+let _TZSP_OP_LISTEN:int = 4
+
+let _TZSP_STATUS_OK:int = 0
+let _TZSP_STATUS_BAD_REQUEST:int = 1
+let _TZSP_STATUS_QUEUE_FULL:int = 2
+let _TZSP_STATUS_TTS_UNAVAILABLE:int = 3
+let _TZSP_STATUS_INTERNAL:int = 4
+
+struct SpeechFrame:
+  op:int
+  status:int
+  payload:str
+
+fn speech_default_host() -> str:
+  ret TEZZSPEECH_DEFAULT_HOST
+
+fn speech_default_port() -> int:
+  ret TEZZSPEECH_DEFAULT_PORT
+
+fn speech_default_timeout_ms() -> int:
+  ret TEZZSPEECH_DEFAULT_TIMEOUT_MS
+
+fn speech_max_frame_bytes() -> int:
+  ret TEZZSPEECH_DEFAULT_MAX_FRAME_BYTES
+
+fn op_health() -> int:
+  ret _TZSP_OP_HEALTH
+
+fn op_speak() -> int:
+  ret _TZSP_OP_SPEAK
+
+fn op_stats() -> int:
+  ret _TZSP_OP_STATS
+
+fn op_listen() -> int:
+  ret _TZSP_OP_LISTEN
+
+fn status_ok() -> int:
+  ret _TZSP_STATUS_OK
+
+fn status_bad_request() -> int:
+  ret _TZSP_STATUS_BAD_REQUEST
+
+fn status_queue_full() -> int:
+  ret _TZSP_STATUS_QUEUE_FULL
+
+fn status_tts_unavailable() -> int:
+  ret _TZSP_STATUS_TTS_UNAVAILABLE
+
+fn status_internal() -> int:
+  ret _TZSP_STATUS_INTERNAL
+
+fn _u8(c:int) -> int:
+  v:int = c
+  if v < 0:
+    v = v + 256
+  ret v
+
+fn _safe(s:str) -> str:
+  if s == 0:
+    ret ""
+  ret s
+
+fn _join2(a:str, b:str) -> str:
+  a = _safe(a)
+  b = _safe(b)
+  na:int = len(a)
+  nb:int = len(b)
+  out:*char = malloc(na + nb + 1)
+  if out == 0:
+    ret 0 as str
+  if na > 0:
+    unsafe:
+      memcpy(out, a as *char, na)
+  if nb > 0:
+    unsafe:
+      memcpy(out + na, b as *char, nb)
+  out[na + nb] = 0 as char
+  ret out as str
+
+fn _join3(a:str, b:str, c:str) -> str:
+  t:str = _join2(a, b)
+  if t == 0:
+    ret 0 as str
+  out:str = _join2(t, c)
+  free(t)
+  ret out
+
+fn _dup(s:str) -> str:
+  if s == 0:
+    ret 0 as str
+  n:int = len(s)
+  out:*char = malloc(n + 1)
+  if out == 0:
+    ret 0 as str
+  if n > 0:
+    unsafe:
+      memcpy(out, s as *char, n)
+  out[n] = 0 as char
+  ret out as str
+
+fn _dup_range(s:str, start:int, n:int) -> str:
+  if s == 0 || start < 0 || n < 0:
+    ret 0 as str
+  out:*char = malloc(n + 1)
+  if out == 0:
+    ret 0 as str
+  if n > 0:
+    unsafe:
+      memcpy(out, (s + start) as *char, n)
+  out[n] = 0 as char
+  ret out as str
+
+fn _itoa(v:int) -> str:
+  n:int = v
+  neg:int = 0
+  if n < 0:
+    neg = 1
+    n = 0 - n
+  tmp:[char;32]
+  i:int = 0
+  if n == 0:
+    tmp[i] = 48 as char
+    i = i + 1
+  while n > 0:
+    d:int = n % 10
+    tmp[i] = (48 + d) as char
+    i = i + 1
+    n = n / 10
+  if neg != 0:
+    tmp[i] = 45 as char
+    i = i + 1
+  out:*char = malloc(i + 1)
+  if out == 0:
+    ret 0 as str
+  j:int = 0
+  while j < i:
+    out[j] = tmp[i - j - 1]
+    j = j + 1
+  out[i] = 0 as char
+  ret out as str
+
+fn _parse_int(s:str) -> int:
+  if s == 0:
+    ret 0
+  i:int = 0
+  sign:int = 1
+  if s[0] == 45 as char:
+    sign = 0 - 1
+    i = 1
+  n:int = 0
+  while s[i] != 0 as char:
+    c:int = (s[i] as int) & 255
+    if c < 48 || c > 57:
+      break
+    n = n * 10 + (c - 48)
+    i = i + 1
+  ret n * sign
+
+fn speech_text_signature(text:str) -> int:
+  if text == 0:
+    ret 0
+  // Stable lightweight signature for realtime listener matching.
+  h:int = 17
+  i:int = 0
+  while text[i] != 0 as char:
+    c:int = _u8(text[i] as int)
+    h = (h * 131 + c) % 2147483647
+    i = i + 1
+  ret h
+
+fn _u32_write_le(buf:*char, off:int, v:int) -> int:
+  n:int = v
+  if n < 0:
+    n = 0
+  i:int = 0
+  while i < 4:
+    b:int = n % 256
+    buf[off + i] = b as char
+    n = n / 256
+    i = i + 1
+  ret 0
+
+fn _u32_read_le(buf:*char, off:int) -> int:
+  p:int = 1
+  out:int = 0
+  i:int = 0
+  while i < 4:
+    c:int = _u8(buf[off + i] as int)
+    out = out + (c * p)
+    p = p * 256
+    i = i + 1
+  ret out
+
+fn _recv_exact(sock:int, buf:*char, n:int) -> int:
+  if sock < 0 || buf == 0 || n < 0:
+    ret TEZZSPEECH_ERR
+  got:int = 0
+  while got < n:
+    r:int = net.recv(sock, buf + got, n - got)
+    if r <= 0:
+      ret TEZZSPEECH_ERR
+    got = got + r
+  ret got
+
+fn speech_proto_send(sock:int, op:int, status:int, payload:str) -> int:
+  if sock < 0:
+    ret TEZZSPEECH_ERR
+  data:str = payload
+  plen:int = 0
+  if data != 0:
+    plen = len(data)
+  hdr:[char;12]
+  hdr[0] = _TZSP_MAGIC0 as char
+  hdr[1] = _TZSP_MAGIC1 as char
+  hdr[2] = _TZSP_MAGIC2 as char
+  hdr[3] = _TZSP_MAGIC3 as char
+  hdr[4] = _TZSP_VERSION as char
+  hdr[5] = op as char
+  hdr[6] = status as char
+  hdr[7] = 0 as char
+  _u32_write_le(&hdr[0], 8, plen)
+  if net.tcp_send_all(sock, &hdr[0], _TZSP_HEADER_BYTES) < 0:
+    ret TEZZSPEECH_ERR
+  if plen > 0:
+    if net.tcp_send_all(sock, data as *char, plen) < 0:
+      ret TEZZSPEECH_ERR
+  ret TEZZSPEECH_OK
+
+fn speech_frame_free(fr:*SpeechFrame) -> int:
+  if fr == 0:
+    ret 0
+  if (*fr).payload != 0:
+    free((*fr).payload)
+  free(fr as *char)
+  ret 0
+
+fn speech_recv_raw(sock:int, max_payload:int) -> *char:
+  fr:*SpeechFrame = speech_proto_recv(sock, max_payload)
+  ret fr as *char
+
+fn speech_frame_op_raw(fr:*char) -> int:
+  if fr == 0:
+    ret 0 - 1
+  ret (*(fr as *SpeechFrame)).op
+
+fn speech_frame_status_raw(fr:*char) -> int:
+  if fr == 0:
+    ret 0 - 1
+  ret (*(fr as *SpeechFrame)).status
+
+fn speech_frame_payload_raw(fr:*char) -> str:
+  if fr == 0:
+    ret 0 as str
+  p:str = (*(fr as *SpeechFrame)).payload
+  if p == 0:
+    ret 0 as str
+  ret _dup(p)
+
+fn speech_frame_free_raw(fr:*char) -> int:
+  if fr == 0:
+    ret 0
+  ret speech_frame_free(fr as *SpeechFrame)
+
+fn speech_proto_recv(sock:int, max_payload:int) -> *SpeechFrame:
+  if sock < 0:
+    ret 0 as *SpeechFrame
+  if max_payload <= 0:
+    max_payload = TEZZSPEECH_DEFAULT_MAX_FRAME_BYTES
+  hdr:[char;12]
+  if _recv_exact(sock, &hdr[0], _TZSP_HEADER_BYTES) < 0:
+    ret 0 as *SpeechFrame
+  if _u8(hdr[0] as int) != _TZSP_MAGIC0 || _u8(hdr[1] as int) != _TZSP_MAGIC1 || _u8(hdr[2] as int) != _TZSP_MAGIC2 || _u8(hdr[3] as int) != _TZSP_MAGIC3:
+    ret 0 as *SpeechFrame
+  if _u8(hdr[4] as int) != _TZSP_VERSION:
+    ret 0 as *SpeechFrame
+  op:int = _u8(hdr[5] as int)
+  st:int = _u8(hdr[6] as int)
+  plen:int = _u32_read_le(&hdr[0], 8)
+  if plen < 0 || plen > max_payload:
+    ret 0 as *SpeechFrame
+  p:*char = 0 as *char
+  if plen > 0:
+    p = malloc(plen + 1)
+    if p == 0:
+      ret 0 as *SpeechFrame
+    if _recv_exact(sock, p, plen) < 0:
+      free(p)
+      ret 0 as *SpeechFrame
+    p[plen] = 0 as char
+  fr:*SpeechFrame = (*SpeechFrame)malloc(sizeof(SpeechFrame))
+  if fr == 0:
+    if p != 0:
+      free(p)
+    ret 0 as *SpeechFrame
+  (*fr).op = op
+  (*fr).status = st
+  if p == 0:
+    (*fr).payload = 0 as str
+  else:
+    (*fr).payload = p as str
+  ret fr
+
+fn _request_frame(host:str, port:int, op:int, payload:str, timeout_ms:int, max_payload:int) -> *SpeechFrame:
+  h:str = host
+  p:int = port
+  if h == 0 || h[0] == 0 as char:
+    h = TEZZSPEECH_DEFAULT_HOST
+  if p <= 0:
+    p = TEZZSPEECH_DEFAULT_PORT
+  if timeout_ms <= 0:
+    timeout_ms = TEZZSPEECH_DEFAULT_TIMEOUT_MS
+  if max_payload <= 0:
+    max_payload = TEZZSPEECH_DEFAULT_MAX_FRAME_BYTES
+  s:int = net.tcp_connect(h, p)
+  if s < 0:
+    ret 0 as *SpeechFrame
+  net.set_timeout(s, timeout_ms)
+  if speech_proto_send(s, op, _TZSP_STATUS_OK, payload) != TEZZSPEECH_OK:
+    net.close(s)
+    ret 0 as *SpeechFrame
+  fr:*SpeechFrame = speech_proto_recv(s, max_payload)
+  net.close(s)
+  ret fr
+
+fn speech_url(host:str, port:int, path:str) -> str:
+  h:str = host
+  p:int = port
+  u:str = path
+  if h == 0 || h[0] == 0 as char:
+    h = TEZZSPEECH_DEFAULT_HOST
+  if p <= 0:
+    p = TEZZSPEECH_DEFAULT_PORT
+  if u == 0:
+    u = ""
+  ps:str = _itoa(p)
+  if ps == 0:
+    ret 0 as str
+  a:str = _join2("tzspeech://", h)
+  b:str = _join2(a, ":")
+  c:str = _join2(b, ps)
+  d:str = _join2(c, u)
+  free(ps)
+  free(a)
+  free(b)
+  free(c)
+  ret d
+
+fn speech_headers(lang:str, voice:str, rate:int) -> str:
+  // compatibility helper: now returns metadata lines used by IPC payload.
+  rs:str = _itoa(rate)
+  if rs == 0:
+    ret 0 as str
+  a:str = _join3("lang=", _safe(lang), "\n")
+  b:str = _join3("voice=", _safe(voice), "\n")
+  c:str = _join3("rate=", rs, "\n")
+  d:str = _join2(a, b)
+  e:str = _join2(d, c)
+  free(a)
+  free(b)
+  free(c)
+  free(d)
+  free(rs)
+  ret e
+
+fn speech_encode_speak_payload(text:str, lang:str, voice:str, rate:int, clone_ref:str, trace_id:str) -> str:
+  rs:str = _itoa(rate)
+  if rs == 0:
+    ret 0 as str
+  a:str = _join3("lang=", _safe(lang), "\n")
+  b:str = _join3("voice=", _safe(voice), "\n")
+  c:str = _join3("rate=", rs, "\n")
+  d:str = _join3("clone=", _safe(clone_ref), "\n")
+  e:str = _join3("trace=", _safe(trace_id), "\n")
+  ab:str = _join2(a, b)
+  abc:str = _join2(ab, c)
+  abcd:str = _join2(abc, d)
+  abcde:str = _join2(abcd, e)
+  meta:str = _join2(abcde, "\n")
+  out:str = _join2(meta, _safe(text))
+  free(a)
+  free(b)
+  free(c)
+  free(d)
+  free(e)
+  free(ab)
+  free(abc)
+  free(abcd)
+  free(abcde)
+  free(meta)
+  free(rs)
+  ret out
+
+fn speech_listen_payload(trace_id:str, lang:str, voice:str, rate:int, clone_ref:str) -> str:
+  rs:str = _itoa(rate)
+  if rs == 0:
+    ret 0 as str
+  a:str = _join3("trace=", _safe(trace_id), "\n")
+  b:str = _join3("lang=", _safe(lang), "\n")
+  c:str = _join3("voice=", _safe(voice), "\n")
+  d:str = _join3("rate=", rs, "\n")
+  e:str = _join3("clone=", _safe(clone_ref), "\n")
+  ab:str = _join2(a, b)
+  abc:str = _join2(ab, c)
+  abcd:str = _join2(abc, d)
+  abcde:str = _join2(abcd, e)
+  out:str = _join2(abcde, "\n")
+  free(a)
+  free(b)
+  free(c)
+  free(d)
+  free(e)
+  free(ab)
+  free(abc)
+  free(abcd)
+  free(abcde)
+  free(rs)
+  ret out
+
+fn speech_listen_payload_ex(trace_id:str, lang:str, voice:str, rate:int, clone_ref:str, expect_text:str) -> str:
+  base:str = speech_listen_payload(trace_id, lang, voice, rate, clone_ref)
+  if base == 0:
+    ret 0 as str
+  if expect_text == 0 || len(expect_text) == 0:
+    ret base
+  sig:int = speech_text_signature(expect_text)
+  sig_s:str = _itoa(sig)
+  if sig_s == 0:
+    free(base)
+    ret 0 as str
+  line:str = _join3("text_sig=", sig_s, "\n")
+  if line == 0:
+    free(base)
+    free(sig_s)
+    ret 0 as str
+  out:str = _join2(base, line)
+  free(base)
+  free(sig_s)
+  free(line)
+  ret out
+
+fn _find_meta_end(payload:str) -> int:
+  if payload == 0:
+    ret 0 - 1
+  i:int = 0
+  while payload[i] != 0 as char:
+    if payload[i] == 10 as char && payload[i + 1] == 10 as char:
+      ret i
+    i = i + 1
+  // No body separator means payload is metadata-only.
+  ret i
+
+fn _eq_span(s:str, start:int, n:int, key:str) -> int:
+  if s == 0 || key == 0 || n < 0:
+    ret 0
+  i:int = 0
+  while i < n:
+    if key[i] == 0 as char:
+      ret 0
+    if s[start + i] != key[i]:
+      ret 0
+    i = i + 1
+  if key[i] != 0 as char:
+    ret 0
+  ret 1
+
+fn speech_payload_meta(payload:str, key:str) -> str:
+  if payload == 0 || key == 0:
+    ret 0 as str
+  end:int = _find_meta_end(payload)
+  if end < 0:
+    ret 0 as str
+  start:int = 0
+  while start < end:
+    line_end:int = start
+    while line_end < end && payload[line_end] != 10 as char:
+      line_end = line_end + 1
+    eq:int = 0 - 1
+    j:int = start
+    while j < line_end:
+      if payload[j] == 61 as char:
+        eq = j
+        break
+      j = j + 1
+    if eq > start:
+      klen:int = eq - start
+      if _eq_span(payload, start, klen, key) != 0:
+        ret _dup_range(payload, eq + 1, line_end - eq - 1)
+    start = line_end + 1
+  ret 0 as str
+
+fn _payload_has_key(payload:str, key:str) -> int:
+  if payload == 0 || key == 0:
+    ret 0
+  v:str = speech_payload_meta(payload, key)
+  if v == 0:
+    ret 0
+  free(v)
+  ret 1
+
+fn speech_payload_text(payload:str) -> str:
+  if payload == 0:
+    ret 0 as str
+  end:int = _find_meta_end(payload)
+  if end < 0:
+    ret _dup(payload)
+  // Metadata-only payload: no text body.
+  if payload[end] == 0 as char:
+    ret _dup("")
+  ret _dup((payload + end + 2) as str)
+
+fn speech_payload_int(payload:str, key:str, fallback:int) -> int:
+  v:str = speech_payload_meta(payload, key)
+  if v == 0:
+    ret fallback
+  n:int = _parse_int(v)
+  free(v)
+  ret n
+
+fn speech_payload_error(payload:str) -> str:
+  if payload == 0:
+    ret 0 as str
+  err:str = speech_payload_meta(payload, "error")
+  if err == 0 || len(err) == 0:
+    if err != 0:
+      free(err)
+    ret 0 as str
+  ret err
+
+fn speech_payload_ok(payload:str) -> int:
+  if payload == 0:
+    ret 0
+  if speech_payload_int(payload, "ok", 0) == 0:
+    ret 0
+  err:str = speech_payload_error(payload)
+  if err != 0:
+    free(err)
+    ret 0
+  ret 1
+
+fn speech_listener_match_score(payload:str) -> int:
+  if payload == 0:
+    ret 0
+  total:int = 0
+  hit:int = 0
+
+  total = total + 1
+  if speech_payload_int(payload, "match_trace", 0) != 0:
+    hit = hit + 1
+
+  total = total + 1
+  if speech_payload_int(payload, "match_lang", 0) != 0:
+    hit = hit + 1
+
+  total = total + 1
+  if speech_payload_int(payload, "match_voice", 0) != 0:
+    hit = hit + 1
+
+  total = total + 1
+  if speech_payload_int(payload, "match_rate", 0) != 0:
+    hit = hit + 1
+
+  total = total + 1
+  if speech_payload_int(payload, "match_clone", 0) != 0:
+    hit = hit + 1
+
+  // Optional strict lanes: include extra matching dimensions only when present.
+  if _payload_has_key(payload, "match_text_sig") != 0:
+    total = total + 1
+    if speech_payload_int(payload, "match_text_sig", 0) != 0:
+      hit = hit + 1
+  if _payload_has_key(payload, "match_clone_sig") != 0:
+    total = total + 1
+    if speech_payload_int(payload, "match_clone_sig", 0) != 0:
+      hit = hit + 1
+
+  if total <= 0:
+    ret 0
+  ret (hit * 100) / total
+
+fn speech_listener_all_match(payload:str) -> int:
+  ret speech_listener_match_score(payload) == 100
+
+fn speech_send_ex(host:str, port:int, text:str, lang:str, voice:str, rate:int, clone_ref:str, trace_id:str, timeout_ms:int) -> int:
+  if text == 0 || text[0] == 0 as char:
+    ret TEZZSPEECH_ERR
+  payload:str = speech_encode_speak_payload(text, lang, voice, rate, clone_ref, trace_id)
+  if payload == 0:
+    ret TEZZSPEECH_ERR
+  fr:*SpeechFrame = _request_frame(host, port, _TZSP_OP_SPEAK, payload, timeout_ms, TEZZSPEECH_DEFAULT_MAX_FRAME_BYTES)
+  free(payload)
+  if fr == 0:
+    ret TEZZSPEECH_ERR_CONNECT
+  st:int = (*fr).status
+  speech_frame_free(fr)
+  if st == _TZSP_STATUS_OK:
+    ret TEZZSPEECH_OK
+  ret 0 - st
+
+fn speech_send_to(host:str, port:int, text:str, lang:str, voice:str, rate:int) -> int:
+  ret speech_send_ex(host, port, text, lang, voice, rate, "", "", TEZZSPEECH_DEFAULT_TIMEOUT_MS)
+
+fn speech_send(text:str, lang:str, voice:str, rate:int) -> int:
+  ret speech_send_ex(TEZZSPEECH_DEFAULT_HOST, TEZZSPEECH_DEFAULT_PORT, text, lang, voice, rate, "", "", TEZZSPEECH_DEFAULT_TIMEOUT_MS)
+
+fn speech_health(host:str, port:int) -> int:
+  fr:*SpeechFrame = _request_frame(host, port, _TZSP_OP_HEALTH, "", TEZZSPEECH_DEFAULT_TIMEOUT_MS, 16384)
+  if fr == 0:
+    ret TEZZSPEECH_ERR_CONNECT
+  st:int = (*fr).status
+  speech_frame_free(fr)
+  if st == _TZSP_STATUS_OK:
+    ret TEZZSPEECH_OK
+  ret 0 - st
+
+fn speech_stats(host:str, port:int) -> str:
+  fr:*SpeechFrame = _request_frame(host, port, _TZSP_OP_STATS, "", TEZZSPEECH_DEFAULT_TIMEOUT_MS, 262144)
+  if fr == 0:
+    ret _dup("ok=0\nerror=service_unreachable\n")
+  out:str = 0 as str
+  if (*fr).payload != 0:
+    out = _dup((*fr).payload)
+  else:
+    st_s:str = _itoa((*fr).status)
+    if st_s != 0:
+      p0:str = _join3("ok=0\nerror=empty_payload\nstatus=", st_s, "\n")
+      out = p0
+      free(st_s)
+    else:
+      out = _dup("ok=0\nerror=empty_payload\n")
+  speech_frame_free(fr)
+  ret out
+
+fn speech_listen_to(host:str, port:int, trace_id:str, lang:str, voice:str, rate:int, clone_ref:str) -> str:
+  ret speech_listen_to_match(host, port, trace_id, lang, voice, rate, clone_ref, "")
+
+fn speech_listen_to_match(host:str, port:int, trace_id:str, lang:str, voice:str, rate:int, clone_ref:str, expect_text:str) -> str:
+  payload:str = speech_listen_payload_ex(trace_id, lang, voice, rate, clone_ref, expect_text)
+  own_payload:int = 1
+  if payload == 0:
+    payload = ""
+    own_payload = 0
+  fr:*SpeechFrame = _request_frame(host, port, _TZSP_OP_LISTEN, payload, TEZZSPEECH_DEFAULT_TIMEOUT_MS, 262144)
+  if own_payload != 0:
+    free(payload)
+  if fr == 0:
+    ret _dup("ok=0\nerror=service_unreachable\n")
+  out:str = 0 as str
+  if (*fr).payload != 0:
+    out = _dup((*fr).payload)
+  else:
+    st_s:str = _itoa((*fr).status)
+    if st_s != 0:
+      p0:str = _join3("ok=0\nerror=empty_payload\nstatus=", st_s, "\n")
+      out = p0
+      free(st_s)
+    else:
+      out = _dup("ok=0\nerror=empty_payload\n")
+  speech_frame_free(fr)
+  ret out
+
+fn speech_listen(host:str, port:int, trace_id:str) -> str:
+  ret speech_listen_to(host, port, trace_id, "", "", 0, "")
+
+fn speech_stats_default() -> str:
+  ret speech_stats(TEZZSPEECH_DEFAULT_HOST, TEZZSPEECH_DEFAULT_PORT)
+
+fn speech_listen_default(trace_id:str) -> str:
+  ret speech_listen(TEZZSPEECH_DEFAULT_HOST, TEZZSPEECH_DEFAULT_PORT, trace_id)

@@ -1,0 +1,127 @@
+// ai_chat.tn — TezzNative On-Device Interactive Chat
+//
+// Demonstrates a complete interactive CLI chat loop using the LLM engine:
+//   1. Initialize hardware and load LLM model
+//   2. Accept user input from stdin
+//   3. Format as chat message (system + user + assistant template)
+//   4. Generate response with streaming token output
+//   5. Loop until user types "quit" or "exit"
+//
+// Usage:
+//   tezzc run examples/ai_chat.tn                    (demo mode — no model)
+//   tezzc run examples/ai_chat.tn my_model.tnw       (load a real model)
+//
+// Without a model file, runs in echo/demo mode to show the pipeline works.
+
+import "ai"
+import "llm"
+import "device"
+import "pipeline"
+
+extern fn getchar() -> int
+
+fn main() -> int:
+  unsafe:
+    say "╔══════════════════════════════════════════════════════╗"
+    say "║        TezzNative On-Device AI — Chat Interface       ║"
+    say "╚══════════════════════════════════════════════════════╝"
+    say ""
+
+    // ── Initialize ────────────────────────────────────────────
+    ai.init_quiet()
+    say "Device: ", ai.best_backend_name()
+    say "NPU:    ", device.npu_available()
+    say "GPU:    ", device.gpu_available()
+    say ""
+
+    // ── Model path ────────────────────────────────────────────
+    // Default: no model (demo mode)
+    model_path:str = 0 as str
+    // In a real deployment, set: model_path = "models/my_model.tnw"
+
+    // Demo greeting
+    say "System: You are a helpful TezzNative AI assistant."
+    say "Type your message and press Enter. Type 'quit' to exit."
+    say ""
+
+    // ── Chat state ────────────────────────────────────────────
+    let MAX_TOKENS:int = 128
+    let TEMPERATURE:float = 0.7
+
+    // Simple chat history buffer (last 4 exchanges)
+    history_buf:[char;4096]
+    history_len:int = 0
+
+    turn:int = 0
+
+    while 1:
+      // Prompt
+      say "You: "
+
+      // Read line from stdin using getchar
+      line_buf:[char;512]
+      line_len:int = 0
+      c:int = 0
+      is_eof:int = 0
+      while line_len < 511:
+        unsafe:
+          c = getchar()
+        if c == 10:
+          break
+        if c <= 0 || c == 255 || c == 0 - 1:
+          is_eof = 1
+          break
+        if c == 13:
+          continue
+        line_buf[line_len] = c as char
+        line_len = line_len + 1
+      line_buf[line_len] = 0 as char
+
+      user_input:str = (&line_buf[0]) as str
+
+      if is_eof != 0:
+        say "Goodbye!"
+        break
+
+      // Exit check
+      if line_len == 0:
+        continue
+      if strcmp(user_input, "quit") == 0 || strcmp(user_input, "exit") == 0:
+        say "Goodbye!"
+        break
+
+      say ""
+      say "Assistant: "
+
+      // Generate response
+      if model_path != 0 && line_len > 0:
+        // Format with chat template
+        prompt:str = llm.llm_format_chat("You are a helpful AI assistant.", user_input)
+        if prompt != 0:
+          // Generate response
+          response:str = ai.generate(model_path, prompt, MAX_TOKENS)
+          if response != 0:
+            say response
+            free(response)
+          else:
+            say "[Generation failed]"
+          free(prompt)
+      else:
+        // Demo mode: echo with transformation
+        say "I heard you say: \"", user_input, "\""
+        say ""
+        say "  [Note: Run with a real .tnw model file for actual LLM responses.]"
+        say "  [System: ", ai.best_backend_name(), " | Params: temp=", TEMPERATURE, " max_tokens=", MAX_TOKENS, "]"
+
+      say ""
+      turn = turn + 1
+
+      if turn >= 50:
+        say "[Max conversation turns reached. Restarting.]"
+        turn = 0
+
+    // ── Cleanup ───────────────────────────────────────────────
+    ai.shutdown()
+    ret 0
+
+

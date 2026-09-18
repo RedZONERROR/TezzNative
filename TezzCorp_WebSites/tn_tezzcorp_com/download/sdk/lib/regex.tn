@@ -1,0 +1,535 @@
+// regex module — deterministic regular expression matching for TezzNative
+// Stability: Beta
+// Depends: runtime
+//
+// Supported patterns:
+//   .       any character
+//   *       zero or more (greedy)
+//   +       one or more (greedy)
+//   ?       zero or one (greedy)
+//   [abc]   character class
+//   [^abc]  negated character class
+//   [a-z]   character range
+//   ^       anchor to start
+//   $       anchor to end
+//   \d      digit [0-9]
+//   \w      word character [a-zA-Z0-9_]
+//   \s      whitespace [ \t\r\n]
+//   \n \r \t  literal escapes
+//   (...)   grouping (non-capturing)
+//   |       alternation (between groups)
+
+import "runtime"
+
+// ---------------------------------------------------------------------------
+// Match result
+// ---------------------------------------------------------------------------
+
+struct RegexMatch:
+  matched:int   // 1 if matched
+  start:int     // byte offset of match start
+  end:int       // byte offset past match end
+  length:int    // end - start
+
+// ---------------------------------------------------------------------------
+// Node opcodes
+// ---------------------------------------------------------------------------
+
+let RE_OP_CHAR:int    = 1
+let RE_OP_ANY:int     = 2
+let RE_OP_CLASS:int   = 3
+let RE_OP_NCLASS:int  = 4
+let RE_OP_STAR:int    = 5
+let RE_OP_PLUS:int    = 6
+let RE_OP_OPT:int     = 7
+let RE_OP_ANCHOR_S:int = 8
+let RE_OP_ANCHOR_E:int = 9
+let RE_OP_ALT:int     = 10
+let RE_OP_GROUP_S:int = 11
+let RE_OP_GROUP_E:int = 12
+let RE_OP_DIGIT:int   = 13
+let RE_OP_WORD:int    = 14
+let RE_OP_SPACE:int   = 15
+let RE_OP_END:int     = 99
+
+let RE_MAX_NODES:int  = 512
+let RE_CLASS_MAX:int  = 128
+
+// ---------------------------------------------------------------------------
+// Structs
+// ---------------------------------------------------------------------------
+
+struct ReNode:
+  op:int
+  ch:int
+  class_buf:*char
+  class_len:int
+  child_idx:int
+  alt_idx:int
+
+struct Regex:
+  nodes:*ReNode
+  node_count:int
+  ok:int
+  unsupported:int
+  error_msg:str
+  anchored_start:int
+  anchored_end:int
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+fn _re_is_digit(c:int) -> int:
+  if c >= 48 && c <= 57: ret 1
+  ret 0
+
+fn _re_is_word(c:int) -> int:
+  if c >= 48 && c <= 57:  ret 1
+  if c >= 65 && c <= 90:  ret 1
+  if c >= 97 && c <= 122: ret 1
+  if c == 95:             ret 1
+  ret 0
+
+fn _re_is_space(c:int) -> int:
+  if c == 32 || c == 9 || c == 10 || c == 13: ret 1
+  ret 0
+
+fn _re_class_match(class_buf:*char, class_len:int, c:int) -> int:
+  i:int = 0
+  while i < class_len:
+    c1:int = class_buf[i] as int
+    i = i + 1
+    if i < class_len:
+      c2:int = class_buf[i] as int
+      if c2 == 45 && i + 1 < class_len:  // '-' range
+        i = i + 1
+        c3:int = class_buf[i] as int
+        i = i + 1
+        if c >= c1 && c <= c3:
+          ret 1
+        continue
+    if c1 == c:
+      ret 1
+  ret 0
+
+// ---------------------------------------------------------------------------
+// Node allocation
+// ---------------------------------------------------------------------------
+
+fn _re_alloc_nodes() -> *ReNode:
+  nodes:*ReNode = (*ReNode)malloc(RE_MAX_NODES * sizeof(ReNode))
+  if nodes == 0:
+    ret 0 as *ReNode
+  // Zero-initialize all node slots
+  i:int = 0
+  while i < RE_MAX_NODES:
+    n:*ReNode = nodes + i
+    (*n).op        = 0
+    (*n).ch        = 0
+    (*n).class_buf = 0 as *char
+    (*n).class_len = 0
+    (*n).child_idx = 0
+    (*n).alt_idx   = 0
+    i = i + 1
+  ret nodes
+
+// Add a new node slot; returns its index or -1 on overflow
+fn _re_add_node(re:*Regex) -> int:
+  nc:int = (*re).node_count
+  if nc >= RE_MAX_NODES - 1:
+    ret 0 - 1
+  nodes:*ReNode = (*re).nodes
+  n:*ReNode = nodes + nc
+  (*n).op        = 0
+  (*n).ch        = 0
+  (*n).class_buf = 0 as *char
+  (*n).class_len = 0
+  (*n).child_idx = 0
+  (*n).alt_idx   = 0
+  (*re).node_count = nc + 1
+  ret nc
+
+// ---------------------------------------------------------------------------
+// Compiler — parse one atom, return new pattern position
+// ---------------------------------------------------------------------------
+
+fn _re_compile_atom(re:*Regex, pat:str, i:int, out_idx:*int) -> int:
+  if pat[i] == 0 as char:
+    (*out_idx) = 0 - 1
+    ret i
+  c:int = pat[i] as int
+
+  if c == 40:  // '(' group start
+    idx:int = _re_add_node(re)
+    if idx < 0: ret 0 - 1
+    n:*ReNode = (*re).nodes + idx
+    (*n).op = RE_OP_GROUP_S
+    (*out_idx) = idx
+    ret i + 1
+
+  if c == 41:  // ')' group end
+    idx:int = _re_add_node(re)
+    if idx < 0: ret 0 - 1
+    n:*ReNode = (*re).nodes + idx
+    (*n).op = RE_OP_GROUP_E
+    (*out_idx) = idx
+    ret i + 1
+
+  if c == 46:  // '.'
+    idx:int = _re_add_node(re)
+    if idx < 0: ret 0 - 1
+    n:*ReNode = (*re).nodes + idx
+    (*n).op = RE_OP_ANY
+    (*out_idx) = idx
+    ret i + 1
+
+  if c == 94:  // '^'
+    idx:int = _re_add_node(re)
+    if idx < 0: ret 0 - 1
+    n:*ReNode = (*re).nodes + idx
+    (*n).op = RE_OP_ANCHOR_S
+    (*out_idx) = idx
+    ret i + 1
+
+  if c == 36:  // '$'
+    idx:int = _re_add_node(re)
+    if idx < 0: ret 0 - 1
+    n:*ReNode = (*re).nodes + idx
+    (*n).op = RE_OP_ANCHOR_E
+    (*out_idx) = idx
+    ret i + 1
+
+  if c == 91:  // '[' character class
+    i = i + 1
+    is_neg:int = 0
+    if pat[i] as int == 94:
+      is_neg = 1
+      i = i + 1
+    class_buf:*char = (*char)malloc(RE_CLASS_MAX)
+    if class_buf == 0:
+      ret 0 - 1
+    cl:int = 0
+    while pat[i] != 0 as char && pat[i] as int != 93:
+      unsafe: class_buf[cl] = pat[i]
+      cl = cl + 1
+      i = i + 1
+      if cl >= RE_CLASS_MAX - 1:
+        break
+    if pat[i] as int == 93:
+      i = i + 1
+    unsafe: class_buf[cl] = 0 as char
+    idx:int = _re_add_node(re)
+    if idx < 0:
+      free(class_buf)
+      ret 0 - 1
+    n:*ReNode = (*re).nodes + idx
+    if is_neg != 0:
+      (*n).op = RE_OP_NCLASS
+    else:
+      (*n).op = RE_OP_CLASS
+    (*n).class_buf = class_buf
+    (*n).class_len = cl
+    (*out_idx) = idx
+    ret i
+
+  if c == 92:  // '\' escape
+    i = i + 1
+    esc:int = pat[i] as int
+    idx:int = _re_add_node(re)
+    if idx < 0: ret 0 - 1
+    n:*ReNode = (*re).nodes + idx
+    if esc == 100:       // \d
+      (*n).op = RE_OP_DIGIT
+    else if esc == 119:  // \w
+      (*n).op = RE_OP_WORD
+    else if esc == 115:  // \s
+      (*n).op = RE_OP_SPACE
+    else if esc == 110:  // \n
+      (*n).op = RE_OP_CHAR
+      (*n).ch = 10
+    else if esc == 114:  // \r
+      (*n).op = RE_OP_CHAR
+      (*n).ch = 13
+    else if esc == 116:  // \t
+      (*n).op = RE_OP_CHAR
+      (*n).ch = 9
+    else:
+      (*n).op = RE_OP_CHAR
+      (*n).ch = esc
+    (*out_idx) = idx
+    ret i + 1
+
+  if c == 124:  // '|' alternation
+    idx:int = _re_add_node(re)
+    if idx < 0: ret 0 - 1
+    n:*ReNode = (*re).nodes + idx
+    (*n).op = RE_OP_ALT
+    (*out_idx) = idx
+    ret i + 1
+
+  // Literal character
+  idx:int = _re_add_node(re)
+  if idx < 0: ret 0 - 1
+  n:*ReNode = (*re).nodes + idx
+  (*n).op = RE_OP_CHAR
+  (*n).ch = c
+  (*out_idx) = idx
+  ret i + 1
+
+// ---------------------------------------------------------------------------
+// Compile
+// ---------------------------------------------------------------------------
+
+fn regex_compile(pattern:str) -> *Regex:
+  re:*Regex = (*Regex)malloc(sizeof(Regex))
+  if re == 0:
+    ret 0 as *Regex
+  (*re).node_count    = 0
+  (*re).ok            = 0
+  (*re).unsupported   = 0
+  (*re).error_msg     = 0 as str
+  (*re).anchored_start = 0
+  (*re).anchored_end  = 0
+  nodes:*ReNode = _re_alloc_nodes()
+  if nodes == 0:
+    free(re)
+    ret 0 as *Regex
+  (*re).nodes = nodes
+  if pattern == 0:
+    (*re).ok = 1
+    ret re
+  plen:int = len(pattern)
+  // Detect anchors
+  if plen > 0 && pattern[0] as int == 94:
+    (*re).anchored_start = 1
+  if plen > 0 && pattern[plen - 1] as int == 36:
+    (*re).anchored_end = 1
+  i:int = 0
+  while i < plen:
+    atom_idx:int = 0 - 1
+    ni:int = _re_compile_atom(re, pattern, i, &atom_idx)
+    if ni < 0:
+      (*re).ok = 0
+      (*re).error_msg = "compile error"
+      ret re
+    if atom_idx >= 0 && ni < plen:
+      qc:int = pattern[ni] as int
+      if qc == 42 || qc == 43 || qc == 63:  // * + ?
+        qidx:int = _re_add_node(re)
+        if qidx >= 0:
+          qn:*ReNode = (*re).nodes + qidx
+          if qc == 42:
+            (*qn).op = RE_OP_STAR
+          else if qc == 43:
+            (*qn).op = RE_OP_PLUS
+          else:
+            (*qn).op = RE_OP_OPT
+          (*qn).child_idx = atom_idx
+        ni = ni + 1
+    i = ni
+  // End node
+  end_idx:int = _re_add_node(re)
+  if end_idx >= 0:
+    n:*ReNode = (*re).nodes + end_idx
+    (*n).op = RE_OP_END
+  (*re).ok = 1
+  ret re
+
+// ---------------------------------------------------------------------------
+// Matching engine — recursive backtracker
+// ---------------------------------------------------------------------------
+
+fn _re_match_here(re:*Regex, nodes:*ReNode, ni:int, s:str, si:int) -> int:
+  nc:int = (*re).node_count
+  if ni >= nc:
+    ret 1
+  n:*ReNode = nodes + ni
+  op:int = (*n).op
+  if op == RE_OP_END:
+    if (*re).anchored_end != 0:
+      if s[si] != 0 as char:
+        ret 0
+    ret 1
+  if op == RE_OP_ANCHOR_S:
+    ret _re_match_here(re, nodes, ni + 1, s, si)
+  if op == RE_OP_ANCHOR_E:
+    if s[si] != 0 as char:
+      ret 0
+    ret _re_match_here(re, nodes, ni + 1, s, si)
+  if op == RE_OP_CHAR:
+    c:int = s[si] as int
+    if c == 0: ret 0
+    if c != (*n).ch: ret 0
+    ret _re_match_here(re, nodes, ni + 1, s, si + 1)
+  if op == RE_OP_ANY:
+    if s[si] as int == 0: ret 0
+    ret _re_match_here(re, nodes, ni + 1, s, si + 1)
+  if op == RE_OP_DIGIT:
+    if _re_is_digit(s[si] as int) == 0: ret 0
+    ret _re_match_here(re, nodes, ni + 1, s, si + 1)
+  if op == RE_OP_WORD:
+    if _re_is_word(s[si] as int) == 0: ret 0
+    ret _re_match_here(re, nodes, ni + 1, s, si + 1)
+  if op == RE_OP_SPACE:
+    if _re_is_space(s[si] as int) == 0: ret 0
+    ret _re_match_here(re, nodes, ni + 1, s, si + 1)
+  if op == RE_OP_CLASS:
+    if s[si] as int == 0: ret 0
+    if _re_class_match((*n).class_buf, (*n).class_len, s[si] as int) == 0: ret 0
+    ret _re_match_here(re, nodes, ni + 1, s, si + 1)
+  if op == RE_OP_NCLASS:
+    if s[si] as int == 0: ret 0
+    if _re_class_match((*n).class_buf, (*n).class_len, s[si] as int) != 0: ret 0
+    ret _re_match_here(re, nodes, ni + 1, s, si + 1)
+  if op == RE_OP_STAR:
+    child:int = (*n).child_idx
+    count:int = 0
+    while s[si + count] != 0 as char && count < 1024:
+      if _re_match_here(re, nodes, child, s, si + count) == 0:
+        break
+      count = count + 1
+    while count >= 0:
+      if _re_match_here(re, nodes, ni + 1, s, si + count) != 0:
+        ret 1
+      count = count - 1
+    ret 0
+  if op == RE_OP_PLUS:
+    child2:int = (*n).child_idx
+    if _re_match_here(re, nodes, child2, s, si) == 0:
+      ret 0
+    count2:int = 1
+    while s[si + count2] != 0 as char && count2 < 1024:
+      if _re_match_here(re, nodes, child2, s, si + count2) == 0:
+        break
+      count2 = count2 + 1
+    while count2 >= 1:
+      if _re_match_here(re, nodes, ni + 1, s, si + count2) != 0:
+        ret 1
+      count2 = count2 - 1
+    ret 0
+  if op == RE_OP_OPT:
+    child3:int = (*n).child_idx
+    if _re_match_here(re, nodes, child3, s, si) != 0:
+      if _re_match_here(re, nodes, ni + 1, s, si + 1) != 0:
+        ret 1
+    ret _re_match_here(re, nodes, ni + 1, s, si)
+  if op == RE_OP_ALT:
+    if ni > 0:
+      if _re_match_here(re, nodes, ni - 1, s, si) != 0:
+        ret 1
+    ret _re_match_here(re, nodes, ni + 1, s, si)
+  if op == RE_OP_GROUP_S || op == RE_OP_GROUP_E:
+    ret _re_match_here(re, nodes, ni + 1, s, si)
+  ret 0
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+fn regex_ok(re:*Regex) -> int:
+  if re == 0: ret 0
+  ret (*re).ok
+
+fn regex_unsupported(re:*Regex) -> int:
+  if re == 0: ret 0
+  ret (*re).unsupported
+
+fn regex_error(re:*Regex) -> str:
+  if re == 0: ret 0 as str
+  ret (*re).error_msg
+
+// Find first match; returns RegexMatch with matched=0 if none
+fn regex_find(re:*Regex, subject:str) -> RegexMatch:
+  m:RegexMatch
+  m.matched = 0
+  m.start   = 0
+  m.end     = 0
+  m.length  = 0
+  if re == 0 || subject == 0:
+    ret m
+  if (*re).ok == 0:
+    ret m
+  nodes:*ReNode = (*re).nodes
+  slen:int = len(subject)
+  si:int = 0
+  while si <= slen:
+    if _re_match_here(re, nodes, 0, subject, si) != 0:
+      // Estimate end by walking through consuming nodes
+      sp:int = si
+      nc:int = (*re).node_count
+      j:int = 0
+      while j < nc:
+        nd:*ReNode = nodes + j
+        nop:int = (*nd).op
+        if nop == RE_OP_END:
+          break
+        if nop == RE_OP_ANCHOR_S || nop == RE_OP_ANCHOR_E || nop == RE_OP_ALT || nop == RE_OP_GROUP_S || nop == RE_OP_GROUP_E || nop == RE_OP_STAR || nop == RE_OP_PLUS || nop == RE_OP_OPT:
+          j = j + 1
+          continue
+        if nop == RE_OP_CHAR || nop == RE_OP_ANY || nop == RE_OP_DIGIT || nop == RE_OP_WORD || nop == RE_OP_SPACE || nop == RE_OP_CLASS || nop == RE_OP_NCLASS:
+          sp = sp + 1
+        j = j + 1
+      m.matched = 1
+      m.start   = si
+      m.end     = sp
+      m.length  = sp - si
+      ret m
+    if (*re).anchored_start != 0:
+      break
+    si = si + 1
+  ret m
+
+// Test if entire string matches
+fn regex_match(re:*Regex, subject:str) -> int:
+  m:RegexMatch = regex_find(re, subject)
+  if m.matched == 0:
+    ret 0
+  if m.start != 0:
+    ret 0
+  if m.end != len(subject):
+    ret 0
+  ret 1
+
+// Count all non-overlapping matches
+fn regex_count(re:*Regex, subject:str) -> int:
+  if re == 0 || subject == 0:
+    ret 0
+  count:int = 0
+  slen:int = len(subject)
+  si:int = 0
+  while si <= slen:
+    nodes:*ReNode = (*re).nodes
+    if _re_match_here(re, nodes, 0, subject, si) != 0:
+      count = count + 1
+    si = si + 1
+  ret count
+
+// Test if subject contains any match of re
+fn regex_contains(re:*Regex, subject:str) -> int:
+  m:RegexMatch = regex_find(re, subject)
+  ret m.matched
+
+// ---------------------------------------------------------------------------
+// Free
+// ---------------------------------------------------------------------------
+
+fn regex_free(re:*Regex) -> int:
+  if re == 0:
+    ret 0
+  nodes:*ReNode = (*re).nodes
+  nc:int = (*re).node_count
+  if nodes != 0:
+    i:int = 0
+    while i < nc:
+      n:*ReNode = nodes + i
+      if (*n).op == RE_OP_CLASS || (*n).op == RE_OP_NCLASS:
+        if (*n).class_buf != 0:
+          free((*n).class_buf)
+      i = i + 1
+    free(nodes)
+  em:str = (*re).error_msg
+  if em != 0:
+    free(em as *char)
+  free(re)
+  ret 0

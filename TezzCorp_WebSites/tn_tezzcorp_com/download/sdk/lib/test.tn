@@ -1,0 +1,531 @@
+// test module — testing assertions and test runner for TezzNative
+// Stability: Beta
+// Depends: runtime
+//
+// Usage:
+//   import "test"
+//   suite:*TestSuite = test_new("my tests")
+//   test_assert_eq_int(suite, "add works", add(2, 3), 5)
+//   code:int = test_run(suite)
+//   test_free(suite)
+
+import "runtime"
+//
+// Usage:
+//   import "test"
+//   suite:*TestSuite = test_new("my tests")
+//   test_assert_eq_int(suite, "add works", add(2, 3), 5)
+//   test_assert_str_eq(suite, "greet", greet("world"), "hello world")
+//   test_assert_ok(suite, "file exists", file_check())
+//   code:int = test_run(suite)
+//   test_free(suite)
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+let TEST_PASS:int = 0
+let TEST_FAIL:int = 1
+let TEST_MAX:int  = 1024
+
+// ---------------------------------------------------------------------------
+// Structs
+// ---------------------------------------------------------------------------
+
+struct TestCase:
+  name:str
+  result:int
+  message:str
+
+struct TestSuite:
+  suite_name:str
+  cases:*TestCase
+  case_count:int
+  pass_count:int
+  fail_count:int
+
+// ---------------------------------------------------------------------------
+// Internal: int to stack string (no heap)
+// ---------------------------------------------------------------------------
+
+fn _test_int_digits(n:int, buf:*char) -> int:
+  neg:int = 0
+  v:int = n
+  if v < 0:
+    neg = 1
+    v = 0 - v
+  tmp:[char;24]
+  i:int = 0
+  if v == 0:
+    tmp[0] = 48 as char
+    i = 1
+  else:
+    while v > 0:
+      tmp[i] = (48 + v % 10) as char
+      i = i + 1
+      v = v / 10
+  total:int = i
+  if neg != 0:
+    total = total + 1
+  wi:int = 0
+  if neg != 0:
+    buf[wi] = 45 as char
+    wi = wi + 1
+  j:int = i - 1
+  while j >= 0:
+    buf[wi] = tmp[j]
+    wi = wi + 1
+    j = j - 1
+  buf[wi] = 0 as char
+  ret total
+
+// Build "expected N, got M" message (heap-allocated)
+fn _test_int_msg(label:str, expected:int, got:int) -> str:
+  // label + " expected " + N + ", got " + M
+  exp_buf:[char;24]
+  got_buf:[char;24]
+  exp_ptr:*char = 0 as *char
+  got_ptr:*char = 0 as *char
+  unsafe:
+    exp_ptr = &exp_buf[0]
+    got_ptr = &got_buf[0]
+  _test_int_digits(expected, exp_ptr)
+  _test_int_digits(got, got_ptr)
+  el:int = len(label)
+  en:int = 0
+  gn:int = 0
+  unsafe:
+    en = len(exp_ptr as str)
+    gn = len(got_ptr as str)
+  // " expected " = 10, ", got " = 7
+  total:int = el + 10 + en + 7 + gn + 1
+  buf:*char = (*char)malloc(total)
+  if buf == 0:
+    ret 0 as str
+  wi:int = 0
+  i:int = 0
+  while i < el:
+    buf[wi] = label[i]
+    wi = wi + 1
+    i = i + 1
+  // " expected "
+  buf[wi] = 32 as char
+  wi = wi + 1
+  msg1:str = "expected "
+  i = 0
+  while msg1[i] != 0 as char:
+    buf[wi] = msg1[i]
+    wi = wi + 1
+    i = i + 1
+  i = 0
+  while exp_buf[i] != 0 as char:
+    buf[wi] = exp_buf[i]
+    wi = wi + 1
+    i = i + 1
+  msg2:str = ", got "
+  i = 0
+  while msg2[i] != 0 as char:
+    buf[wi] = msg2[i]
+    wi = wi + 1
+    i = i + 1
+  i = 0
+  while got_buf[i] != 0 as char:
+    buf[wi] = got_buf[i]
+    wi = wi + 1
+    i = i + 1
+  buf[wi] = 0 as char
+  ret buf as str
+
+fn _test_str_copy_into(dst:*char, wi:int, s:str) -> int:
+  if s == 0:
+    ret wi
+  i:int = 0
+  while s[i] != 0 as char:
+    dst[wi] = s[i]
+    wi = wi + 1
+    i = i + 1
+  ret wi
+
+// ---------------------------------------------------------------------------
+// Constructor
+// ---------------------------------------------------------------------------
+
+fn test_new(suite_name:str) -> *TestSuite:
+  s:*TestSuite = (*TestSuite)malloc(sizeof(TestSuite))
+  if s == 0:
+    ret 0 as *TestSuite
+  (*s).suite_name  = suite_name
+  (*s).case_count  = 0
+  (*s).pass_count  = 0
+  (*s).fail_count  = 0
+  (*s).cases       = 0 as *TestCase
+  cases:*TestCase = (*TestCase)malloc(TEST_MAX * sizeof(TestCase))
+  if cases == 0:
+    free(s)
+    ret 0 as *TestSuite
+  // Zero-initialize all slots
+  i:int = 0
+  while i < TEST_MAX:
+    tc:*TestCase = cases + i
+    (*tc).name    = 0 as str
+    (*tc).result  = 0
+    (*tc).message = 0 as str
+    i = i + 1
+  (*s).cases = cases
+  ret s
+
+// ---------------------------------------------------------------------------
+// Internal record
+// ---------------------------------------------------------------------------
+
+fn _test_record(s:*TestSuite, name:str, result:int, msg:str) -> int:
+  if s == 0:
+    ret 0 - 1
+  cc:int = (*s).case_count
+  if cc >= TEST_MAX:
+    ret 0 - 1
+  cases:*TestCase = (*s).cases
+  tc:*TestCase = cases + cc
+  (*tc).name    = name
+  (*tc).result  = result
+  (*tc).message = msg
+  (*s).case_count = cc + 1
+  if result == TEST_PASS:
+    (*s).pass_count = (*s).pass_count + 1
+  else:
+    (*s).fail_count = (*s).fail_count + 1
+  ret result
+
+// ---------------------------------------------------------------------------
+// Assertions
+// ---------------------------------------------------------------------------
+
+fn test_assert_ok(s:*TestSuite, name:str, condition:int) -> int:
+  if condition != 0:
+    ret _test_record(s, name, TEST_PASS, 0 as str)
+  msg:*char = (*char)malloc(40)
+  if msg != 0:
+    msg[0] = 102 as char  // 'f'
+    msg[1] = 97 as char   // 'a'
+    msg[2] = 108 as char  // 'l'
+    msg[3] = 115 as char  // 's'
+    msg[4] = 101 as char  // 'e'
+    msg[5] = 0 as char
+  ret _test_record(s, name, TEST_FAIL, msg as str)
+
+fn test_assert_eq_int(s:*TestSuite, name:str, actual:int, expected:int) -> int:
+  if actual == expected:
+    ret _test_record(s, name, TEST_PASS, 0 as str)
+  msg:str = _test_int_msg("expected", expected, actual)
+  ret _test_record(s, name, TEST_FAIL, msg)
+
+fn test_assert_ne_int(s:*TestSuite, name:str, actual:int, not_expected:int) -> int:
+  if actual != not_expected:
+    ret _test_record(s, name, TEST_PASS, 0 as str)
+  msg:str = _test_int_msg("unexpected value", actual, actual)
+  ret _test_record(s, name, TEST_FAIL, msg)
+
+fn test_assert_gt_int(s:*TestSuite, name:str, actual:int, lower_bound:int) -> int:
+  if actual > lower_bound:
+    ret _test_record(s, name, TEST_PASS, 0 as str)
+  msg:str = _test_int_msg("expected >", lower_bound, actual)
+  ret _test_record(s, name, TEST_FAIL, msg)
+
+fn test_assert_lt_int(s:*TestSuite, name:str, actual:int, upper_bound:int) -> int:
+  if actual < upper_bound:
+    ret _test_record(s, name, TEST_PASS, 0 as str)
+  msg:str = _test_int_msg("expected <", upper_bound, actual)
+  ret _test_record(s, name, TEST_FAIL, msg)
+
+fn test_assert_str_eq(s:*TestSuite, name:str, actual:str, expected:str) -> int:
+  match:int = 0
+  if actual == 0 && expected == 0:
+    match = 1
+  else if actual != 0 && expected != 0:
+    if strcmp(actual, expected) == 0:
+      match = 1
+  if match != 0:
+    ret _test_record(s, name, TEST_PASS, 0 as str)
+  // Build message: "expected \"E\", got \"A\""
+  e_safe:str = expected
+  a_safe:str = actual
+  if e_safe == 0:
+    e_safe = "(null)"
+  if a_safe == 0:
+    a_safe = "(null)"
+  el:int = len(e_safe)
+  al:int = len(a_safe)
+  // "expected \"" + E + "\", got \"" + A + "\""
+  mlen:int = 12 + el + 9 + al + 2
+  msg:*char = (*char)malloc(mlen)
+  if msg != 0:
+    wi:int = 0
+    prefix:str = "expected \""
+    i:int = 0
+    while prefix[i] != 0 as char:
+      msg[wi] = prefix[i]
+      wi = wi + 1
+      i = i + 1
+    i = 0
+    while i < el:
+      msg[wi] = e_safe[i]
+      wi = wi + 1
+      i = i + 1
+    mid:str = "\", got \""
+    i = 0
+    while mid[i] != 0 as char:
+      msg[wi] = mid[i]
+      wi = wi + 1
+      i = i + 1
+    i = 0
+    while i < al:
+      msg[wi] = a_safe[i]
+      wi = wi + 1
+      i = i + 1
+    msg[wi] = 34 as char  // closing quote
+    wi = wi + 1
+    msg[wi] = 0 as char
+  ret _test_record(s, name, TEST_FAIL, msg as str)
+
+fn test_assert_str_ne(s:*TestSuite, name:str, actual:str, not_expected:str) -> int:
+  mismatch:int = 1
+  if actual == 0 && not_expected == 0:
+    mismatch = 0
+  else if actual != 0 && not_expected != 0:
+    if strcmp(actual, not_expected) == 0:
+      mismatch = 0
+  if mismatch != 0:
+    ret _test_record(s, name, TEST_PASS, 0 as str)
+  e_safe:str = not_expected
+  if e_safe == 0:
+    e_safe = "(null)"
+  el:int = len(e_safe)
+  mlen:int = 20 + el + 2
+  msg:*char = (*char)malloc(mlen)
+  if msg != 0:
+    wi:int = 0
+    prefix:str = "unexpectedly equal: "
+    i:int = 0
+    while prefix[i] != 0 as char:
+      msg[wi] = prefix[i]
+      wi = wi + 1
+      i = i + 1
+    i = 0
+    while i < el:
+      msg[wi] = e_safe[i]
+      wi = wi + 1
+      i = i + 1
+    msg[wi] = 0 as char
+  ret _test_record(s, name, TEST_FAIL, msg as str)
+
+fn test_assert_null(s:*TestSuite, name:str, ptr:int) -> int:
+  if ptr == 0:
+    ret _test_record(s, name, TEST_PASS, 0 as str)
+  msg:*char = (*char)malloc(32)
+  if msg != 0:
+    p2:str = "expected null"
+    i:int = 0
+    while p2[i] != 0 as char:
+      msg[i] = p2[i]
+      i = i + 1
+    msg[i] = 0 as char
+  ret _test_record(s, name, TEST_FAIL, msg as str)
+
+fn test_assert_not_null(s:*TestSuite, name:str, ptr:int) -> int:
+  if ptr != 0:
+    ret _test_record(s, name, TEST_PASS, 0 as str)
+  msg:*char = (*char)malloc(32)
+  if msg != 0:
+    p2:str = "expected non-null"
+    i:int = 0
+    while p2[i] != 0 as char:
+      msg[i] = p2[i]
+      i = i + 1
+    msg[i] = 0 as char
+  ret _test_record(s, name, TEST_FAIL, msg as str)
+
+fn test_assert_float_near(s:*TestSuite, name:str, actual:float, expected:float, tol:float) -> int:
+  diff:float = actual - expected
+  if diff < 0.0:
+    diff = 0.0 - diff
+  if diff <= tol:
+    ret _test_record(s, name, TEST_PASS, 0 as str)
+  msg:*char = (*char)malloc(48)
+  if msg != 0:
+    p2:str = "float values differ beyond tolerance"
+    i:int = 0
+    while p2[i] != 0 as char:
+      msg[i] = p2[i]
+      i = i + 1
+    msg[i] = 0 as char
+  ret _test_record(s, name, TEST_FAIL, msg as str)
+
+fn test_pass(s:*TestSuite, name:str) -> int:
+  ret _test_record(s, name, TEST_PASS, 0 as str)
+
+fn test_fail(s:*TestSuite, name:str, msg:str) -> int:
+  ret _test_record(s, name, TEST_FAIL, msg)
+
+// ---------------------------------------------------------------------------
+// Internal: write a str to a *char buffer and say
+// ---------------------------------------------------------------------------
+
+fn _test_say_concat(a:str, b:str, c:str) -> int:
+  al:int = 0
+  bl:int = 0
+  cl:int = 0
+  if a != 0:
+    al = len(a)
+  if b != 0:
+    bl = len(b)
+  if c != 0:
+    cl = len(c)
+  buf:*char = (*char)malloc(al + bl + cl + 2)
+  if buf == 0:
+    ret 0 - 1
+  wi:int = 0
+  i:int = 0
+  while i < al:
+    buf[wi] = a[i]
+    wi = wi + 1
+    i = i + 1
+  i = 0
+  while i < bl:
+    buf[wi] = b[i]
+    wi = wi + 1
+    i = i + 1
+  i = 0
+  while i < cl:
+    buf[wi] = c[i]
+    wi = wi + 1
+    i = i + 1
+  buf[wi] = 0 as char
+  say buf as str
+  free(buf)
+  ret 0
+
+// ---------------------------------------------------------------------------
+// Run and print summary
+// ---------------------------------------------------------------------------
+
+fn _test_int_to_str_inline(n:int) -> str:
+  buf:[char;24]
+  buf_ptr:*char = 0 as *char
+  unsafe:
+    buf_ptr = &buf[0]
+  _test_int_digits(n, buf_ptr)
+  slen:int = 0
+  unsafe:
+    slen = len(buf_ptr as str)
+  out:*char = (*char)malloc(slen + 1)
+  if out == 0:
+    ret 0 as str
+  i:int = 0
+  while i <= slen:
+    unsafe:
+      out[i] = buf_ptr[i]
+    i = i + 1
+  ret out as str
+
+fn test_run(s:*TestSuite) -> int:
+  if s == 0:
+    ret 1
+  sname:str = (*s).suite_name
+  if sname != 0:
+    _test_say_concat("=== TEST SUITE: ", sname, " ===")
+  cc:int = (*s).case_count
+  cases:*TestCase = (*s).cases
+  i:int = 0
+  while i < cc:
+    tc:*TestCase = cases + i
+    result:int = (*tc).result
+    tname:str = (*tc).name
+    tmsg:str  = (*tc).message
+    if result == TEST_PASS:
+      _test_say_concat("  [PASS] ", tname, "")
+    else:
+      if tmsg != 0:
+        _test_say_concat("  [FAIL] ", tname, "")
+        _test_say_concat("         ", tmsg, "")
+      else:
+        _test_say_concat("  [FAIL] ", tname, "")
+    i = i + 1
+  pc:int = (*s).pass_count
+  fc:int = (*s).fail_count
+  ps:str = _test_int_to_str_inline(pc)
+  fs:str = _test_int_to_str_inline(fc)
+  // "TEST_SUMMARY passed=P failed=F"
+  sl:int = 0
+  fl:int = 0
+  if ps != 0:
+    sl = len(ps)
+  if fs != 0:
+    fl = len(fs)
+  sumlen:int = 40 + sl + fl
+  sumbuf:*char = (*char)malloc(sumlen)
+  if sumbuf != 0:
+    wi:int = 0
+    prefix:str = "TEST_SUMMARY passed="
+    j:int = 0
+    while prefix[j] != 0 as char:
+      sumbuf[wi] = prefix[j]
+      wi = wi + 1
+      j = j + 1
+    j = 0
+    while ps != 0 && ps[j] != 0 as char:
+      sumbuf[wi] = ps[j]
+      wi = wi + 1
+      j = j + 1
+    mid2:str = " failed="
+    j = 0
+    while mid2[j] != 0 as char:
+      sumbuf[wi] = mid2[j]
+      wi = wi + 1
+      j = j + 1
+    j = 0
+    while fs != 0 && fs[j] != 0 as char:
+      sumbuf[wi] = fs[j]
+      wi = wi + 1
+      j = j + 1
+    sumbuf[wi] = 0 as char
+    say sumbuf as str
+    free(sumbuf)
+  if ps != 0:
+    free(ps as *char)
+  if fs != 0:
+    free(fs as *char)
+  if fc > 0:
+    ret 1
+  ret 0
+
+// ---------------------------------------------------------------------------
+// Free
+// ---------------------------------------------------------------------------
+
+fn test_free(s:*TestSuite) -> int:
+  if s == 0:
+    ret 0
+  cc:int = (*s).case_count
+  cases:*TestCase = (*s).cases
+  i:int = 0
+  while i < cc:
+    tc:*TestCase = cases + i
+    tmsg:str = (*tc).message
+    if tmsg != 0:
+      free(tmsg as *char)
+    i = i + 1
+  if cases != 0:
+    free(cases)
+  free(s)
+  ret 0
+
+// ---------------------------------------------------------------------------
+// Standalone check helper
+// ---------------------------------------------------------------------------
+
+fn test_check(name:str, condition:int) -> int:
+  if condition != 0:
+    _test_say_concat("[PASS] ", name, "")
+    ret TEST_PASS
+  _test_say_concat("[FAIL] ", name, "")
+  ret TEST_FAIL

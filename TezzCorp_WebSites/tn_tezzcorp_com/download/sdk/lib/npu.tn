@@ -1,0 +1,299 @@
+// npu module: experimental neural accelerator abstraction for TezzNative.
+//
+// This module exposes runtime hooks for ONNX/DirectML/CoreML/OpenVINO-style
+// acceleration paths where the runtime was built with those backends.
+// Callers must expect CPU/GPU fallback or "backend unavailable" results on
+// platforms without a configured NPU runtime.
+
+import "io"
+import "gpu"
+import "simd"
+import "tzcpu"
+import "tztensor"
+
+// ─────────────────────────────────────────────
+// Runtime extern hooks (implemented in tnrt.c)
+// These are the low-level bridges to ONNX RT / DirectML / CoreML.
+// ─────────────────────────────────────────────
+
+extern fn tn_npu_has_backend() -> int
+extern fn tn_npu_init() -> int
+extern fn tn_npu_shutdown() -> int
+extern fn tn_npu_device_count() -> int
+extern fn tn_npu_set_device(id:int) -> int
+extern fn tn_npu_alloc(bytes:int) -> *char
+extern fn tn_npu_free(p:*char) -> int
+extern fn tn_npu_memcpy_to_device(dst:*char, src:*char, bytes:int) -> int
+extern fn tn_npu_memcpy_to_host(dst:*char, src:*char, bytes:int) -> int
+extern fn tn_npu_memset(dst:*char, value:int, bytes:int) -> int
+extern fn tn_npu_launch_1d(kernel_id:int, buf:*char, n:int) -> int
+extern fn tn_npu_launch_dxil_1d(dxil:*char, dxil_len:int, buf:*char, n:int) -> int
+extern fn tn_npu_backend_name() -> str
+extern fn tn_npu_supports_dxil() -> int
+extern fn tn_npu_model_load(path:str) -> int
+extern fn tn_npu_model_free(handle:int) -> int
+extern fn tn_npu_model_run_f64_1d(handle:int, input:*float, in_n:int, output:*float, out_n:int) -> int
+
+// ─────────────────────────────────────────────
+// Constants — Execution Providers
+// ─────────────────────────────────────────────
+
+let NPU_EP_NONE:int        = 0   // No NPU — CPU fallback
+let NPU_EP_ONNX:int        = 1   // ONNX Runtime (universal, auto-selects device)
+let NPU_EP_DIRECTML:int    = 2   // Microsoft DirectML (Windows ML)
+let NPU_EP_OPENVINO:int    = 3   // Intel OpenVINO (Intel NPU / iGPU / CPU)
+let NPU_EP_COREML:int      = 4   // Apple CoreML + ANE (macOS / iOS)
+let NPU_EP_QNN:int         = 5   // Qualcomm QNN / Hexagon HTP (Snapdragon)
+let NPU_EP_XDNA:int        = 6   // AMD XDNA / Ryzen AI NPU
+let NPU_EP_CUDA:int        = 7   // CUDA EP (NVIDIA GPU via ONNX RT)
+let NPU_EP_SIMD:int        = 8   // Software SIMD fallback
+
+// Quantization formats
+let NPU_DTYPE_F32:int      = 0
+let NPU_DTYPE_F16:int      = 1
+let NPU_DTYPE_INT8:int     = 2
+let NPU_DTYPE_INT4:int     = 3   // Used by LLM weight quantization
+
+// Kernel IDs for tn_npu_launch_1d
+let NPU_KERNEL_RELU:int    = 0
+let NPU_KERNEL_GELU:int    = 1
+let NPU_KERNEL_SIGMOID:int = 2
+let NPU_KERNEL_TANH:int    = 3
+let NPU_KERNEL_SOFTMAX:int = 4
+let NPU_KERNEL_SGEMM:int   = 5
+let NPU_KERNEL_LAYER_NORM:int = 6
+let NPU_KERNEL_ROPE:int    = 7   // Rotary Position Embedding (LLaMA/Mistral)
+
+// ─────────────────────────────────────────────
+// Device Detection & Info
+// ─────────────────────────────────────────────
+
+// Returns 1 if a dedicated NPU backend is available, 0 otherwise.
+fn available() -> int:
+  ret tn_npu_has_backend()
+
+// Returns the name of the active backend e.g.
+//   "ONNX Runtime 1.18 / QNN HTP", "DirectML 1.14", "CPU SIMD"
+fn backend_name() -> str:
+  ret tn_npu_backend_name()
+
+// Returns the number of NPU devices found.
+fn device_count() -> int:
+  ret tn_npu_device_count()
+
+// Returns 1 if the backend supports DXIL compute shaders (DirectML path).
+fn supports_dxil() -> int:
+  ret tn_npu_supports_dxil()
+
+// Print a full NPU hardware summary to stdout.
+fn device_info() -> int:
+  if tn_npu_has_backend() == 0:
+    say "[NPU] No dedicated NPU found."
+    say "[NPU] Fallback chain: GPU -> SIMD CPU"
+    ret 0
+  say "[NPU] Backend     : ", tn_npu_backend_name()
+  say "[NPU] Device Count: ", tn_npu_device_count()
+  if tn_npu_supports_dxil() != 0:
+    say "[NPU] DXIL Shaders: YES (DirectML compute path active)"
+  else:
+    say "[NPU] DXIL Shaders: NO"
+  ret 0
+
+// ─────────────────────────────────────────────
+// Lifecycle
+// ─────────────────────────────────────────────
+
+// Initialize the NPU runtime context.
+// Call once at program startup before any npu.*() operations.
+fn init() -> int:
+  ret tn_npu_init()
+
+// Shut down and release all NPU resources.
+fn shutdown() -> int:
+  ret tn_npu_shutdown()
+
+// Select which NPU device to use (for multi-NPU systems).
+fn set_device(id:int) -> int:
+  ret tn_npu_set_device(id)
+
+// ─────────────────────────────────────────────
+// NPU Memory Management
+// ─────────────────────────────────────────────
+
+// Allocate a buffer in NPU-accessible memory.
+// On systems with unified memory (Apple ANE, Snapdragon), this is shared RAM.
+// On discrete NPUs, this may be dedicated SRAM.
+fn alloc(bytes:int) -> *char:
+  if bytes <= 0:
+    ret 0 as *char
+  ret tn_npu_alloc(bytes)
+
+// Free an NPU buffer allocated with npu.alloc().
+fn free_buf(p:*char) -> int:
+  if p == 0:
+    ret 0
+  ret tn_npu_free(p)
+
+// Zero-fill an NPU buffer.
+fn memset(dst:*char, value:int, bytes:int) -> int:
+  if dst == 0 || bytes <= 0:
+    ret 0
+  ret tn_npu_memset(dst, value, bytes)
+
+// ─────────────────────────────────────────────
+// Data Transfer (Host CPU <-> NPU)
+// ─────────────────────────────────────────────
+
+// Upload data from CPU RAM to NPU memory.
+// src = CPU pointer (e.g. tensor.data cast as *char)
+// dst = NPU pointer (from npu.alloc())
+fn upload(src:*char, dst:*char, bytes:int) -> int:
+  if src == 0 || dst == 0 || bytes <= 0:
+    ret 0 - 1
+  ret tn_npu_memcpy_to_device(dst, src, bytes)
+
+// Download data from NPU memory back to CPU RAM.
+fn download(src:*char, dst:*char, bytes:int) -> int:
+  if src == 0 || dst == 0 || bytes <= 0:
+    ret 0 - 1
+  ret tn_npu_memcpy_to_host(dst, src, bytes)
+
+// ─────────────────────────────────────────────
+// NPU Compute Kernels
+// ─────────────────────────────────────────────
+
+// Launch a built-in 1D NPU kernel over 'n' elements.
+// kernel_id: one of NPU_KERNEL_* constants.
+// buf: NPU buffer pointer (in-place operation).
+fn launch_kernel(kernel_id:int, buf:*char, n:int) -> int:
+  if buf == 0 || n <= 0:
+    ret 0 - 1
+  if tn_npu_has_backend() != 0:
+    ret tn_npu_launch_1d(kernel_id, buf, n)
+  // Fallback to SIMD for common kernels
+  if kernel_id == NPU_KERNEL_RELU:
+    simd.map_relu(buf as *float, buf as *float, n)
+    ret 0
+  if kernel_id == NPU_KERNEL_GELU:
+    simd.map_gelu(buf as *float, buf as *float, n)
+    ret 0
+  if kernel_id == NPU_KERNEL_SIGMOID:
+    simd.map_sigmoid(buf as *float, buf as *float, n)
+    ret 0
+  if kernel_id == NPU_KERNEL_TANH:
+    simd.map_tanh(buf as *float, buf as *float, n)
+    ret 0
+  ret 0 - 1
+
+// Launch a custom DXIL compute shader on DirectML NPU.
+// dxil     = pointer to compiled DXIL bytecode blob.
+// dxil_len = byte length of the DXIL blob.
+// buf      = NPU buffer to process.
+// n        = element count.
+fn launch_dxil(dxil:*char, dxil_len:int, buf:*char, n:int) -> int:
+  if tn_npu_supports_dxil() == 0:
+    say "[NPU] DXIL not supported on this backend."
+    ret 0 - 1
+  ret tn_npu_launch_dxil_1d(dxil, dxil_len, buf, n)
+
+// ─────────────────────────────────────────────
+// ONNX Model Inference
+// ─────────────────────────────────────────────
+// ONNX is the universal AI model format supported by all NPU vendors.
+// You can export PyTorch / TensorFlow / JAX models to .onnx and run
+// them at full NPU speed here.
+
+// Load an .onnx model file. Returns a handle (>= 0) or -1 on failure.
+fn model_load(path:str) -> int:
+  if path == 0:
+    ret 0 - 1
+  handle:int = tn_npu_model_load(path)
+  if handle < 0:
+    say "[NPU] Failed to load model: ", path
+  ret handle
+
+// Free a loaded model handle.
+fn model_free(handle:int) -> int:
+  if handle < 0:
+    ret 0
+  ret tn_npu_model_free(handle)
+
+// Run inference on a loaded ONNX model with a 1D float input/output.
+// handle   = from npu.model_load()
+// input    = CPU float pointer (input tensor data)
+// in_n     = number of input float elements
+// output   = CPU float pointer (output buffer, caller-allocated)
+// out_n    = number of output float elements
+// Returns 0 on success, -1 on failure.
+fn model_run(handle:int, input:*float, in_n:int, output:*float, out_n:int) -> int:
+  if handle < 0 || input == 0 || output == 0:
+    ret 0 - 1
+  if in_n <= 0 || out_n <= 0:
+    ret 0 - 1
+  ret tn_npu_model_run_f64_1d(handle, input, in_n, output, out_n)
+
+// ─────────────────────────────────────────────
+// High-Level Tensor Helpers
+// (Bridges npu.* with first-class tztensor handles)
+// ─────────────────────────────────────────────
+
+fn model_run_tensor(handle:int, input:int, out_cols:int) -> int:
+  if handle < 0 || input == 0 || out_cols <= 0:
+    ret 0
+  in_rows:int = tztensor.tensor_d0(input)
+  in_cols:int = tztensor.tensor_d1(input)
+  out_t:int = tztensor.tensor_new_2d(in_rows, out_cols, 0)
+  in_data:*float = 0 as *float
+  out_data:*float = 0 as *float
+  unsafe:
+    in_data = tztensor.tensor_data(input) as *float
+    out_data = tztensor.tensor_data(out_t) as *float
+  i:int = 0
+  while i < in_rows:
+    in_ptr:*float = 0 as *float
+    out_ptr:*float = 0 as *float
+    unsafe:
+      in_ptr = in_data + (i * in_cols)
+      out_ptr = out_data + (i * out_cols)
+    rc:int = tn_npu_model_run_f64_1d(handle, in_ptr, in_cols, out_ptr, out_cols)
+    if rc != 0:
+      tztensor.tensor_free(out_t)
+      ret 0
+    i = i + 1
+  ret out_t
+
+// Smart dispatch: run matrix operation on best available hardware.
+// Priority: NPU -> GPU -> SIMD CPU
+fn smart_matmul(a:int, b:int) -> int:
+  if a == 0 || b == 0:
+    ret 0
+  M:int = tztensor.tensor_d0(a)
+  K:int = tztensor.tensor_d1(a)
+  N:int = tztensor.tensor_d1(b)
+  c:int = tztensor.tensor_new_2d(M, N, 0)
+  a_data:*float = 0 as *float
+  b_data:*float = 0 as *float
+  c_data:*float = 0 as *float
+  unsafe:
+    a_data = tztensor.tensor_data(a) as *float
+    b_data = tztensor.tensor_data(b) as *float
+    c_data = tztensor.tensor_data(c) as *float
+  if gpu.available() != 0:
+    a_gpu:*char = gpu.alloc(M * K * 8)
+    b_gpu:*char = gpu.alloc(K * N * 8)
+    c_gpu:*char = gpu.alloc(M * N * 8)
+    if a_gpu != 0 && b_gpu != 0 && c_gpu != 0:
+      unsafe:
+        gpu.upload(a_data as *char, a_gpu, M * K * 8)
+        gpu.upload(b_data as *char, b_gpu, K * N * 8)
+      gpu.sgemm(a_gpu, b_gpu, c_gpu, M, N, K)
+      gpu.sync()
+      unsafe:
+        gpu.download(c_gpu, c_data as *char, M * N * 8)
+    gpu.free_buf(a_gpu)
+    gpu.free_buf(b_gpu)
+    gpu.free_buf(c_gpu)
+    ret c
+  // CPU SIMD fallback
+  tzcpu.tz_cpu_gemm_f32(a_data as int, b_data as int, c_data as int, M, K, N, 1.0, 0.0)
+  ret c

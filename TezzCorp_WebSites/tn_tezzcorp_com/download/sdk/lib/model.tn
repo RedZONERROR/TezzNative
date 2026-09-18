@@ -1,0 +1,510 @@
+// model module — TezzNative Unified Model Manager
+//
+// Handles loading, inspection, and lifecycle of AI models in multiple formats:
+//   - .tnw  (TezzNative native weight binary)
+//   - .onnx (via npu.model_load)
+//   - raw binary weight slabs (direct float64 arrays)
+//
+// Dispatches inference to the best available backend:
+//   NPU (ONNX RT) > GPU > SIMD CPU
+//
+// Usage:
+//   m:*Model = model.open("my_model.tnw")
+//   if model.is_ready(m):
+//     model.info(m)
+//     out:*float = malloc(out_n * 8) as *float
+//     model.infer(m, input, in_n, out, out_n)
+//   model.close(m)
+
+import "mmap"
+import "tztensor"
+import "nn" 
+import "llm"
+import "npu"
+import "device"
+import "quant"
+import "io"
+
+// ─────────────────────────────────────────────
+// Constants — Model Formats
+// ─────────────────────────────────────────────
+
+let MODEL_FMT_UNKNOWN:int = 0
+let MODEL_FMT_TNW:int     = 1   // TezzNative weight binary (nn.tn slab)
+let MODEL_FMT_TNL:int     = 2   // TezzNative LLM (llm.tn slab)
+let MODEL_FMT_ONNX:int    = 3   // ONNX (via npu module)
+let MODEL_FMT_RAW:int     = 4   // Raw float64 array
+let MODEL_FMT_TNM:int     = 5   // TezzNative Model Container (mmap-friendly)
+
+// ─────────────────────────────────────────────
+// Constants — Backends
+// ─────────────────────────────────────────────
+
+let NPU_EP_NONE:int        = 0
+let NPU_EP_ONNX:int        = 1
+let NPU_EP_CUDA:int        = 7
+let NPU_EP_SIMD:int        = 8
+
+// ─────────────────────────────────────────────
+// Magic numbers
+// ─────────────────────────────────────────────
+
+let _MODEL_MAGIC_NN:int  = 1414676301  // nn.tn _NN_MAGIC
+let _MODEL_MAGIC_LLM:int = 1280260212  // llm.tn LLM_MAGIC "TLLM"
+let _MODEL_MAGIC_ONNX:int = 1380405583 // "ONNX" in little-endian
+
+// ─────────────────────────────────────────────
+// Model struct
+// ─────────────────────────────────────────────
+
+struct ContainerTensor:
+  name:str
+  dtype:int
+  rows:int
+  cols:int
+  stride0:int
+  stride1:int
+  device:int
+  alignment:int
+  elem_bytes:int
+  size:int
+  bytes:int
+  data:*float
+
+struct Model:
+  fmt:int          // MODEL_FMT_*
+  slab:*float      // nn/llm weight slab pointer
+  onnx_handle:int  // NPU model handle (for ONNX models)
+  n_params:int     // total parameter count
+  in_n:int         // input dimension (for single-vector models)
+  out_n:int        // output dimension
+  // LLM metadata
+  vocab_size:int
+  embed_dim:int
+  heads:int
+  layers:int
+  max_seq_len:int
+  // Backend used
+  backend:int      // NPU_EP_* constant
+  path:str         // original model path
+  ready:int        // 1 if model loaded successfully
+  // Mmap Model Container (.tnm) fields
+  mmap_view:*char
+  num_tensors:int
+  tensors:*ContainerTensor
+
+// ─────────────────────────────────────────────
+// Internal helpers
+// ─────────────────────────────────────────────
+
+fn _mf(p:*float, i:int) -> float:
+  v:float = 0.0
+  unsafe:
+    v = p[i]
+  ret v
+
+// Read 8 bytes as an integer from a file handle.
+fn _read_i64(f:*char) -> int:
+  b:*char = malloc(8)
+  if b == 0:
+    ret 0
+  unsafe:
+    fread(b, 8, 1, f)
+    p:*int = b as *int
+    v:int = p[0]
+    free(b)
+    ret v
+  ret 0
+
+// ─────────────────────────────────────────────
+// Format Detection
+// ─────────────────────────────────────────────
+
+fn _detect_format(path:str) -> int:
+  if path == 0:
+    ret MODEL_FMT_UNKNOWN
+  n:int = len(path)
+  // Check extension
+  if n >= 5:
+    ext4:int = (path as *char)[n - 4] as int
+    ext3:int = (path as *char)[n - 3] as int
+    ext2:int = (path as *char)[n - 2] as int
+    ext1:int = (path as *char)[n - 1] as int
+    // .onnx
+    if ext4 == 111 && ext3 == 110 && ext2 == 110 && ext1 == 120:
+      ret MODEL_FMT_ONNX
+  if n >= 4:
+    ext3:int = (path as *char)[n - 3] as int
+    ext2:int = (path as *char)[n - 2] as int
+    ext1:int = (path as *char)[n - 1] as int
+    // .tnw
+    if ext3 == 116 && ext2 == 110 && ext1 == 119:
+      // Check magic in file
+      f:*char = fopen(path, "rb")
+      if f == 0 as *char:
+        ret MODEL_FMT_UNKNOWN
+      magic:int = _read_i64(f)
+      unsafe:
+        fclose(f)
+      if magic == _MODEL_MAGIC_LLM:
+        ret MODEL_FMT_TNL
+      ret MODEL_FMT_TNW
+    // .raw or .bin
+    if (ext3 == 114 && ext2 == 97 && ext1 == 119) || (ext3 == 98 && ext2 == 105 && ext1 == 110):
+      ret MODEL_FMT_RAW
+    // .tnm
+    if ext3 == 116 && ext2 == 110 && ext1 == 109:
+      ret MODEL_FMT_TNM
+  ret MODEL_FMT_UNKNOWN
+
+// ─────────────────────────────────────────────
+// Model Lifecycle
+// ─────────────────────────────────────────────
+
+fn _load_tnm(m:*Model, path:str) -> int:
+  view:*char = mmap.map_file(path)
+  if view == 0 as *char:
+    ret 0 - 1
+
+  unsafe:
+    (*m).mmap_view = view
+    
+    // Header parsing
+    magic:int = (view as *int)[0]
+    if magic != 826494292: // "TMC1" -> 0x31434d54 -> 826494292
+      mmap.unmap_file(view)
+      ret 0 - 2
+      
+    num_tensors:int = (view as *int)[1]
+    if num_tensors <= 0 || num_tensors > 10000:
+      mmap.unmap_file(view)
+      ret 0 - 3
+      
+    (*m).num_tensors = num_tensors
+    
+    // Config slots: 8 slots starting at index 2 (byte offset 16)
+    (*m).vocab_size   = (view as *int)[2]
+    (*m).embed_dim    = (view as *int)[3]
+    (*m).heads        = (view as *int)[4]
+    (*m).layers       = (view as *int)[5]
+    (*m).max_seq_len  = (view as *int)[6]
+    (*m).in_n         = (*m).embed_dim
+    (*m).out_n        = (*m).vocab_size
+    
+    tensors_raw:*char = malloc(num_tensors * sizeof(ContainerTensor))
+    if tensors_raw == 0:
+      mmap.unmap_file(view)
+      ret 0 - 4
+      
+    (*m).tensors = tensors_raw as *ContainerTensor
+    
+    meta_start:*char = view + 80
+    file_len:int = io.file_size_bytes(path)
+    
+    i:int = 0
+    while i < num_tensors:
+      tensor_meta:*char = meta_start + i * 152
+      t:*ContainerTensor = (*m).tensors + i
+      (*t).name = tensor_meta
+      
+      desc_ptr:*int = (tensor_meta + 64) as *int
+      
+      d:TensorDesc
+      d.dtype      = desc_ptr[0]
+      d.rows       = desc_ptr[1]
+      d.cols       = desc_ptr[2]
+      d.stride0    = desc_ptr[3]
+      d.stride1    = desc_ptr[4]
+      d.device     = desc_ptr[5]
+      d.alignment  = desc_ptr[6]
+      d.elem_bytes = desc_ptr[7]
+      d.size       = desc_ptr[8]
+      d.bytes      = desc_ptr[9]
+      
+      if tztensor.tensor_desc_valid_p(&d) == 0:
+        free(tensors_raw)
+        mmap.unmap_file(view)
+        ret 0 - 5
+        
+      offset_ptr:*int = (tensor_meta + 144) as *int
+      offset:int = offset_ptr[0]
+      
+      if offset < 80 + num_tensors * 152 || offset + d.bytes > file_len:
+        free(tensors_raw)
+        mmap.unmap_file(view)
+        ret 0 - 6
+        
+      (*t).dtype      = d.dtype
+      (*t).rows       = d.rows
+      (*t).cols       = d.cols
+      (*t).stride0    = d.stride0
+      (*t).stride1    = d.stride1
+      (*t).device     = d.device
+      (*t).alignment  = d.alignment
+      (*t).elem_bytes = d.elem_bytes
+      (*t).size       = d.size
+      (*t).bytes      = d.bytes
+      
+      (*t).data = (view + offset) as *float
+      
+      (*m).n_params = (*m).n_params + d.size
+      i = i + 1
+      
+  ret 0
+
+fn get_tensor(m:*Model, name:str) -> *ContainerTensor:
+  if m == 0 as *Model || name == 0 as str:
+    ret 0 as *ContainerTensor
+  unsafe:
+    if (*m).fmt != MODEL_FMT_TNM || (*m).ready == 0:
+      ret 0 as *ContainerTensor
+    i:int = 0
+    while i < (*m).num_tensors:
+      t:*ContainerTensor = (*m).tensors + i
+      if strcmp((*t).name, name) == 0:
+        ret t
+      i = i + 1
+  ret 0 as *ContainerTensor
+
+// Open and load a model file. Returns a ready Model pointer.
+fn open(path:str) -> *Model:
+  if path == 0:
+    ret 0 as *Model
+  m_raw:*char = malloc(sizeof(Model))
+  if m_raw == 0:
+    ret 0 as *Model
+  m:*Model = m_raw as *Model
+  // Init
+  (*m).fmt          = MODEL_FMT_UNKNOWN
+  (*m).slab         = 0 as *float
+  (*m).onnx_handle  = 0 - 1
+  (*m).n_params     = 0
+  (*m).in_n         = 0
+  (*m).out_n        = 0
+  (*m).vocab_size   = 0
+  (*m).embed_dim    = 0
+  (*m).heads        = 0
+  (*m).layers       = 0
+  (*m).max_seq_len  = 0
+  (*m).backend      = NPU_EP_NONE
+  (*m).path         = path
+  (*m).ready        = 0
+  (*m).mmap_view    = 0 as *char
+  (*m).num_tensors  = 0
+  (*m).tensors      = 0 as *ContainerTensor
+
+  fmt:int = _detect_format(path)
+  (*m).fmt = fmt
+
+  if fmt == MODEL_FMT_ONNX:
+    // Load via NPU module
+    device.ai_init()
+    h:int = npu.model_load(path)
+    if h < 0:
+      say "[Model] Failed to load ONNX: ", path
+      free(m_raw)
+      ret 0 as *Model
+    (*m).onnx_handle = h
+    (*m).backend = device.best_backend()
+    (*m).ready = 1
+    say "[Model] Loaded ONNX model via ", device.best_backend_name()
+    ret m
+
+  if fmt == MODEL_FMT_TNW:
+    slab:*float = nn.nn_load(path)
+    if slab == 0 as *float:
+      say "[Model] Failed to load TNW: ", path
+      free(m_raw)
+      ret 0 as *Model
+    (*m).slab = slab
+    // Extract metadata from slab header
+    (*m).n_params = nn._si(slab, 2) + nn._si(slab, 3)
+    (*m).in_n  = nn._si(slab, 4)
+    (*m).out_n = nn._si(slab, 12 + nn._si(slab, 1) - 1)
+    (*m).backend = NPU_EP_SIMD
+    (*m).ready = 1
+    say "[Model] Loaded TNW neural net: params=", (*m).n_params
+    ret m
+
+  if fmt == MODEL_FMT_TNL:
+    slab:*float = llm.llm_load(path)
+    if slab == 0 as *float:
+      say "[Model] Failed to load TN-LLM: ", path
+      free(m_raw)
+      ret 0 as *Model
+    (*m).slab = slab
+    (*m).vocab_size  = llm._llm_i(slab, 1)
+    (*m).embed_dim   = llm._llm_i(slab, 2)
+    (*m).heads       = llm._llm_i(slab, 3)
+    (*m).layers      = llm._llm_i(slab, 4)
+    (*m).max_seq_len = llm._llm_i(slab, 5)
+    (*m).in_n  = (*m).embed_dim
+    (*m).out_n = (*m).vocab_size
+    (*m).backend = NPU_EP_SIMD
+    (*m).ready = 1
+    say "[Model] Loaded TN-LLM: vocab=", (*m).vocab_size, " dim=", (*m).embed_dim, " layers=", (*m).layers
+    ret m
+
+  if fmt == MODEL_FMT_TNM:
+    rc:int = _load_tnm(m, path)
+    if rc != 0:
+      say "[Model] Failed to load TNM container: err=", rc
+      free(m_raw)
+      ret 0 as *Model
+    (*m).backend = NPU_EP_SIMD
+    (*m).ready = 1
+    say "[Model] Mapped TNM model container: tensors=", (*m).num_tensors, " params=", (*m).n_params
+    ret m
+
+  if fmt == MODEL_FMT_RAW:
+    // Raw binary: just a flat float64 array
+    raw_data:str = io.read_all(path)
+    if raw_data == 0:
+      free(m_raw)
+      ret 0 as *Model
+    n_bytes:int = len(raw_data)
+    (*m).n_params = n_bytes / 8
+    (*m).slab = raw_data as *float
+    (*m).backend = NPU_EP_SIMD
+    (*m).ready = 1
+    say "[Model] Loaded RAW weights: ", (*m).n_params, " params"
+    ret m
+
+  say "[Model] Unknown format: ", path
+  free(m_raw)
+  ret 0 as *Model
+
+// Close and free all model resources.
+fn close(m:*Model) -> int:
+  if m == 0:
+    ret 0
+  if (*m).fmt == MODEL_FMT_ONNX && (*m).onnx_handle >= 0:
+    npu.model_free((*m).onnx_handle)
+  if (*m).slab != 0 as *float:
+    if (*m).fmt == MODEL_FMT_TNW:
+      nn.nn_free((*m).slab)
+    else:
+      unsafe:
+        free((*m).slab as *char)
+  if (*m).fmt == MODEL_FMT_TNM:
+    if (*m).tensors != 0 as *ContainerTensor:
+      free((*m).tensors as *char)
+    if (*m).mmap_view != 0 as *char:
+      mmap.unmap_file((*m).mmap_view)
+  free(m as *char)
+  ret 0
+
+// Returns 1 if the model is ready for inference.
+fn is_ready(m:*Model) -> int:
+  if m == 0:
+    ret 0
+  ret (*m).ready
+
+// ─────────────────────────────────────────────
+// Model Info
+// ─────────────────────────────────────────────
+
+fn info(m:*Model) -> int:
+  if m == 0:
+    say "[Model] null"
+    ret 0 - 1
+  say "╔══════════════════════════════════════════╗"
+  say "║            Model Card                     ║"
+  say "╚══════════════════════════════════════════╝"
+  say "  Path       : ", (*m).path
+  if (*m).fmt == MODEL_FMT_TNW:
+    say "  Format     : TezzNative Neural Net (.tnw)"
+    say "  Parameters : ", (*m).n_params
+    say "  Input dim  : ", (*m).in_n
+    say "  Output dim : ", (*m).out_n
+    nn.nn_info((*m).slab)
+  if (*m).fmt == MODEL_FMT_TNL:
+    say "  Format     : TezzNative LLM (.tnw)"
+    say "  Vocab Size : ", (*m).vocab_size
+    say "  Embed Dim  : ", (*m).embed_dim
+    say "  Heads      : ", (*m).heads
+    say "  Layers     : ", (*m).layers
+    say "  Max SeqLen : ", (*m).max_seq_len
+  if (*m).fmt == MODEL_FMT_ONNX:
+    say "  Format     : ONNX Model"
+    say "  Handle     : ", (*m).onnx_handle
+  if (*m).fmt == MODEL_FMT_TNM:
+    say "  Format     : TezzNative Model Container (.tnm)"
+    say "  Tensors    : ", (*m).num_tensors
+    say "  Parameters : ", (*m).n_params
+    i:int = 0
+    while i < (*m).num_tensors:
+      t:*ContainerTensor = (*m).tensors + i
+      say "    - ", (*t).name, " [", (*t).rows, "x", (*t).cols, "] dtype=", (*t).dtype, " bytes=", (*t).bytes
+      i = i + 1
+  say "  Backend    : ", device.best_backend_name()
+  say "  Ready      : ", (*m).ready
+  ret 0
+
+// ─────────────────────────────────────────────
+// Inference
+// ─────────────────────────────────────────────
+
+// Run a single inference step.
+// input:  [in_n] float64 vector
+// output: [out_n] float64 vector (caller-allocated)
+// Returns 0 on success.
+fn infer(m:*Model, input:*float, in_n:int, output:*float, out_n:int) -> int:
+  if m == 0 || (*m).ready == 0:
+    ret 0 - 1
+  if input == 0 as *float || output == 0 as *float:
+    ret 0 - 1
+
+  if (*m).fmt == MODEL_FMT_ONNX:
+    ret npu.model_run((*m).onnx_handle, input, in_n, output, out_n)
+
+  if (*m).fmt == MODEL_FMT_TNW:
+    // Use nn.nn_forward
+    in_raw:*char = malloc(in_n * 8)
+    out_raw:*char = malloc(out_n * 8)
+    if in_raw == 0 || out_raw == 0:
+      if in_raw != 0: free(in_raw)
+      if out_raw != 0: free(out_raw)
+      ret 0 - 1
+    in_slab:*float = in_raw as *float
+    out_slab:*float = out_raw as *float
+    i:int = 0
+    while i < in_n:
+      unsafe:
+        in_slab[i] = input[i]
+      i = i + 1
+    nn.nn_forward((*m).slab, in_slab, out_slab)
+    i = 0
+    while i < out_n:
+      unsafe:
+        output[i] = out_slab[i]
+      i = i + 1
+    free(in_raw)
+    free(out_raw)
+    ret 0
+
+  if (*m).fmt == MODEL_FMT_TNL:
+    // LLM forward step for token 0
+    ret llm.llm_forward_step((*m).slab, 0, 0, output)
+
+  ret 0 - 1
+
+// ─────────────────────────────────────────────
+// Batch Inference
+// ─────────────────────────────────────────────
+
+// Run inference on a batch of inputs.
+// inputs:  [batch_size x in_n] float matrix
+// outputs: [batch_size x out_n] float matrix
+fn infer_batch(m:*Model, inputs:*float, outputs:*float, batch_size:int, in_n:int, out_n:int) -> int:
+  if m == 0 || (*m).ready == 0 || batch_size <= 0:
+    ret 0 - 1
+  i:int = 0
+  while i < batch_size:
+    in_ptr:*float = inputs + (i * in_n)
+    out_ptr:*float = outputs + (i * out_n)
+    rc:int = infer(m, in_ptr, in_n, out_ptr, out_n)
+    if rc != 0:
+      ret rc
+    i = i + 1
+  ret 0

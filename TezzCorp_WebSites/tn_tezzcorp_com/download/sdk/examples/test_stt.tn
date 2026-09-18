@@ -1,0 +1,15 @@
+import "stt"
+
+fn main() -> int:
+  say "Testing TezzNative Speech-to-Text (STT)..."
+  eng:*SttEngine = stt.stt_new()
+  if eng == 0:
+    say "Failed to create STT engine"
+    ret 1
+  say "STT Engine initialized."
+  say "Simulating 1 second of mic capture..."
+  res:str = stt.stt_from_mic(eng, 1000)
+  say "STT Result: "; say res
+  stt.stt_free(eng)
+  say "STT Test Complete!"
+  ret 0

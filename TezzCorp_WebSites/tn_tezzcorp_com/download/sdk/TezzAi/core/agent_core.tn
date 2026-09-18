@@ -1,0 +1,131 @@
+import "std"
+import "io"
+import "llm_core"
+
+let TEZZAI_VERSION:str = "1.0.0"
+let TEZZAI_CREATOR_ORG:str = "TezzCorp"
+let TEZZAI_CREATOR_NAME:str = "Rohit Pathak"
+let TEZZAI_COUNTRY:str = "India"
+
+struct TezzAiPaths:
+  data:str
+  model:str
+  codebook:str
+
+fn tezzai_default_data() -> str:
+  ret "TEZZAI/data/samples.tnxb"
+
+fn tezzai_default_model() -> str:
+  ret "TEZZAI/data/model.taim"
+
+fn tezzai_default_codebook() -> str:
+  ret "TEZZAI/data/codebook.tnxb"
+
+fn tezzai_default_web_dir() -> str:
+  ret "TEZZAI/web"
+
+fn tezzai_str_join2(a:str, b:str) -> str:
+  if a == 0:
+    a = ""
+  if b == 0:
+    b = ""
+  na:int = len(a)
+  nb:int = len(b)
+  out:*char
+  unsafe:
+    out = (*char)malloc(na + nb + 1)
+  if out == 0:
+    ret ""
+  unsafe:
+    if na > 0:
+      memcpy(out, a as *char, na)
+    if nb > 0:
+      memcpy(out + na, b as *char, nb)
+    out[na + nb] = 0 as char
+  unsafe:
+    ret out as str
+
+fn tezzai_str_join3(a:str, b:str, c:str) -> str:
+  t0:str = tezzai_str_join2(a, b)
+  out:str = tezzai_str_join2(t0, c)
+  if t0 != 0:
+    unsafe:
+      free(t0)
+  ret out
+
+fn tezzai_str_dup(s:str) -> str:
+  ret tezzai_str_join2("", s)
+
+fn tezzai_str_dispose(s:str) -> int:
+  if s != 0:
+    unsafe:
+      free(s)
+  ret 0
+
+fn tezzai_ensure_parent_dir(path:str) -> int:
+  if path == 0 || path[0] == 0 as char:
+    ret 0
+  parent:str = io.path_dir(path)
+  if parent == 0 || parent[0] == 0 as char:
+    if parent != 0:
+      unsafe:
+        free(parent)
+    ret 0
+  if path_exists(parent) == 0:
+    mkdir(parent)
+  unsafe:
+    free(parent)
+  ret 0
+
+fn tezzai_paths_resolve(data:str, model:str, codebook:str) -> TezzAiPaths:
+  out:TezzAiPaths
+  if data == 0 || data[0] == 0 as char:
+    out.data = tezzai_default_data()
+  else:
+    out.data = data
+  if model == 0 || model[0] == 0 as char:
+    out.model = tezzai_default_model()
+  else:
+    out.model = model
+  if codebook == 0 || codebook[0] == 0 as char:
+    out.codebook = tezzai_default_codebook()
+  else:
+    out.codebook = codebook
+  ret out
+
+fn _contains(hay:str, needle:str) -> int:
+  if hay == 0 || needle == 0:
+    ret 0
+  nn:int = len(needle)
+  nh:int = len(hay)
+  if nn <= 0:
+    ret 1
+  if nh < nn:
+    ret 0
+  i:int = 0
+  while i <= (nh - nn):
+    j:int = 0
+    ok:int = 1
+    while j < nn:
+      if hay[i + j] != needle[j]:
+        ok = 0
+        break
+      j = j + 1
+    if ok != 0:
+      ret 1
+    i = i + 1
+  ret 0
+
+fn tezzai_infer_template(prompt:str) -> str:
+  if prompt == 0:
+    ret "lib"
+  if _contains(prompt, "api") != 0 || _contains(prompt, "http") != 0 || _contains(prompt, "route") != 0 || _contains(prompt, "server") != 0:
+    ret "api"
+  if _contains(prompt, "cli") != 0 || _contains(prompt, "terminal") != 0 || _contains(prompt, "command") != 0:
+    ret "cli"
+  if _contains(prompt, "service") != 0 || _contains(prompt, "daemon") != 0 || _contains(prompt, "worker") != 0:
+    ret "service"
+  ret "lib"
+
+fn tezzai_model_init(model_path:str) -> int:
+  ret llm_core.tezz_model_init(model_path, 512, 64, 256, 1337)

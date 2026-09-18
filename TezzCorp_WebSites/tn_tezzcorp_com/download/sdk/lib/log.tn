@@ -1,0 +1,278 @@
+// log module — structured logging for TezzNative
+// Stability: Beta
+// Depends: runtime
+//
+// Levels: LOG_DEBUG < LOG_INFO < LOG_WARN < LOG_ERROR < LOG_FATAL
+// Sinks: stdout (default) and/or file append.
+
+import "runtime"
+
+// ---------------------------------------------------------------------------
+// Level constants
+// ---------------------------------------------------------------------------
+
+let LOG_DEBUG:int = 0
+let LOG_INFO:int  = 1
+let LOG_WARN:int  = 2
+let LOG_ERROR:int = 3
+let LOG_FATAL:int = 4
+let LOG_OFF:int   = 5
+
+let LOG_SINK_STDOUT:int = 1
+let LOG_SINK_FILE:int   = 2
+
+// ---------------------------------------------------------------------------
+// Logger struct
+// ---------------------------------------------------------------------------
+
+struct Logger:
+  level:int
+  sinks:int
+  file_path:str
+  msg_count:int
+  err_count:int
+  prefix:str
+
+// ---------------------------------------------------------------------------
+// Constructor
+// ---------------------------------------------------------------------------
+
+fn log_new(min_level:int) -> *Logger:
+  lg:*Logger = (*Logger)malloc(sizeof(Logger))
+  if lg == 0:
+    ret 0 as *Logger
+  (*lg).level     = min_level
+  (*lg).sinks     = LOG_SINK_STDOUT
+  (*lg).file_path = 0 as str
+  (*lg).msg_count = 0
+  (*lg).err_count = 0
+  (*lg).prefix    = 0 as str
+  ret lg
+
+// ---------------------------------------------------------------------------
+// Configuration
+// ---------------------------------------------------------------------------
+
+fn log_set_level(lg:*Logger, level:int) -> int:
+  if lg == 0:
+    ret 0 - 1
+  (*lg).level = level
+  ret 0
+
+fn log_set_prefix(lg:*Logger, prefix:str) -> int:
+  if lg == 0:
+    ret 0 - 1
+  (*lg).prefix = prefix
+  ret 0
+
+fn log_to_file(lg:*Logger, path:str) -> int:
+  if lg == 0 || path == 0:
+    ret 0 - 1
+  (*lg).file_path = path
+  (*lg).sinks = (*lg).sinks | LOG_SINK_FILE
+  ret 0
+
+fn log_stdout_only(lg:*Logger) -> int:
+  if lg == 0:
+    ret 0 - 1
+  (*lg).sinks = LOG_SINK_STDOUT
+  ret 0
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+fn _log_level_str(level:int) -> str:
+  if level == LOG_DEBUG: ret "DEBUG"
+  if level == LOG_INFO:  ret "INFO "
+  if level == LOG_WARN:  ret "WARN "
+  if level == LOG_ERROR: ret "ERROR"
+  if level == LOG_FATAL: ret "FATAL"
+  ret "?    "
+
+// Build log line: "[LEVEL] msg" or "PREFIX [LEVEL] msg"
+fn _log_build_line(prefix:str, level_str:str, msg:str) -> str:
+  pl:int = 0
+  ll:int = 0
+  ml:int = 0
+  if prefix != 0:
+    pl = len(prefix)
+  if level_str != 0:
+    ll = len(level_str)
+  if msg != 0:
+    ml = len(msg)
+  // Format: "PREFIX [LEVEL] msg\0" or "[LEVEL] msg\0"
+  total:int = pl + 2 + ll + 2 + ml + 4
+  buf:*char = (*char)malloc(total)
+  if buf == 0:
+    ret 0 as str
+  wi:int = 0
+  i:int = 0
+  if prefix != 0 && pl > 0:
+    while i < pl:
+      unsafe: buf[wi] = prefix[i]
+      wi = wi + 1
+      i = i + 1
+    unsafe: buf[wi] = 32 as char  // space
+    wi = wi + 1
+  unsafe: buf[wi] = 91 as char   // '['
+  wi = wi + 1
+  i = 0
+  while i < ll:
+    unsafe: buf[wi] = level_str[i]
+    wi = wi + 1
+    i = i + 1
+  unsafe: buf[wi] = 93 as char   // ']'
+  wi = wi + 1
+  unsafe: buf[wi] = 32 as char   // ' '
+  wi = wi + 1
+  i = 0
+  while i < ml:
+    unsafe: buf[wi] = msg[i]
+    wi = wi + 1
+    i = i + 1
+  unsafe: buf[wi] = 0 as char
+  ret buf as str
+
+fn _log_emit(lg:*Logger, level:int, msg:str) -> int:
+  if lg == 0:
+    ret 0 - 1
+  if level < (*lg).level:
+    ret 0
+  prefix:str    = (*lg).prefix
+  level_str:str = _log_level_str(level)
+  line:str      = _log_build_line(prefix, level_str, msg)
+  if line == 0:
+    ret 0 - 1
+  sinks:int = (*lg).sinks
+  if sinks & LOG_SINK_STDOUT != 0:
+    say line
+  if sinks & LOG_SINK_FILE != 0:
+    fp:str = (*lg).file_path
+    if fp != 0:
+      fh:*char = fopen(fp, "a")
+      if fh != 0:
+        runtime.fputs(line, fh)
+        runtime.fputc(10, fh)
+        fclose(fh)
+  free(line as *char)
+  (*lg).msg_count = (*lg).msg_count + 1
+  if level >= LOG_ERROR:
+    (*lg).err_count = (*lg).err_count + 1
+  ret 0
+
+// ---------------------------------------------------------------------------
+// Public log functions
+// ---------------------------------------------------------------------------
+
+fn log_debug(lg:*Logger, msg:str) -> int:
+  ret _log_emit(lg, LOG_DEBUG, msg)
+
+fn log_info(lg:*Logger, msg:str) -> int:
+  ret _log_emit(lg, LOG_INFO, msg)
+
+fn log_warn(lg:*Logger, msg:str) -> int:
+  ret _log_emit(lg, LOG_WARN, msg)
+
+fn log_error(lg:*Logger, msg:str) -> int:
+  ret _log_emit(lg, LOG_ERROR, msg)
+
+fn log_fatal(lg:*Logger, msg:str) -> int:
+  _log_emit(lg, LOG_FATAL, msg)
+  ret 0 - 1
+
+// Helpers that concatenate two string parts before emitting
+fn _log_concat2(a:str, b:str) -> str:
+  al:int = 0
+  bl:int = 0
+  if a != 0: al = len(a)
+  if b != 0: bl = len(b)
+  buf:*char = (*char)malloc(al + bl + 1)
+  if buf == 0:
+    ret 0 as str
+  i:int = 0
+  while i < al:
+    unsafe: buf[i] = a[i]
+    i = i + 1
+  i = 0
+  while i < bl:
+    unsafe: buf[al + i] = b[i]
+    i = i + 1
+  unsafe: buf[al + bl] = 0 as char
+  ret buf as str
+
+fn log_debug2(lg:*Logger, a:str, b:str) -> int:
+  line:str = _log_concat2(a, b)
+  r:int = _log_emit(lg, LOG_DEBUG, line)
+  if line != 0: free(line as *char)
+  ret r
+
+fn log_info2(lg:*Logger, a:str, b:str) -> int:
+  line:str = _log_concat2(a, b)
+  r:int = _log_emit(lg, LOG_INFO, line)
+  if line != 0: free(line as *char)
+  ret r
+
+fn log_warn2(lg:*Logger, a:str, b:str) -> int:
+  line:str = _log_concat2(a, b)
+  r:int = _log_emit(lg, LOG_WARN, line)
+  if line != 0: free(line as *char)
+  ret r
+
+fn log_error2(lg:*Logger, a:str, b:str) -> int:
+  line:str = _log_concat2(a, b)
+  r:int = _log_emit(lg, LOG_ERROR, line)
+  if line != 0: free(line as *char)
+  ret r
+
+// ---------------------------------------------------------------------------
+// Stats
+// ---------------------------------------------------------------------------
+
+fn log_msg_count(lg:*Logger) -> int:
+  if lg == 0: ret 0
+  ret (*lg).msg_count
+
+fn log_err_count(lg:*Logger) -> int:
+  if lg == 0: ret 0
+  ret (*lg).err_count
+
+// ---------------------------------------------------------------------------
+// Free
+// ---------------------------------------------------------------------------
+
+fn log_free(lg:*Logger) -> int:
+  if lg == 0: ret 0
+  free(lg)
+  ret 0
+
+// ---------------------------------------------------------------------------
+// Global default logger
+// ---------------------------------------------------------------------------
+
+let _g_logger:*Logger = 0 as *Logger
+
+fn log_init_global(min_level:int) -> int:
+  if _g_logger != 0:
+    log_free(_g_logger)
+  _g_logger = log_new(min_level)
+  if _g_logger == 0: ret 0 - 1
+  ret 0
+
+fn log_global_debug(msg:str) -> int:
+  ret log_debug(_g_logger, msg)
+
+fn log_global_info(msg:str) -> int:
+  ret log_info(_g_logger, msg)
+
+fn log_global_warn(msg:str) -> int:
+  ret log_warn(_g_logger, msg)
+
+fn log_global_error(msg:str) -> int:
+  ret log_error(_g_logger, msg)
+
+fn log_shutdown_global() -> int:
+  if _g_logger != 0:
+    log_free(_g_logger)
+    _g_logger = 0 as *Logger
+  ret 0

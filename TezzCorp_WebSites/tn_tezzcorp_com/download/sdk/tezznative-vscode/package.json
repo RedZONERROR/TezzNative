@@ -1,0 +1,61 @@
+{
+  "name": "tezznative-vscode",
+  "displayName": "TezzNative Language Support",
+  "description": "Premium syntax highlighting, snippets, and LSP integration for the TezzNative 2.0 systems programming language.",
+  "version": "2.0.2",
+  "publisher": "TezzCorpPvtLtd",
+  "icon": "tezzcorp-logo.png",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TezzCorp/TezzNative.git"
+  },
+  "categories": [
+    "Programming Languages",
+    "Snippets",
+    "Linters"
+  ],
+  "activationEvents": [
+    "onLanguage:tezznative"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "tezznative",
+        "aliases": [
+          "TezzNative",
+          "tezznative",
+          "tn"
+        ],
+        "extensions": [
+          ".tn",
+          ".tnx"
+        ],
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./tezzcorp-logo.png",
+          "dark": "./tezzcorp-logo.png"
+        }
+      }
+    ],
+    "grammars": [
+      {
+        "language": "tezznative",
+        "scopeName": "source.tezznative",
+        "path": "./syntaxes/tezznative.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "tezznative",
+        "path": "./snippets/snippets.json"
+      }
+    ]
+  },
+  "dependencies": {
+    "vscode-languageclient": "^8.1.0"
+  }
+}

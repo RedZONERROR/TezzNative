@@ -1,0 +1,240 @@
+// lib/tzcpu.tn -- TezzNative CPU Backend v2.1
+// Portable CPU fallback for when no CUDA GPU is present.
+// Runs on: x86-64 (Windows/Linux), ARM64 Snapdragon (Windows on ARM, Linux ARM64)
+//
+// 63 highly-optimized SIMD / OpenMP kernels:
+//   - Memory & element-wise
+//   - Activations & normalizations (ReLU, GELU, Sigmoid, Tanh, Softmax, LayerNorm, RMSNorm)
+//   - Linear algebra & GEMM (gemm, gemm_nt, gemm_tn, bmm, int8_gemm)
+//   - Vision CNNs (conv2d, conv2d_bwd, maxpool2d)
+//   - Transformers & LLMs (embedding, attention, rope, kv_cache_update, masked_softmax)
+//   - Sampling & Generation (argmax, topk, sample)
+//   - Optimizers (adam, sgd, grad_clip, xavier_init)
+//   - Loss & Metrics (cross_entropy, mse_loss, get_loss, report_loss)
+//   - Quantization & FP16 (f32_to_f16, f16_to_f32, int8_gemm)
+//   - Diagnostics & Validation (print_tensor, check_finite)
+
+// ── Core (v1.0) ─────────────────────────────────────────────────────────────
+extern fn tz_cpu_info() -> int
+extern fn tz_cpu_device_count() -> int
+extern fn tz_cpu_malloc(nbytes: int) -> int
+extern fn tz_cpu_free(ptr: int) -> int
+extern fn tz_cpu_zeros(n: int) -> int
+extern fn tz_cpu_memcpy(dst: int, src: int, nbytes: int) -> int
+extern fn tz_cpu_sync() -> int
+extern fn tz_cpu_fill_f32(a: int, n: int, val: float) -> int
+extern fn tz_cpu_copy_f32(src: int, dst: int, n: int) -> int
+extern fn tz_cpu_add_f32(a: int, b: int, c: int, n: int) -> int
+extern fn tz_cpu_sub_f32(a: int, b: int, c: int, n: int) -> int
+extern fn tz_cpu_mul_f32(a: int, b: int, c: int, n: int) -> int
+extern fn tz_cpu_scale_f32(a: int, c: int, n: int, s: float) -> int
+extern fn tz_cpu_axpy_f32(y: int, x: int, alpha: float, n: int) -> int
+extern fn tz_cpu_relu_f32(a: int, c: int, n: int) -> int
+extern fn tz_cpu_relu_bwd_f32(grad_out: int, x: int, grad_in: int, n: int) -> int
+extern fn tz_cpu_sigmoid_f32(a: int, c: int, n: int) -> int
+extern fn tz_cpu_tanh_f32(a: int, c: int, n: int) -> int
+extern fn tz_cpu_gelu_f32(a: int, c: int, n: int) -> int
+extern fn tz_cpu_gelu_bwd_f32(grad_out: int, x: int, grad_in: int, n: int) -> int
+extern fn tz_cpu_softmax_f32(x: int, rows: int, cols: int) -> int
+extern fn tz_cpu_add_bias_f32(x: int, b: int, batch: int, dim: int) -> int
+extern fn tz_cpu_layernorm_f32(x: int, gamma: int, beta: int, rows: int, cols: int, eps: float) -> int
+extern fn tz_cpu_gemm_f32(A: int, B: int, C: int, M: int, K: int, N: int, alpha: float, beta: float) -> int
+extern fn tz_cpu_gemm_nt_f32(A: int, B: int, C: int, M: int, K: int, N: int, alpha: float, beta: float) -> int
+extern fn tz_cpu_gemm_tn_f32(A: int, B: int, C: int, M: int, K: int, N: int, alpha: float, beta: float) -> int
+extern fn tz_cpu_reduce_sum_cols_f32(X: int, out: int, rows: int, cols: int) -> int
+extern fn tz_cpu_cross_entropy_f32(logits: int, labels: int, loss_buf: int, batch: int, classes: int) -> int
+extern fn tz_cpu_cross_entropy_bwd_f32(logits: int, labels: int, grad: int, batch: int, classes: int) -> int
+extern fn tz_cpu_mse_loss_f32(pred: int, target: int, loss_buf: int, n: int) -> int
+extern fn tz_cpu_dropout_f32(x: int, mask: int, n: int, rate: float, seed: int) -> int
+extern fn tz_cpu_adam_f32(p: int, g: int, m: int, v: int, lr: float, b1: float, b2: float, eps: float, b1t: float, b2t: float, n: int) -> int
+extern fn tz_cpu_sgd_f32(p: int, g: int, vel: int, lr: float, momentum: float, wd: float, n: int) -> int
+extern fn tz_cpu_xavier_init_f32(W: int, n: int, fan_in: int, seed: int) -> int
+extern fn tz_cpu_grad_clip_f32(g: int, n: int, max_norm: float) -> int
+extern fn tz_cpu_report_loss(buf: int, n: int, ep: int) -> int
+extern fn tz_cpu_fill_labels_cycle_i32(buf: int, n: int, classes: int) -> int
+extern fn tz_cpu_fill_inputs_by_class(buf: int, n: int, in_dim: int, classes: int) -> int
+
+// ── Transformer & LLM Kernels ───────────────────────────────────────────────
+extern fn tz_cpu_get_loss_f32(buf: int, n: int) -> int
+extern fn tz_cpu_argmax_f32(x: int, n: int) -> int
+extern fn tz_cpu_transpose_f32(A: int, out: int, M_: int, N_: int) -> int
+extern fn tz_cpu_bmm_f32(A: int, B_: int, C: int, batch: int, M_: int, K_: int, N_: int) -> int
+extern fn tz_cpu_embedding_f32(indices: int, table: int, out: int, T_: int, D_: int) -> int
+extern fn tz_cpu_embedding_bwd_f32(grad: int, indices: int, dtable: int, T_: int, D_: int, V_: int) -> int
+extern fn tz_cpu_rmsnorm_f32(x: int, w: int, out: int, B_: int, D_: int, eps_bits: int) -> int
+extern fn tz_cpu_rmsnorm_bwd_f32(dout: int, x: int, w: int, dx: int, dw: int, B_: int, D_: int, eps_bits: int) -> int
+extern fn tz_cpu_rope_f32(x: int, out: int, T_: int, D_: int, pos_offset: int) -> int
+extern fn tz_cpu_attention_f32(Q: int, K_: int, V_: int, out: int, B_: int, T_: int, D_: int, causal: int) -> int
+extern fn tz_cpu_attention_bwd_f32(Q: int, K_: int, V_: int, dout: int, dQ: int, dK: int, dV: int, B_: int, T_: int, D_: int, causal: int) -> int
+
+// ── Vision, Sampling, Quantization & Diagnostics (v2.1) ──────────────────────
+extern fn tz_cpu_conv2d_f32(x: int, W: int, b: int, out: int, B: int, InC: int, H: int, W_in: int, OutC: int, kH: int, kW: int, pad: int, stride: int) -> int
+extern fn tz_cpu_conv2d_bwd_f32(dout: int, x: int, W: int, dx: int, dW: int, db: int, B: int, InC: int, H: int, W_in: int, OutC: int, kH: int, kW: int, pad: int, stride: int) -> int
+extern fn tz_cpu_maxpool2d_f32(x: int, out: int, mask: int, B: int, C: int, H: int, W: int, kH: int, kW: int, stride: int) -> int
+extern fn tz_cpu_maxpool2d_bwd_f32(dout: int, mask: int, dx: int, B: int, C: int, H: int, W: int, outH: int, outW: int) -> int
+extern fn tz_cpu_topk_f32(x: int, out_vals: int, out_indices: int, n: int, k: int) -> int
+extern fn tz_cpu_sample_f32(logits: int, n: int, temperature: float, top_p: float, top_k: int, seed: int) -> int
+extern fn tz_cpu_kv_cache_update_f32(cache: int, new_val: int, B: int, H: int, max_seq: int, D: int, pos: int) -> int
+extern fn tz_cpu_masked_softmax_f32(x: int, mask: int, out: int, rows: int, cols: int) -> int
+extern fn tz_cpu_concat_f32(A: int, B: int, out: int, M: int, N1: int, N2: int) -> int
+extern fn tz_cpu_split_f32(in_: int, A: int, B: int, M: int, N1: int, N2: int) -> int
+extern fn tz_cpu_f32_to_f16(src: int, dst: int, n: int) -> int
+extern fn tz_cpu_f16_to_f32(src: int, dst: int, n: int) -> int
+extern fn tz_cpu_int8_gemm(A: int, B: int, C: int, M: int, K: int, N: int, scaleA: float, scaleB: float) -> int
+extern fn tz_cpu_print_tensor_f32(ptr: int, n: int, max_print: int) -> int
+extern fn tz_cpu_print_tensor_formatted(ptr: int, d0: int, d1: int, d2: int, d3: int, ndim: int, dev: int, req: int) -> int
+extern fn tz_cpu_check_finite_f32(ptr: int, n: int) -> int
+extern fn tz_cpu_slice4d_f32(src: int, dst: int, s_d0: int, s_d1: int, s_d2: int, s_d3: int, s0: int, e0: int, s1: int, e1: int, s2: int, e2: int, s3: int, e3: int) -> int
+extern fn tz_cpu_slice4d_bwd_f32(dout: int, din: int, s_d0: int, s_d1: int, s_d2: int, s_d3: int, s0: int, e0: int, s1: int, e1: int, s2: int, e2: int, s3: int, e3: int) -> int
+
+// ── GGUF Ingestion & Quantization (v2.2) ──────────────────────────────────────
+extern fn tz_gguf_open(path: int) -> int
+extern fn tz_gguf_num_tensors(handle: int) -> int
+extern fn tz_gguf_tensor_name(handle: int, idx: int) -> str
+extern fn tz_gguf_tensor_type(handle: int, idx: int) -> int
+extern fn tz_gguf_tensor_shape(handle: int, idx: int, dim_idx: int) -> int
+extern fn tz_gguf_tensor_numel(handle: int, idx: int) -> int
+extern fn tz_gguf_read_tensor_f32(handle: int, idx: int, dst: int) -> int
+extern fn tz_gguf_dequantize_q4_0(src: int, dst: int, k: int) -> int
+extern fn tz_gguf_dequantize_q8_0(src: int, dst: int, k: int) -> int
+extern fn tz_gguf_quantize_q4_0(src: int, dst: int, k: int) -> int
+extern fn tz_gguf_quantize_q8_0(src: int, dst: int, k: int) -> int
+extern fn tz_gguf_gemv_q4_0(w: int, x: int, y: int, rows: int, cols: int) -> int
+extern fn tz_gguf_close(handle: int) -> int
+
+extern fn tz_cpu_set_f32(ptr: int, idx: int, val: float) -> int
+extern fn tz_cpu_get_f32(ptr: int, idx: int) -> int
+extern fn tz_cpu_fill_xor_data(x_ptr: int, y_ptr: int) -> int
+extern fn tz_cpu_stdin() -> int
+extern fn tz_cpu_stdout() -> int
+extern fn tz_cpu_stderr() -> int
+
+
+// ── High-Level Convenience Helpers ───────────────────────────────────────────
+
+fn malloc_f32(n: int) -> int:
+  ret tz_cpu_malloc(n * 4)
+
+fn zeros_f32(n: int) -> int:
+  ret tz_cpu_zeros(n)
+
+fn free_buf(ptr: int) -> int:
+  ret tz_cpu_free(ptr)
+
+fn fill_f32(buf: int, n: int, val: float) -> int:
+  ret tz_cpu_fill_f32(buf, n, val)
+
+fn copy_f32(src: int, dst: int, n: int) -> int:
+  ret tz_cpu_copy_f32(src, dst, n)
+
+fn gemm_f32(A: int, B: int, C: int, M: int, K: int, N: int, alpha: float, beta: float) -> int:
+  ret tz_cpu_gemm_f32(A, B, C, M, K, N, alpha, beta)
+
+fn linear_f32(X: int, W: int, b: int, Y: int, batch: int, in_dim: int, out_dim: int) -> int:
+  tz_cpu_gemm_nt_f32(X, W, Y, batch, in_dim, out_dim, 1.0, 0.0)
+  if b != 0:
+    tz_cpu_add_bias_f32(Y, b, batch, out_dim)
+  ret Y
+
+fn relu_f32(a: int, c: int, n: int) -> int:
+  ret tz_cpu_relu_f32(a, c, n)
+
+fn gelu_f32(a: int, c: int, n: int) -> int:
+  ret tz_cpu_gelu_f32(a, c, n)
+
+fn softmax_f32(x: int, rows: int, cols: int) -> int:
+  ret tz_cpu_softmax_f32(x, rows, cols)
+
+fn cross_entropy_f32(logits: int, labels: int, loss_buf: int, batch: int, classes: int) -> int:
+  ret tz_cpu_cross_entropy_f32(logits, labels, loss_buf, batch, classes)
+
+fn cross_entropy_bwd_f32(logits: int, labels: int, grad: int, batch: int, classes: int) -> int:
+  ret tz_cpu_cross_entropy_bwd_f32(logits, labels, grad, batch, classes)
+
+fn adam_f32(p: int, g: int, m: int, v: int, lr: float, b1: float, b2: float, eps: float, b1t: float, b2t: float, n: int) -> int:
+  ret tz_cpu_adam_f32(p, g, m, v, lr, b1, b2, eps, b1t, b2t, n)
+
+fn xavier_init_f32(W: int, n: int, fan_in: int, seed: int) -> int:
+  ret tz_cpu_xavier_init_f32(W, n, fan_in, seed)
+
+fn embedding_f32(indices: int, table: int, out: int, T_: int, D_: int) -> int:
+  ret tz_cpu_embedding_f32(indices, table, out, T_, D_)
+
+fn attention_f32(Q: int, K_: int, V_: int, out: int, B_: int, T_: int, D_: int, causal: int) -> int:
+  ret tz_cpu_attention_f32(Q, K_, V_, out, B_, T_, D_, causal)
+
+fn rmsnorm_f32(x: int, w: int, out: int, B_: int, D_: int, eps_bits: int) -> int:
+  ret tz_cpu_rmsnorm_f32(x, w, out, B_, D_, eps_bits)
+
+fn rope_f32(x: int, out: int, T_: int, D_: int, pos_offset: int) -> int:
+  ret tz_cpu_rope_f32(x, out, T_, D_, pos_offset)
+
+fn argmax_f32(x: int, n: int) -> int:
+  ret tz_cpu_argmax_f32(x, n)
+
+fn get_loss_f32(buf: int, n: int) -> int:
+  ret tz_cpu_get_loss_f32(buf, n)
+
+fn print_tensor(ptr: int, n: int) -> int:
+  ret tz_cpu_print_tensor_f32(ptr, n, 8)
+
+fn check_finite(ptr: int, n: int) -> int:
+  ret tz_cpu_check_finite_f32(ptr, n)
+
+fn sync() -> int:
+  ret tz_cpu_sync()
+
+fn info() -> int:
+  ret tz_cpu_info()
+
+// ── GGUF & Quantization FFI ──────────────────────────────────────────────────
+
+fn gguf_open(path: int) -> int:
+  ret tz_gguf_open(path)
+
+fn gguf_num_tensors(handle: int) -> int:
+  ret tz_gguf_num_tensors(handle)
+
+fn gguf_tensor_name(handle: int, idx: int) -> str:
+  ret tz_gguf_tensor_name(handle, idx)
+
+fn gguf_tensor_type(handle: int, idx: int) -> int:
+  ret tz_gguf_tensor_type(handle, idx)
+
+fn gguf_tensor_shape(handle: int, idx: int, dim_idx: int) -> int:
+  ret tz_gguf_tensor_shape(handle, idx, dim_idx)
+
+fn gguf_tensor_numel(handle: int, idx: int) -> int:
+  ret tz_gguf_tensor_numel(handle, idx)
+
+fn gguf_read_tensor_f32(handle: int, idx: int, dst: int) -> int:
+  ret tz_gguf_read_tensor_f32(handle, idx, dst)
+
+fn gguf_dequantize_q4_0(src: int, dst: int, k: int) -> int:
+  ret tz_gguf_dequantize_q4_0(src, dst, k)
+
+fn gguf_dequantize_q8_0(src: int, dst: int, k: int) -> int:
+  ret tz_gguf_dequantize_q8_0(src, dst, k)
+
+fn gguf_quantize_q4_0(src: int, dst: int, k: int) -> int:
+  ret tz_gguf_quantize_q4_0(src, dst, k)
+
+fn gguf_quantize_q8_0(src: int, dst: int, k: int) -> int:
+  ret tz_gguf_quantize_q8_0(src, dst, k)
+
+fn gguf_gemv_q4_0(w: int, x: int, y: int, rows: int, cols: int) -> int:
+  ret tz_gguf_gemv_q4_0(w, x, y, rows, cols)
+
+fn gguf_close(handle: int) -> int:
+  ret tz_gguf_close(handle)
+
+fn set_f32(ptr: int, idx: int, val: float) -> int:
+  ret tz_cpu_set_f32(ptr, idx, val)
+
+fn get_f32(ptr: int, idx: int) -> int:
+  ret tz_cpu_get_f32(ptr, idx)
+
+fn fill_xor_data(x_ptr: int, y_ptr: int) -> int:
+  ret tz_cpu_fill_xor_data(x_ptr, y_ptr)
+
+

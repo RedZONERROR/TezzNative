@@ -1,0 +1,31 @@
+import "gui"
+import "tzgui"
+import "tezzui"
+import "os"
+
+fn main() -> int:
+  e:TzGuiEngine
+  s:GuiSurface
+  caps:TzGuiCaps
+  theme:TzGuiTheme
+
+  unsafe:
+    tzgui.theme_dark(&theme)
+    tzgui.theme_light(&theme)
+    tzgui.detect_caps(&caps)
+    gui.gui_surface(&s)
+
+  card_html:str = tezzui.card("GUI Lane", "compile contract", "start")
+  if card_html == 0:
+    ret 1
+  unsafe:
+    free(card_html)
+  if os.fb_host_windowing() < 0:
+    ret 1
+  if caps.hidpi_scale_hint < 1:
+    ret 1
+  if e.ready != 0:
+    e.ready = 0
+  if s.width < 0:
+    ret 1
+  ret 0

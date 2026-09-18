@@ -1,0 +1,6 @@
+@abi("c")
+fn local_add(a:int, b:int) -> int:
+  ret a + b
+
+fn main() -> int:
+  ret local_add(1, 2)

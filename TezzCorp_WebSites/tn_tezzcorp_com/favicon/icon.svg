@@ -1,0 +1,84 @@
+<svg width="24" height="24" viewBox="0 0 24 24" preserveAspectRatio="xMidYMid meet" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Premium AI Chip Icon with Enhanced Animated Gradient and Shadow -->
+  <defs>
+    <linearGradient id="chipGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#8A6FFF" id="gradStart">
+        <animate attributeName="stop-color" 
+                 values="#8A6FFF; #5349E0; #B76EFF; #635BFF; #4A7DFF; #8A6FFF" 
+                 dur="8s" 
+                 repeatCount="indefinite"/>
+      </stop>
+      <stop offset="33%" stop-color="#635BFF">
+        <animate attributeName="stop-color" 
+                 values="#635BFF; #8A6FFF; #5349E0; #B76EFF; #4A7DFF; #635BFF" 
+                 dur="8s" 
+                 repeatCount="indefinite"/>
+      </stop>
+      <stop offset="66%" stop-color="#4A42D6">
+        <animate attributeName="stop-color" 
+                 values="#4A42D6; #635BFF; #8A6FFF; #5349E0; #B76EFF; #4A42D6" 
+                 dur="8s" 
+                 repeatCount="indefinite"/>
+      </stop>
+      <stop offset="100%" stop-color="#5349E0" id="gradEnd">
+        <animate attributeName="stop-color" 
+                 values="#5349E0; #4A42D6; #635BFF; #8A6FFF; #B76EFF; #5349E0" 
+                 dur="8s" 
+                 repeatCount="indefinite"/>
+      </stop>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-opacity="0.4" />
+    </filter>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="1" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+  
+  <!-- Chip with enhanced animated gradient fill and shadow -->
+  <rect x="2" y="2" width="20" height="20" rx="4" fill="url(#chipGradient)" filter="url(#shadow)">
+    <!-- Subtle pulse animation -->
+    <animate attributeName="opacity" values="0.9;1;0.9" dur="3s" repeatCount="indefinite" />
+  </rect>
+  
+  <!-- Improved circuit pattern with animation -->
+  <path d="M6 8 H10 M14 8 H18 M6 16 H10 M14 16 H18 M8 6 V10 M8 14 V18 M16 6 V10 M16 14 V18" 
+        stroke="rgba(255,255,255,0.4)" stroke-width="0.5">
+    <animate attributeName="stroke-opacity" values="0.4;0.7;0.4" dur="4s" repeatCount="indefinite" />
+  </path>
+  
+  <!-- Properly centered AI Text -->
+  <text x="12" y="12" text-anchor="middle" dominant-baseline="central" 
+        font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="bold" fill="white" filter="url(#glow)">
+    B
+  </text>
+
+  <!-- Enhanced Chip Pins with animation -->
+  <line x1="12" y1="0" x2="12" y2="2" stroke="#635BFF" stroke-width="1.5">
+    <animate attributeName="stroke" values="#635BFF;#8A6FFF;#635BFF" dur="2s" repeatCount="indefinite" />
+  </line>
+  <line x1="12" y1="22" x2="12" y2="24" stroke="#635BFF" stroke-width="1.5">
+    <animate attributeName="stroke" values="#635BFF;#8A6FFF;#635BFF" dur="2s" repeatCount="indefinite" />
+  </line>
+  <line x1="2" y1="12" x2="0" y2="12" stroke="#635BFF" stroke-width="1.5">
+    <animate attributeName="stroke" values="#635BFF;#8A6FFF;#635BFF" dur="2s" repeatCount="indefinite" />
+  </line>
+  <line x1="22" y1="12" x2="24" y2="12" stroke="#635BFF" stroke-width="1.5">
+    <animate attributeName="stroke" values="#635BFF;#8A6FFF;#635BFF" dur="2s" repeatCount="indefinite" />
+  </line>
+  
+  <!-- Pin highlights with pulse animation -->
+  <circle cx="12" cy="0" r="0.75" fill="#FFFFFF">
+    <animate attributeName="r" values="0.75;1;0.75" dur="3s" repeatCount="indefinite" />
+  </circle>
+  <circle cx="12" cy="24" r="0.75" fill="#FFFFFF">
+    <animate attributeName="r" values="0.75;1;0.75" dur="3s" repeatCount="indefinite" />
+  </circle>
+  <circle cx="0" cy="12" r="0.75" fill="#FFFFFF">
+    <animate attributeName="r" values="0.75;1;0.75" dur="3s" repeatCount="indefinite" />
+  </circle>
+  <circle cx="24" cy="12" r="0.75" fill="#FFFFFF">
+    <animate attributeName="r" values="0.75;1;0.75" dur="3s" repeatCount="indefinite" />
+  </circle>
+</svg>

@@ -1,0 +1,22 @@
+import "tts"
+import "stt"
+
+fn main() -> int:
+  unsafe:
+    say "--- Testing TTS/STT Compilation ---"
+    t:*TtsEngine = tts.tts_new()
+    if t == 0 as *TtsEngine:
+      say "FAIL: tts_new"
+      ret 1
+    say "TTS created successfully"
+    tts.tts_free(t)
+    
+    s:*SttEngine = stt.stt_new()
+    if s == 0 as *SttEngine:
+      say "FAIL: stt_new"
+      ret 1
+    say "STT created successfully"
+    stt.stt_free(s)
+    
+    say "SUCCESS: TTS/STT compiled and instantiated"
+    ret 0

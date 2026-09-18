@@ -1,0 +1,2 @@
+tests/ir_control_flow.tn|tests/expected/ir_control_flow.out
+tests/ir_struct_array.tn|tests/expected/ir_struct_array.out

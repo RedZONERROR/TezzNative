@@ -1,0 +1,531 @@
+// lib/tztensor.tn -- TezzNative First-Class Tensor System v2.2
+// High-performance, unified-device tensor operations wrapping native SIMD & CUDA kernels.
+
+import "tzcpu"
+import "tzgpu"
+import "tzautodiff"
+
+let DEVICE_CPU: int = 0
+let DEVICE_GPU: int = 1
+
+let GPU_H2D: int = 1
+let GPU_D2H: int = 2
+
+// ── Tensor Field Accessors ───────────────────────────────────────────────────
+// Memory Layout (80 bytes allocated on heap):
+// [0] = data_ptr
+// [1] = grad_ptr
+// [2] = ndim
+// [3] = d0 (batch)
+// [4] = d1 (channels / seq_len)
+// [5] = d2 (height / hid_dim)
+// [6] = d3 (width)
+// [7] = numel
+// [8] = device (DEVICE_CPU=0, DEVICE_GPU=1)
+// [9] = requires_grad (1=true, 0=false)
+
+fn tensor_data(t: int) -> int:
+  val: int = 0
+  unsafe:
+    val = (t as *int)[0]
+  ret val
+
+fn tensor_grad(t: int) -> int:
+  val: int = 0
+  unsafe:
+    val = (t as *int)[1]
+  ret val
+
+fn tensor_ndim(t: int) -> int:
+  val: int = 0
+  unsafe:
+    val = (t as *int)[2]
+  ret val
+
+fn tensor_d0(t: int) -> int:
+  val: int = 0
+  unsafe:
+    val = (t as *int)[3]
+  ret val
+
+fn tensor_d1(t: int) -> int:
+  val: int = 0
+  unsafe:
+    val = (t as *int)[4]
+  ret val
+
+fn tensor_d2(t: int) -> int:
+  val: int = 0
+  unsafe:
+    val = (t as *int)[5]
+  ret val
+
+fn tensor_d3(t: int) -> int:
+  val: int = 0
+  unsafe:
+    val = (t as *int)[6]
+  ret val
+
+fn tensor_numel(t: int) -> int:
+  val: int = 0
+  unsafe:
+    val = (t as *int)[7]
+  ret val
+
+fn tensor_device(t: int) -> int:
+  val: int = 0
+  unsafe:
+    val = (t as *int)[8]
+  ret val
+
+fn tensor_requires_grad(t: int) -> int:
+  val: int = 0
+  unsafe:
+    val = (t as *int)[9]
+  ret val
+
+fn tensor_set_requires_grad(t: int, req: int) -> int:
+  unsafe:
+    (t as *int)[9] = req
+    if req == 1 && (t as *int)[1] == 0:
+      (t as *int)[1] = tzcpu.tz_cpu_zeros((t as *int)[7])
+  ret 0
+
+// ── Constructors ─────────────────────────────────────────────────────────────
+
+fn tensor_new_1d(d0: int, requires_grad: int) -> int:
+  t: int = tzcpu.tz_cpu_malloc(80)
+  numel: int = d0
+  data_p: int = tzcpu.tz_cpu_zeros(numel)
+  grad_p: int = 0
+  if requires_grad == 1:
+    grad_p = tzcpu.tz_cpu_zeros(numel)
+  unsafe:
+    (t as *int)[0] = data_p
+    (t as *int)[1] = grad_p
+    (t as *int)[2] = 1
+    (t as *int)[3] = d0
+    (t as *int)[4] = 1
+    (t as *int)[5] = 1
+    (t as *int)[6] = 1
+    (t as *int)[7] = numel
+    (t as *int)[8] = DEVICE_CPU
+    (t as *int)[9] = requires_grad
+  ret t
+
+fn tensor_new_2d(d0: int, d1: int, requires_grad: int) -> int:
+  t: int = tzcpu.tz_cpu_malloc(80)
+  numel: int = d0 * d1
+  data_p: int = tzcpu.tz_cpu_zeros(numel)
+  grad_p: int = 0
+  if requires_grad == 1:
+    grad_p = tzcpu.tz_cpu_zeros(numel)
+  unsafe:
+    (t as *int)[0] = data_p
+    (t as *int)[1] = grad_p
+    (t as *int)[2] = 2
+    (t as *int)[3] = d0
+    (t as *int)[4] = d1
+    (t as *int)[5] = 1
+    (t as *int)[6] = 1
+    (t as *int)[7] = numel
+    (t as *int)[8] = DEVICE_CPU
+    (t as *int)[9] = requires_grad
+  ret t
+
+fn tensor_new_3d(d0: int, d1: int, d2: int, requires_grad: int) -> int:
+  t: int = tzcpu.tz_cpu_malloc(80)
+  numel: int = d0 * d1 * d2
+  data_p: int = tzcpu.tz_cpu_zeros(numel)
+  grad_p: int = 0
+  if requires_grad == 1:
+    grad_p = tzcpu.tz_cpu_zeros(numel)
+  unsafe:
+    (t as *int)[0] = data_p
+    (t as *int)[1] = grad_p
+    (t as *int)[2] = 3
+    (t as *int)[3] = d0
+    (t as *int)[4] = d1
+    (t as *int)[5] = d2
+    (t as *int)[6] = 1
+    (t as *int)[7] = numel
+    (t as *int)[8] = DEVICE_CPU
+    (t as *int)[9] = requires_grad
+  ret t
+
+fn tensor_new_4d(d0: int, d1: int, d2: int, d3: int, requires_grad: int) -> int:
+  t: int = tzcpu.tz_cpu_malloc(80)
+  numel: int = d0 * d1 * d2 * d3
+  data_p: int = tzcpu.tz_cpu_zeros(numel)
+  grad_p: int = 0
+  if requires_grad == 1:
+    grad_p = tzcpu.tz_cpu_zeros(numel)
+  unsafe:
+    (t as *int)[0] = data_p
+    (t as *int)[1] = grad_p
+    (t as *int)[2] = 4
+    (t as *int)[3] = d0
+    (t as *int)[4] = d1
+    (t as *int)[5] = d2
+    (t as *int)[6] = d3
+    (t as *int)[7] = numel
+    (t as *int)[8] = DEVICE_CPU
+    (t as *int)[9] = requires_grad
+  ret t
+
+fn tensor_zeros_1d(d0: int) -> int:
+  ret tensor_new_1d(d0, 0)
+
+fn tensor_zeros_2d(d0: int, d1: int) -> int:
+  ret tensor_new_2d(d0, d1, 0)
+
+fn tensor_zeros_3d(d0: int, d1: int, d2: int) -> int:
+  ret tensor_new_3d(d0, d1, d2, 0)
+
+fn tensor_zeros_4d(d0: int, d1: int, d2: int, d3: int) -> int:
+  ret tensor_new_4d(d0, d1, d2, d3, 0)
+
+fn tensor_xavier_2d(d0: int, d1: int, fan_in: int, seed: int) -> int:
+  t: int = tensor_new_2d(d0, d1, 1)
+  data_p: int = tensor_data(t)
+  numel: int = tensor_numel(t)
+  tzcpu.tz_cpu_xavier_init_f32(data_p, numel, fan_in, seed)
+  ret t
+
+fn tensor_zero_grad(t: int) -> int:
+  grad_p: int = tensor_grad(t)
+  if grad_p != 0:
+    numel: int = tensor_numel(t)
+    if tensor_device(t) == DEVICE_GPU:
+      tzgpu.tz_gpu_fill_f32(grad_p, numel, 0.0)
+    else:
+      tzcpu.tz_cpu_fill_f32(grad_p, numel, 0.0)
+  ret 0
+
+fn tensor_fill(t: int, val: f32) -> int:
+  data_p: int = tensor_data(t)
+  numel: int = tensor_numel(t)
+  if tensor_device(t) == DEVICE_GPU:
+    tzgpu.tz_gpu_fill_f32(data_p, numel, val)
+  else:
+    tzcpu.tz_cpu_fill_f32(data_p, numel, val)
+  ret 0
+
+// ── Unified Device Management ────────────────────────────────────────────────
+
+fn tensor_to(t: int, target_device: int) -> int:
+  cur_dev: int = tensor_device(t)
+  if cur_dev == target_device:
+    ret t
+
+  numel: int = tensor_numel(t)
+  req_grad: int = tensor_requires_grad(t)
+  data_p: int = tensor_data(t)
+  grad_p: int = tensor_grad(t)
+
+  if cur_dev == DEVICE_CPU && target_device == DEVICE_GPU:
+    gpu_data: int = tzgpu.tz_cuda_malloc(numel * 4)
+    tzgpu.tz_cuda_memcpy(gpu_data, data_p, numel * 4, GPU_H2D)
+    gpu_grad: int = 0
+    if req_grad == 1:
+      gpu_grad = tzgpu.tz_cuda_malloc(numel * 4)
+      if grad_p != 0:
+        tzgpu.tz_cuda_memcpy(gpu_grad, grad_p, numel * 4, GPU_H2D)
+      else:
+        tzgpu.tz_gpu_fill_f32(gpu_grad, numel, 0.0)
+    tzcpu.tz_cpu_free(data_p)
+    if grad_p != 0:
+      tzcpu.tz_cpu_free(grad_p)
+    unsafe:
+      (t as *int)[0] = gpu_data
+      (t as *int)[1] = gpu_grad
+      (t as *int)[8] = DEVICE_GPU
+
+  else if cur_dev == DEVICE_GPU && target_device == DEVICE_CPU:
+    cpu_data: int = tzcpu.tz_cpu_zeros(numel)
+    tzgpu.tz_cuda_memcpy(cpu_data, data_p, numel * 4, GPU_D2H)
+    cpu_grad: int = 0
+    if req_grad == 1:
+      cpu_grad = tzcpu.tz_cpu_zeros(numel)
+      if grad_p != 0:
+        tzgpu.tz_cuda_memcpy(cpu_grad, grad_p, numel * 4, GPU_D2H)
+    tzgpu.tz_cuda_free(data_p)
+    if grad_p != 0:
+      tzgpu.tz_cuda_free(grad_p)
+    unsafe:
+      (t as *int)[0] = cpu_data
+      (t as *int)[1] = cpu_grad
+      (t as *int)[8] = DEVICE_CPU
+
+  ret t
+
+fn tensor_cuda(t: int) -> int:
+  ret tensor_to(t, DEVICE_GPU)
+
+fn tensor_cpu(t: int) -> int:
+  ret tensor_to(t, DEVICE_CPU)
+
+// ── Tensor Forward Operations with Dynamic Autograd Recording ────────────────
+
+fn tensor_linear(x: int, w: int, b: int, out: int) -> int:
+  batch: int = tensor_d0(x)
+  in_dim: int = tensor_d1(x)
+  out_dim: int = tensor_d0(w)
+
+  if tensor_device(x) == DEVICE_GPU:
+    tzgpu.tz_gpu_gemm_nt_f32(tensor_data(x), tensor_data(w), tensor_data(out), batch, in_dim, out_dim, 1.0, 0.0)
+    if b != 0:
+      tzgpu.tz_gpu_add_bias_f32(tensor_data(out), tensor_data(b), batch, out_dim)
+  else:
+    tzcpu.tz_cpu_gemm_nt_f32(tensor_data(x), tensor_data(w), tensor_data(out), batch, in_dim, out_dim, 1.0, 0.0)
+    if b != 0:
+      tzcpu.tz_cpu_add_bias_f32(tensor_data(out), tensor_data(b), batch, out_dim)
+
+  // Record on dynamic autograd tape
+  tzautodiff.autodiff_record(1, out, x, w, b, 0, 0, 0)
+  ret 0
+
+fn tensor_relu(x: int, out: int) -> int:
+  numel: int = tensor_numel(x)
+  if tensor_device(x) == DEVICE_GPU:
+    tzgpu.tz_gpu_relu_f32(tensor_data(x), tensor_data(out), numel)
+  else:
+    tzcpu.tz_cpu_relu_f32(tensor_data(x), tensor_data(out), numel)
+
+  tzautodiff.autodiff_record(2, out, x, 0, 0, 0, 0, 0)
+  ret 0
+
+fn tensor_gelu(x: int, out: int) -> int:
+  numel: int = tensor_numel(x)
+  if tensor_device(x) == DEVICE_GPU:
+    tzgpu.tz_gpu_gelu_f32(tensor_data(x), tensor_data(out), numel)
+  else:
+    tzcpu.tz_cpu_gelu_f32(tensor_data(x), tensor_data(out), numel)
+
+  tzautodiff.autodiff_record(3, out, x, 0, 0, 0, 0, 0)
+  ret 0
+
+fn tensor_softmax(x: int, out: int) -> int:
+  numel: int = tensor_numel(x)
+  if tensor_device(x) == DEVICE_GPU:
+    tzgpu.tz_gpu_softmax_f32(tensor_data(x), tensor_data(out), numel)
+  else:
+    tzcpu.tz_cpu_softmax_f32(tensor_data(x), tensor_data(out), numel)
+  ret 0
+
+fn tensor_cross_entropy(logits: int, labels: int, loss_buf: int) -> int:
+  batch: int = tensor_d0(logits)
+  classes: int = tensor_d1(logits)
+  tzcpu.tz_cpu_cross_entropy_f32(tensor_data(logits), tensor_data(labels), tensor_data(loss_buf), batch, classes)
+  tzautodiff.autodiff_record(4, loss_buf, logits, labels, 0, 0, 0, 0)
+  ret 0
+
+fn tensor_conv2d(x: int, w: int, b: int, out: int, pad: int, stride: int) -> int:
+  b_ptr: int = 0
+  if b != 0:
+    b_ptr = tensor_data(b)
+  tzcpu.tz_cpu_conv2d_f32(tensor_data(x), tensor_data(w), b_ptr, tensor_data(out), tensor_d0(x), tensor_d1(x), tensor_d2(x), tensor_d3(x), tensor_d0(w), tensor_d2(w), tensor_d3(w), pad, stride)
+  tzautodiff.autodiff_record(9, out, x, w, b, 0, pad, stride)
+  ret 0
+
+fn tensor_maxpool2d(x: int, out: int, mask: int, kH: int, kW: int, stride: int) -> int:
+  tzcpu.tz_cpu_maxpool2d_f32(tensor_data(x), tensor_data(out), tensor_data(mask), tensor_d0(x), tensor_d1(x), tensor_d2(x), tensor_d3(x), kH, kW, stride)
+  tzautodiff.autodiff_record(10, out, x, 0, 0, 0, tensor_data(mask), 0)
+  ret 0
+
+// ── High-Level Backward API ──────────────────────────────────────────────────
+fn tensor_backward(loss: int) -> int:
+  ret tzautodiff.autodiff_backward(loss)
+
+fn tensor_print(t: int, label: str) -> int:
+  if t == 0:
+    say "tensor(null)"
+    ret 0
+  if label != "":
+    say label
+  data_p: int = tensor_data(t)
+  if tensor_device(t) == DEVICE_GPU:
+    numel: int = tensor_numel(t)
+    host_buf: int = tzcpu.tz_cpu_malloc(numel * 4)
+    tzgpu.tz_cuda_memcpy(host_buf, data_p, numel * 4, GPU_D2H)
+    tzcpu.tz_cpu_print_tensor_formatted(host_buf, tensor_d0(t), tensor_d1(t), tensor_d2(t), tensor_d3(t), tensor_ndim(t), 1, tensor_requires_grad(t))
+    tzcpu.tz_cpu_free(host_buf)
+  else:
+    tzcpu.tz_cpu_print_tensor_formatted(data_p, tensor_d0(t), tensor_d1(t), tensor_d2(t), tensor_d3(t), tensor_ndim(t), 0, tensor_requires_grad(t))
+  ret 0
+
+fn tensor_check_finite(t: int, name: str) -> int:
+  if tensor_device(t) == DEVICE_GPU:
+    ret 1
+  ret tzcpu.tz_cpu_check_finite_f32(tensor_data(t), tensor_numel(t))
+
+fn tensor_free(t: int) -> int:
+  if t != 0:
+    data_p: int = tensor_data(t)
+    grad_p: int = tensor_grad(t)
+    if tensor_device(t) == DEVICE_GPU:
+      if data_p != 0:
+        tzgpu.tz_cuda_free(data_p)
+      if grad_p != 0:
+        tzgpu.tz_cuda_free(grad_p)
+    else:
+      if data_p != 0:
+        tzcpu.tz_cpu_free(data_p)
+      if grad_p != 0:
+        tzcpu.tz_cpu_free(grad_p)
+    tzcpu.tz_cpu_free(t)
+  ret 0
+
+// ── Multi-Dimensional Tensor Slicing ─────────────────────────────────────────
+
+fn tensor_slice4d(t: int, s0: int, e0: int, s1: int, e1: int, s2: int, e2: int, s3: int, e3: int) -> int:
+  out_d0: int = e0 - s0
+  out_d1: int = e1 - s1
+  out_d2: int = e2 - s2
+  out_d3: int = e3 - s3
+  if out_d0 <= 0:
+    out_d0 = 1
+  if out_d1 <= 0:
+    out_d1 = 1
+  if out_d2 <= 0:
+    out_d2 = 1
+  if out_d3 <= 0:
+    out_d3 = 1
+
+  dev: int = tensor_device(t)
+  out: int = tensor_new_4d(out_d0, out_d1, out_d2, out_d3, dev)
+
+  if dev == DEVICE_GPU:
+    cpu_buf: int = tzcpu.tz_cpu_malloc(tensor_numel(t) * 4)
+    tzgpu.tz_cuda_memcpy(cpu_buf, tensor_data(t), tensor_numel(t) * 4, GPU_D2H)
+    out_cpu: int = tzcpu.tz_cpu_malloc(out_d0 * out_d1 * out_d2 * out_d3 * 4)
+    tzcpu.tz_cpu_slice4d_f32(cpu_buf, out_cpu, tensor_d0(t), tensor_d1(t), tensor_d2(t), tensor_d3(t), s0, e0, s1, e1, s2, e2, s3, e3)
+    tzgpu.tz_cuda_memcpy(tensor_data(out), out_cpu, out_d0 * out_d1 * out_d2 * out_d3 * 4, GPU_H2D)
+    tzcpu.tz_cpu_free(cpu_buf)
+    tzcpu.tz_cpu_free(out_cpu)
+  else:
+    tzcpu.tz_cpu_slice4d_f32(tensor_data(t), tensor_data(out), tensor_d0(t), tensor_d1(t), tensor_d2(t), tensor_d3(t), s0, e0, s1, e1, s2, e2, s3, e3)
+
+  if tensor_requires_grad(t) != 0:
+    tensor_set_requires_grad(out, 1)
+    tzautodiff.autodiff_record_slice(out, t, s0, e0, s1, e1, s2, e2, s3, e3)
+
+  ret out
+
+fn tensor_slice2d(t: int, s0: int, e0: int, s1: int, e1: int) -> int:
+  ret tensor_slice4d(t, s0, e0, s1, e1, 0, 1, 0, 1)
+
+fn tensor_slice_dim(t: int, dim: int, start: int, end: int) -> int:
+  d0: int = tensor_d0(t)
+  d1: int = tensor_d1(t)
+  d2: int = tensor_d2(t)
+  d3: int = tensor_d3(t)
+  if dim == 0:
+    ret tensor_slice4d(t, start, end, 0, d1, 0, d2, 0, d3)
+  else if dim == 1:
+    ret tensor_slice4d(t, 0, d0, start, end, 0, d2, 0, d3)
+  else if dim == 2:
+    ret tensor_slice4d(t, 0, d0, 0, d1, start, end, 0, d3)
+  else:
+    ret tensor_slice4d(t, 0, d0, 0, d1, 0, d2, start, end)
+
+// ── Infix Operator Overloading Runtime Functions ─────────────────────────────
+
+fn tensor_matmul(a: int, b: int, out: int) -> int:
+  m: int = tensor_d0(a)
+  k: int = tensor_d1(a)
+  n: int = tensor_d1(b)
+  if tensor_device(a) == DEVICE_GPU:
+    tzgpu.tz_gpu_gemm_nt_f32(tensor_data(a), tensor_data(b), tensor_data(out), m, k, n, 1.0, 0.0)
+  else:
+    tzcpu.tz_cpu_gemm_nt_f32(tensor_data(a), tensor_data(b), tensor_data(out), m, k, n, 1.0, 0.0)
+  tzautodiff.autodiff_record(1, out, a, b, 0, 0, 0, 0)
+  ret 0
+
+fn tensor_add(a: int, b: int, out: int) -> int:
+  numel: int = tensor_numel(a)
+  if tensor_device(a) == DEVICE_GPU:
+    tzgpu.tz_gpu_add_f32(tensor_data(a), tensor_data(b), tensor_data(out), numel)
+  else:
+    tzcpu.tz_cpu_add_f32(tensor_data(a), tensor_data(b), tensor_data(out), numel)
+  tzautodiff.autodiff_record(5, out, a, b, 0, 0, 0, 0)
+  ret 0
+
+fn tensor_sub(a: int, b: int, out: int) -> int:
+  numel: int = tensor_numel(a)
+  if tensor_device(a) == DEVICE_GPU:
+    tzgpu.tz_gpu_sub_f32(tensor_data(a), tensor_data(b), tensor_data(out), numel)
+  else:
+    tzcpu.tz_cpu_sub_f32(tensor_data(a), tensor_data(b), tensor_data(out), numel)
+  tzautodiff.autodiff_record(6, out, a, b, 0, 0, 0, 0)
+  ret 0
+
+fn tensor_mul(a: int, b: int, out: int) -> int:
+  numel: int = tensor_numel(a)
+  if tensor_device(a) == DEVICE_GPU:
+    tzgpu.tz_gpu_mul_f32(tensor_data(a), tensor_data(b), tensor_data(out), numel)
+  else:
+    tzcpu.tz_cpu_mul_f32(tensor_data(a), tensor_data(b), tensor_data(out), numel)
+  tzautodiff.autodiff_record(7, out, a, b, 0, 0, 0, 0)
+  ret 0
+
+fn tensor_matmul_infix(a: int, b: int) -> int:
+  m: int = tensor_d0(a)
+  n: int = tensor_d1(b)
+  req: int = 0
+  if tensor_requires_grad(a) == 1 || tensor_requires_grad(b) == 1:
+    req = 1
+  out: int = tensor_new_2d(m, n, req)
+  tensor_matmul(a, b, out)
+  ret out
+
+fn tensor_add_infix(a: int, b: int) -> int:
+  req: int = 0
+  if tensor_requires_grad(a) == 1 || tensor_requires_grad(b) == 1:
+    req = 1
+  out: int = tensor_new_4d(tensor_d0(a), tensor_d1(a), tensor_d2(a), tensor_d3(a), req)
+  tensor_add(a, b, out)
+  ret out
+
+fn tensor_sub_infix(a: int, b: int) -> int:
+  req: int = 0
+  if tensor_requires_grad(a) == 1 || tensor_requires_grad(b) == 1:
+    req = 1
+  out: int = tensor_new_4d(tensor_d0(a), tensor_d1(a), tensor_d2(a), tensor_d3(a), req)
+  tensor_sub(a, b, out)
+  ret out
+
+fn tensor_mul_infix(a: int, b: int) -> int:
+  req: int = 0
+  if tensor_requires_grad(a) == 1 || tensor_requires_grad(b) == 1:
+    req = 1
+  out: int = tensor_new_4d(tensor_d0(a), tensor_d1(a), tensor_d2(a), tensor_d3(a), req)
+  tensor_mul(a, b, out)
+  ret out
+
+// ── N-D Tensor Reshape & Permute ──────────────────────────────────────────────
+
+fn tensor_reshape(t: int, n0: int, n1: int, n2: int, n3: int) -> int:
+  req: int = tensor_requires_grad(t)
+  out: int = tensor_new_4d(n0, n1, n2, n3, req)
+  tzcpu.tz_cpu_copy_f32(tensor_data(t), tensor_data(out), tensor_numel(t))
+  ret out
+
+struct TensorDesc:
+  dtype:int
+  rows:int
+  cols:int
+  stride0:int
+  stride1:int
+  device:int
+  alignment:int
+  elem_bytes:int
+  size:int
+  bytes:int
+
+fn tensor_desc_valid_p(d:*TensorDesc) -> int:
+  if d == 0: ret 0
+  if (*d).rows <= 0 || (*d).cols <= 0: ret 0
+  ret 1
+
+

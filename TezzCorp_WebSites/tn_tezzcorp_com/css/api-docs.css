@@ -1,0 +1,567 @@
+/* API Documentation Styles */
+.api-docs-section {
+    padding: 50px 0 100px;
+    background-color: var(--bg-color);
+}
+
+.docs-container {
+    display: flex;
+    gap: 30px;
+    position: relative;
+}
+
+/* Sidebar */
+.docs-sidebar {
+    width: 280px;
+    position: sticky;
+    top: 100px;
+    height: calc(100vh - 120px);
+    overflow-y: auto;
+    background-color: var(--card-bg);
+    border-radius: 10px;
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
+    padding: 20px 0;
+}
+
+.dark-mode .docs-sidebar {
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+}
+
+.sidebar-header {
+    padding: 0 20px 15px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.sidebar-header h3 {
+    font-size: 1.2rem;
+    color: var(--text-color);
+}
+
+.sidebar-search {
+    padding: 15px 20px;
+    position: relative;
+}
+
+.sidebar-search input {
+    width: 100%;
+    padding: 10px 15px 10px 35px;
+    border: 1px solid var(--border-color);
+    border-radius: 5px;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+}
+
+.sidebar-search i {
+    position: absolute;
+    left: 30px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-color);
+    opacity: 0.5;
+}
+
+.sidebar-menu {
+    list-style: none;
+    padding: 0;
+}
+
+.sidebar-menu li {
+    margin-bottom: 2px;
+}
+
+.sidebar-menu a {
+    display: block;
+    padding: 10px 20px;
+    color: var(--text-color);
+    transition: all 0.3s ease;
+    font-size: 0.95rem;
+}
+
+.sidebar-menu a:hover, .sidebar-menu a.active {
+    background: linear-gradient(90deg, color-mix(in srgb, var(--primary-color) 18%, transparent), transparent);
+    color: var(--primary-color);
+    border-left: 3px solid var(--primary-color);
+}
+
+.submenu {
+    list-style: none;
+    padding-left: 20px;
+    margin-top: 5px;
+    display: none;
+}
+
+.sidebar-menu li:hover .submenu, .sidebar-menu a.active + .submenu {
+    display: block;
+}
+
+.submenu a {
+    padding: 8px 20px;
+    font-size: 0.9rem;
+}
+
+/* Content */
+.docs-content {
+    flex: 1;
+    max-width: 800px;
+}
+
+.content-section {
+    margin-bottom: 50px;
+    background-color: var(--card-bg);
+    border-radius: 10px;
+    padding: 30px;
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
+}
+
+.dark-mode .content-section {
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+}
+
+.content-section h2 {
+    font-size: 1.8rem;
+    margin-bottom: 20px;
+    color: var(--text-color);
+    position: relative;
+    padding-bottom: 10px;
+}
+
+.content-section h2::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 50px;
+    height: 3px;
+    background: var(--gradient);
+    border-radius: 2px;
+}
+
+.content-section h3 {
+    font-size: 1.4rem;
+    margin: 30px 0 15px;
+    color: var(--text-color);
+}
+
+.content-section h4 {
+    font-size: 1.1rem;
+    margin: 20px 0 10px;
+    color: var(--text-color);
+}
+
+.content-section p {
+    margin-bottom: 15px;
+    line-height: 1.6;
+    color: var(--text-color);
+}
+
+.content-section a {
+    color: var(--primary-color);
+    text-decoration: none;
+    transition: all 0.3s ease;
+}
+
+.content-section a:hover {
+    text-decoration: underline;
+}
+
+.content-section ul {
+    margin-bottom: 15px;
+    padding-left: 20px;
+}
+
+.content-section li {
+    margin-bottom: 8px;
+    color: var(--text-color);
+}
+
+/* Code Blocks */
+.code-block {
+    margin: 15px 0 25px;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.code-block pre {
+    margin: 0;
+    padding: 0;
+}
+
+.code-block code {
+    padding: 15px;
+    font-family: 'Fira Code', 'Courier New', monospace;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    overflow-x: auto;
+}
+
+/* Endpoint Styles */
+.endpoint {
+    margin-bottom: 30px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.endpoint-header {
+    padding: 15px;
+    background-color: rgba(0, 0, 0, 0.03);
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+}
+
+.dark-mode .endpoint-header {
+    background-color: rgba(255, 255, 255, 0.03);
+}
+
+.method {
+    display: inline-block;
+    padding: 5px 10px;
+    border-radius: 4px;
+    font-weight: 600;
+    font-size: 0.8rem;
+    margin-right: 15px;
+    color: white;
+}
+
+.method.get {
+    background-color: #61affe;
+}
+
+.method.post {
+    background-color: #49cc90;
+}
+
+.method.put {
+    background-color: #fca130;
+}
+
+.method.delete {
+    background-color: #f93e3e;
+}
+
+.path {
+    font-family: 'Fira Code', 'Courier New', monospace;
+    font-size: 0.95rem;
+    color: var(--text-color);
+}
+
+.endpoint-description {
+    padding: 20px;
+}
+
+/* Tables */
+.params-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 20px 0;
+}
+
+.params-table th, .params-table td {
+    padding: 12px 15px;
+    text-align: left;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.params-table th {
+    background-color: rgba(0, 0, 0, 0.03);
+    font-weight: 600;
+    color: var(--text-color);
+}
+
+.dark-mode .params-table th {
+    background-color: rgba(255, 255, 255, 0.03);
+}
+
+.params-table tr:last-child td {
+    border-bottom: none;
+}
+
+/* Info and Warning Boxes */
+.info-box, .warning-box {
+    display: flex;
+    padding: 15px;
+    border-radius: 8px;
+    margin: 20px 0;
+}
+
+.info-box {
+    background-color: rgba(97, 175, 254, 0.1);
+    border-left: 4px solid #61affe;
+}
+
+.warning-box {
+    background-color: rgba(249, 62, 62, 0.1);
+    border-left: 4px solid #f93e3e;
+}
+
+.info-icon, .warning-icon {
+    margin-right: 15px;
+    font-size: 1.2rem;
+}
+
+.info-icon {
+    color: #61affe;
+}
+
+.warning-icon {
+    color: #f93e3e;
+}
+
+.info-content, .warning-content {
+    flex: 1;
+}
+
+.info-content p, .warning-content p {
+    margin: 0;
+}
+
+/* SDK List */
+.sdk-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 20px;
+    margin-top: 20px;
+}
+
+.sdk-item {
+    display: flex;
+    align-items: flex-start;
+    padding: 20px;
+    background-color: var(--bg-color);
+    border-radius: 8px;
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.05);
+    transition: all 0.3s ease;
+}
+
+.dark-mode .sdk-item {
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.2);
+}
+
+.sdk-item:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+}
+
+.dark-mode .sdk-item:hover {
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
+}
+
+.sdk-icon {
+    width: 50px;
+    height: 50px;
+    background: var(--gradient);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 1.5rem;
+    margin-right: 15px;
+}
+
+.sdk-info {
+    flex: 1;
+}
+
+.sdk-info h3 {
+    margin: 0 0 10px;
+    font-size: 1.2rem;
+}
+
+.sdk-info p {
+    margin-bottom: 15px;
+    font-size: 0.9rem;
+    opacity: 0.8;
+}
+
+.btn-sdk {
+    display: inline-block;
+    padding: 8px 15px;
+    background: var(--gradient);
+    color: white;
+    border-radius: 5px;
+    font-size: 0.9rem;
+    transition: all 0.3s ease;
+}
+
+.btn-sdk:hover {
+    background: var(--gradient-hover);
+    text-decoration: none !important;
+}
+
+/* Code Tabs */
+.code-tabs {
+    margin: 30px 0;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.tab-buttons {
+    display: flex;
+    background-color: rgba(0, 0, 0, 0.03);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.dark-mode .tab-buttons {
+    background-color: rgba(255, 255, 255, 0.03);
+}
+
+.tab-btn {
+    padding: 12px 20px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--text-color);
+    opacity: 0.7;
+    transition: all 0.3s ease;
+}
+
+.tab-btn:hover, .tab-btn.active {
+    opacity: 1;
+    background-color: var(--bg-color);
+}
+
+.tab-content {
+    background-color: var(--bg-color);
+}
+
+.tab-pane {
+    display: none;
+    padding: 20px;
+}
+
+.tab-pane.active {
+    display: block;
+}
+
+.tab-pane h3 {
+    margin-top: 0;
+}
+
+/* Changelog */
+.changelog-item {
+    margin-bottom: 30px;
+    padding-bottom: 30px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.changelog-item:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
+.version {
+    display: inline-block;
+    padding: 5px 10px;
+    background: var(--gradient);
+    color: white;
+    border-radius: 5px;
+    font-weight: 600;
+    margin-right: 10px;
+}
+
+.date {
+    display: inline-block;
+    color: var(--text-color);
+    opacity: 0.7;
+    font-size: 0.9rem;
+}
+
+.changes {
+    margin-top: 15px;
+}
+
+.changes h3 {
+    font-size: 1.1rem;
+    margin: 15px 0 10px;
+}
+
+.changes ul {
+    margin-bottom: 15px;
+}
+
+/* CTA Section */
+.cta-section {
+    padding: 100px 0;
+    background: var(--bg-color);
+    position: relative;
+    overflow: hidden;
+}
+
+.cta-content {
+    text-align: center;
+    color: var(--text-color);
+    max-width: 800px;
+    margin: 0 auto;
+}
+
+.cta-content h2 {
+    font-size: 2.5rem;
+    margin-bottom: 20px;
+}
+
+.cta-content p {
+    font-size: 1.2rem;
+    margin-bottom: 30px;
+    opacity: 0.9;
+}
+
+.cta-content .btn-primary {
+    background: white;
+    color: var(--primary-color);
+}
+
+.cta-content .btn-primary:hover {
+    background: white;
+    color: var(--primary-color);
+    box-shadow: 0 6px 20px rgba(255, 255, 255, 0.3);
+}
+
+/* Responsive */
+@media (max-width: 992px) {
+    .docs-container {
+        flex-direction: column;
+    }
+    
+    .docs-sidebar {
+        width: 100%;
+        position: relative;
+        top: 0;
+        height: auto;
+        margin-bottom: 30px;
+    }
+    
+    .docs-content {
+        max-width: 100%;
+    }
+    
+    .sdk-list {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 768px) {
+    .endpoint-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    
+    .method {
+        margin-bottom: 10px;
+    }
+    
+    .tab-buttons {
+        flex-wrap: wrap;
+    }
+    
+    .tab-btn {
+        flex: 1;
+        text-align: center;
+        padding: 10px;
+    }
+}

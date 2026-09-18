@@ -1,0 +1,27 @@
+import "wm"
+import "gui"
+
+fn main() -> int:
+  s:GuiSurface
+  id:int = 0
+  unsafe:
+    gui.gui_surface(&s)
+  if wm.wm_init() != 0:
+    ret 1
+  unsafe:
+    id = wm.wm_add_window(10, 10, 120, 80, "Compile", 0 as *char)
+  if id <= 0:
+    ret 1
+  wm.wm_focus(id)
+  wm.wm_window_move(id, 16, 14)
+  wm.wm_window_resize(id, 180, 120)
+  wm.wm_window_show(id, 1)
+  if wm.wm_window_count() <= 0:
+    ret 1
+  if wm.wm_window_x(id) < 0:
+    ret 1
+  wm.wm_begin_frame()
+  unsafe:
+    wm.wm_end_frame(&s)
+  wm.wm_window_remove(id)
+  ret 0

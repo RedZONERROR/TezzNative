@@ -1,0 +1,4 @@
+import "missingdep"
+
+fn main() -> int:
+  ret 0

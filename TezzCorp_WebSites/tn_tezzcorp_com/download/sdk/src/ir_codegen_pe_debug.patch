@@ -1,0 +1,9 @@
+--- src/ir_codegen_pe.c
++++ src/ir_codegen_pe.c
+@@ -1362,6 +1362,7 @@
+   for(int i=0; i<pn && i<4; i++){
+     int reg = (i==0)?1: (i==1)?2: (i==2)?8:9; // RCX, RDX, R8, R9
+     int mreg = (preg[i] < nreg && vreg_to_mreg) ? vreg_to_mreg[preg[i]] : -1;
++    printf("CodeGen arg %d: vreg=%d mreg=%d param_regs_n=%d\n", i, preg[i], mreg, fn->param_regs_n);
+     if(mreg >= 0) {
+

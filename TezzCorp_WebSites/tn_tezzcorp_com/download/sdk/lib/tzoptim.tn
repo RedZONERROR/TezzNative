@@ -1,0 +1,79 @@
+// lib/tzoptim.tn -- TezzNative High-Level Optimizer Suite v2.1
+import "tzcpu"
+import "tztensor"
+
+// ── Adam Optimizer ────────────────────────────────────────────────────────────
+
+fn adam_create(numel: int, lr: float) -> int:
+  opt: int = tzcpu.tz_cpu_malloc(88)
+  m_p: int = tzcpu.tz_cpu_zeros(numel)
+  v_p: int = tzcpu.tz_cpu_zeros(numel)
+  unsafe:
+    (opt as *int)[0] = m_p
+    (opt as *int)[1] = v_p
+    (opt as *int)[2] = numel
+    (opt as *int)[10] = 0
+  ret opt
+
+fn adam_step(opt: int, t: int, max_grad_norm: float) -> int:
+  m_p: int = 0
+  v_p: int = 0
+  numel: int = tztensor.tensor_numel(t)
+  param_p: int = tztensor.tensor_data(t)
+  grad_p: int = tztensor.tensor_grad(t)
+  unsafe:
+    m_p = (opt as *int)[0]
+    v_p = (opt as *int)[1]
+  if grad_p == 0:
+    ret 0
+  if max_grad_norm > 0.0:
+    tzcpu.tz_cpu_grad_clip_f32(grad_p, numel, max_grad_norm)
+  tzcpu.tz_cpu_adam_f32(param_p, grad_p, m_p, v_p, 0.01, 0.9, 0.999, 0.00000001, 0.9, 0.999, numel)
+  ret 0
+
+fn adam_free(opt: int) -> int:
+  if opt != 0:
+    m_p: int = 0
+    v_p: int = 0
+    unsafe:
+      m_p = (opt as *int)[0]
+      v_p = (opt as *int)[1]
+    if m_p != 0:
+      tzcpu.tz_cpu_free(m_p)
+    if v_p != 0:
+      tzcpu.tz_cpu_free(v_p)
+    tzcpu.tz_cpu_free(opt)
+  ret 0
+
+// ── SGD with Momentum ─────────────────────────────────────────────────────────
+
+fn sgd_create(numel: int, lr: float, momentum: float, weight_decay: float) -> int:
+  opt: int = tzcpu.tz_cpu_malloc(64)
+  vel_p: int = tzcpu.tz_cpu_zeros(numel)
+  unsafe:
+    (opt as *int)[0] = vel_p
+    (opt as *int)[1] = numel
+    (opt as *int)[5] = 0
+  ret opt
+
+fn sgd_step(opt: int, t: int, lr: float, momentum: float, wd: float) -> int:
+  vel_p: int = 0
+  numel: int = tztensor.tensor_numel(t)
+  param_p: int = tztensor.tensor_data(t)
+  grad_p: int = tztensor.tensor_grad(t)
+  unsafe:
+    vel_p = (opt as *int)[0]
+  if grad_p == 0:
+    ret 0
+  tzcpu.tz_cpu_sgd_f32(param_p, grad_p, vel_p, lr, momentum, wd, numel)
+  ret 0
+
+fn sgd_free(opt: int) -> int:
+  if opt != 0:
+    vel_p: int = 0
+    unsafe:
+      vel_p = (opt as *int)[0]
+    if vel_p != 0:
+      tzcpu.tz_cpu_free(vel_p)
+    tzcpu.tz_cpu_free(opt)
+  ret 0

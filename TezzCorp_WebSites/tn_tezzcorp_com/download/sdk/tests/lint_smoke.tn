@@ -1,0 +1,3 @@
+fn main() -> int:
+  say "lint-smoke"
+  ret 0

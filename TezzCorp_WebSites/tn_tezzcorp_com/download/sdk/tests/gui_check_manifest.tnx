@@ -1,0 +1,6 @@
+tests/gui_compile_contract.tn
+tests/gui_tree_lifecycle.tn
+tests/gui_tzui_compile.tn
+tests/gui_tnui_controls_compile.tn
+tests/gui_wm_compile_contract.tn
+examples/gui_first_app.tn

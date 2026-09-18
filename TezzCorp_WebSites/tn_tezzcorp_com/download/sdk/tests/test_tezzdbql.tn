@@ -1,0 +1,142 @@
+// tests/test_tezzdbql.tn — TezzDBQL query language test lane
+import "std"
+import "../lib/tezzdb.tn"
+import "../lib/tezzdbql.tn"
+
+fn main() -> int:
+  say "TezzDBQL — SQL Query Language Test"
+
+  // ── Set up ──────────────────────────────────────────────────
+  db:*char = tezzdb.db_open("build/test_ql.db")
+  if db == 0:
+    say "FAIL: open"
+    ret 1
+
+  // ── CREATE TABLE ────────────────────────────────────────────
+  r0:*TzQueryResult = tezzdbql.db_query0(db, "CREATE TABLE products")
+  if tezzdbql.db_result_error(r0) != 0:
+    say "FAIL: CREATE TABLE rc=", tezzdbql.db_result_error(r0)
+    tezzdbql.db_result_free(r0)
+    ret 1
+  tezzdbql.db_result_free(r0)
+  say "CREATE TABLE ok"
+
+  // ── INSERT INTO (3 rows) ────────────────────────────────────
+  q_ins:str = "INSERT INTO products (name, price) VALUES (?, ?)"
+
+  r1:*TzQueryResult = tezzdbql.db_query2(db, q_ins, "Widget", "9")
+  pk1:int = tezzdbql.db_result_last_id(r1)
+  if pk1 <= 0:
+    say "FAIL: INSERT pk1=", pk1
+    tezzdbql.db_result_free(r1)
+    ret 1
+  tezzdbql.db_result_free(r1)
+
+  r2:*TzQueryResult = tezzdbql.db_query2(db, q_ins, "Gadget", "42")
+  pk2:int = tezzdbql.db_result_last_id(r2)
+  tezzdbql.db_result_free(r2)
+
+  r2b:*TzQueryResult = tezzdbql.db_query2(db, q_ins, "Doohickey", "7")
+  tezzdbql.db_result_free(r2b)
+  say "INSERT ok pk1=", pk1, " pk2=", pk2
+
+  // ── SELECT * ────────────────────────────────────────────────
+  r3:*TzQueryResult = tezzdbql.db_query0(db, "SELECT * FROM products")
+  cnt3:int = tezzdbql.db_result_row_count(r3)
+  if cnt3 != 3:
+    say "FAIL: SELECT * count expected 3 got ", cnt3
+    tezzdbql.db_result_free(r3)
+    ret 1
+  say "SELECT * count ok = ", cnt3
+  while tezzdbql.db_result_next(r3) != 0:
+    nm:str = tezzdbql.cursor_field_str(r3, "name")
+    pr:str = tezzdbql.cursor_field_str(r3, "price")
+    say "  row: name=", nm, " price=", pr
+    unsafe:
+      if nm != 0: free(nm)
+      if pr != 0: free(pr)
+  tezzdbql.db_result_free(r3)
+
+  // ── SELECT WHERE ────────────────────────────────────────────
+  q_sel_where:str = "SELECT * FROM products WHERE name = ?"
+  r4:*TzQueryResult = tezzdbql.db_query1(db, q_sel_where, "Gadget")
+  if tezzdbql.db_result_row_count(r4) != 1:
+    say "FAIL: SELECT WHERE count expected 1 got ", tezzdbql.db_result_row_count(r4)
+    tezzdbql.db_result_free(r4)
+    ret 1
+  if tezzdbql.db_result_next(r4) != 0:
+    nm4:str = tezzdbql.cursor_field_str(r4, "name")
+    say "SELECT WHERE ok: name=", nm4
+    unsafe: if nm4 != 0: free(nm4)
+  tezzdbql.db_result_free(r4)
+  say "SELECT WHERE ok"
+
+  // ── SELECT LIMIT ────────────────────────────────────────────
+  r5:*TzQueryResult = tezzdbql.db_query1(db, "SELECT * FROM products LIMIT ?", "2")
+  if tezzdbql.db_result_row_count(r5) != 2:
+    say "FAIL: SELECT LIMIT count expected 2 got ", tezzdbql.db_result_row_count(r5)
+    tezzdbql.db_result_free(r5)
+    ret 1
+  tezzdbql.db_result_free(r5)
+  say "SELECT LIMIT ok"
+
+  // ── UPDATE ──────────────────────────────────────────────────
+  r6:*TzQueryResult = tezzdbql.db_query2(db, "UPDATE products SET name = ? WHERE id = ?", "Widget Pro", "1")
+  if tezzdbql.db_result_error(r6) != 0:
+    say "FAIL: UPDATE rc=", tezzdbql.db_result_error(r6)
+    tezzdbql.db_result_free(r6)
+    ret 1
+  tezzdbql.db_result_free(r6)
+  // Verify update
+  r6b:*TzQueryResult = tezzdbql.db_query1(db, q_sel_where, "Widget Pro")
+  if tezzdbql.db_result_row_count(r6b) != 1:
+    say "FAIL: UPDATE verification count=", tezzdbql.db_result_row_count(r6b)
+    tezzdbql.db_result_free(r6b)
+    ret 1
+  tezzdbql.db_result_free(r6b)
+  say "UPDATE ok"
+
+  // ── DELETE ──────────────────────────────────────────────────
+  r7:*TzQueryResult = tezzdbql.db_query1(db, "DELETE FROM products WHERE id = ?", "2")
+  if tezzdbql.db_result_error(r7) != 0:
+    say "FAIL: DELETE rc=", tezzdbql.db_result_error(r7)
+    tezzdbql.db_result_free(r7)
+    ret 1
+  tezzdbql.db_result_free(r7)
+  // Verify count
+  r7b:*TzQueryResult = tezzdbql.db_query0(db, "SELECT * FROM products")
+  if tezzdbql.db_result_row_count(r7b) != 2:
+    say "FAIL: DELETE count expected 2 got ", tezzdbql.db_result_row_count(r7b)
+    tezzdbql.db_result_free(r7b)
+    ret 1
+  tezzdbql.db_result_free(r7b)
+  say "DELETE ok"
+
+  // ── db_exec2 helper ─────────────────────────────────────────
+  aff:int = tezzdbql.db_exec2(db, q_ins, "Thingamajig", "15")
+  if aff <= 0:
+    say "FAIL: db_exec2 insert aff=", aff
+    ret 1
+  say "db_exec2 INSERT ok aff=", aff
+
+  // ── db_scalar1 helper ───────────────────────────────────────
+  nm_s:str = tezzdbql.db_scalar1(db, "SELECT * FROM products WHERE name = ?", "Thingamajig", "name")
+  if nm_s == 0:
+    say "FAIL: scalar1"
+    ret 1
+  say "scalar1 ok: ", nm_s
+  unsafe: free(nm_s)
+
+  // ── DROP TABLE ──────────────────────────────────────────────
+  r8:*TzQueryResult = tezzdbql.db_query0(db, "DROP TABLE products")
+  if tezzdbql.db_result_error(r8) != 0:
+    say "FAIL: DROP TABLE rc=", tezzdbql.db_result_error(r8)
+    tezzdbql.db_result_free(r8)
+    ret 1
+  tezzdbql.db_result_free(r8)
+  say "DROP TABLE ok"
+
+  tezzdb.db_close(db)
+  say "All TezzDBQL tests PASSED"
+  say "TEZZDBQL LANE PASSED"
+  ret 0

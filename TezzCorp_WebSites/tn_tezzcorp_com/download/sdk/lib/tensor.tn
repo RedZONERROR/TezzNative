@@ -1,0 +1,2 @@
+// tensor.tn -- Compatibility wrapper for tztensor module
+import "tztensor"

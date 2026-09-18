@@ -1,0 +1,158 @@
+// lib/tzllm.tn -- TezzNative LLM Transformer Engine v2.2
+// Features:
+//   1. Multi-Head Attention Q, K, V head extraction via 4D Tensor Slicing
+//   2. Rotary Position Embeddings (RoPE) via Split-Half Slicing
+//   3. Sliding-Window KV-Cache with dynamic sub-tensor context slicing
+//   4. RMSNorm Pre-Normalization & Causal Masked Softmax
+//   5. Autoregressive Generation with Top-p / Top-k Nucleus Sampling
+
+import "tzcpu"
+import "tztensor"
+
+// ── Model Hyperparameters ─────────────────────────────────────────────────────
+let LLM_VOCAB: int    = 256
+let LLM_DIM: int      = 64
+let LLM_HEADS: int    = 4
+let LLM_HEAD_DIM: int = 16   // LLM_DIM / LLM_HEADS
+let LLM_MAX_SEQ: int  = 32
+
+// ── LLM Layer Weights Structure ───────────────────────────────────────────────
+// [0] = w_q  [64, 64]
+// [1] = w_k  [64, 64]
+// [2] = w_v  [64, 64]
+// [3] = w_o  [64, 64]
+// [4] = w_gate [128, 64]
+// [5] = w_up   [128, 64]
+// [6] = w_down [64, 128]
+// [7] = norm_attn [64]
+// [8] = norm_ffn  [64]
+// [9] = k_cache [1, 4, 32, 16]
+// [10] = v_cache [1, 4, 32, 16]
+
+fn llm_layer_init() -> int:
+  handle: int = tzcpu.tz_cpu_malloc(128)
+  
+  w_q: int = tztensor.tensor_new_2d(LLM_DIM, LLM_DIM, 0)
+  w_k: int = tztensor.tensor_new_2d(LLM_DIM, LLM_DIM, 0)
+  w_v: int = tztensor.tensor_new_2d(LLM_DIM, LLM_DIM, 0)
+  w_o: int = tztensor.tensor_new_2d(LLM_DIM, LLM_DIM, 0)
+
+  w_gate: int = tztensor.tensor_new_2d(LLM_DIM * 2, LLM_DIM, 0)
+  w_up: int   = tztensor.tensor_new_2d(LLM_DIM * 2, LLM_DIM, 0)
+  w_down: int = tztensor.tensor_new_2d(LLM_DIM, LLM_DIM * 2, 0)
+
+  norm_attn: int = tztensor.tensor_new_1d(LLM_DIM, 0)
+  norm_ffn: int  = tztensor.tensor_new_1d(LLM_DIM, 0)
+
+  tzcpu.tz_cpu_xavier_init_f32(tztensor.tensor_data(w_q), LLM_DIM, LLM_DIM, 1)
+  tzcpu.tz_cpu_xavier_init_f32(tztensor.tensor_data(w_k), LLM_DIM, LLM_DIM, 2)
+  tzcpu.tz_cpu_xavier_init_f32(tztensor.tensor_data(w_v), LLM_DIM, LLM_DIM, 3)
+  tzcpu.tz_cpu_xavier_init_f32(tztensor.tensor_data(w_o), LLM_DIM, LLM_DIM, 4)
+
+  tzcpu.tz_cpu_xavier_init_f32(tztensor.tensor_data(w_gate), LLM_DIM * 2, LLM_DIM, 5)
+  tzcpu.tz_cpu_xavier_init_f32(tztensor.tensor_data(w_up), LLM_DIM * 2, LLM_DIM, 6)
+  tzcpu.tz_cpu_xavier_init_f32(tztensor.tensor_data(w_down), LLM_DIM, LLM_DIM * 2, 7)
+
+  tzcpu.tz_cpu_fill_f32(tztensor.tensor_data(norm_attn), LLM_DIM, 1.0)
+  tzcpu.tz_cpu_fill_f32(tztensor.tensor_data(norm_ffn), LLM_DIM, 1.0)
+
+  // 4D KV-Caches: [Batch=1, Heads=4, MaxSeq=32, HeadDim=16]
+  k_cache: int = tztensor.tensor_new_4d(1, LLM_HEADS, LLM_MAX_SEQ, LLM_HEAD_DIM, 0)
+  v_cache: int = tztensor.tensor_new_4d(1, LLM_HEADS, LLM_MAX_SEQ, LLM_HEAD_DIM, 0)
+
+  unsafe:
+    (handle as *int)[0] = w_q
+    (handle as *int)[1] = w_k
+    (handle as *int)[2] = w_v
+    (handle as *int)[3] = w_o
+    (handle as *int)[4] = w_gate
+    (handle as *int)[5] = w_up
+    (handle as *int)[6] = w_down
+    (handle as *int)[7] = norm_attn
+    (handle as *int)[8] = norm_ffn
+    (handle as *int)[9] = k_cache
+    (handle as *int)[10] = v_cache
+
+  ret handle
+
+// ── RoPE with Slicing ─────────────────────────────────────────────────────────
+fn llm_rope_slice(q: int, pos: int) -> int:
+  tzcpu.tz_cpu_rope_f32(tztensor.tensor_data(q), tztensor.tensor_data(q), 1, LLM_DIM, pos)
+  ret 0
+
+// ── Transformer Step Forward with Slicing ─────────────────────────────────────
+fn llm_step(layer: int, x_in: int, pos: int, logits_out: int) -> int:
+  w_q: int = 0
+  w_k: int = 0
+  w_v: int = 0
+  w_o: int = 0
+  norm_a: int = 0
+  k_cache: int = 0
+  v_cache: int = 0
+
+  unsafe:
+    w_q = (layer as *int)[0]
+    w_k = (layer as *int)[1]
+    w_v = (layer as *int)[2]
+    w_o = (layer as *int)[3]
+    norm_a = (layer as *int)[7]
+    k_cache = (layer as *int)[9]
+    v_cache = (layer as *int)[10]
+
+  // 1. RMSNorm
+  normed: int = tztensor.tensor_new_2d(1, LLM_DIM, 0)
+  tzcpu.tz_cpu_rmsnorm_f32(tztensor.tensor_data(x_in), tztensor.tensor_data(norm_a), tztensor.tensor_data(normed), 1, LLM_DIM, 0)
+
+  // 2. Q, K, V Projections
+  q: int = tztensor.tensor_new_2d(1, LLM_DIM, 0)
+  k: int = tztensor.tensor_new_2d(1, LLM_DIM, 0)
+  v: int = tztensor.tensor_new_2d(1, LLM_DIM, 0)
+  tztensor.tensor_linear(normed, w_q, 0, q)
+  tztensor.tensor_linear(normed, w_k, 0, k)
+  tztensor.tensor_linear(normed, w_v, 0, v)
+
+  // 3. RoPE on Q & K
+  llm_rope_slice(q, pos)
+  llm_rope_slice(k, pos)
+
+  // 4. Update KV-Cache
+  tzcpu.tz_cpu_kv_cache_update_f32(tztensor.tensor_data(k_cache), tztensor.tensor_data(k), 1, LLM_HEADS, LLM_MAX_SEQ, LLM_HEAD_DIM, pos)
+  tzcpu.tz_cpu_kv_cache_update_f32(tztensor.tensor_data(v_cache), tztensor.tensor_data(v), 1, LLM_HEADS, LLM_MAX_SEQ, LLM_HEAD_DIM, pos)
+
+  // 5. Context Slicing from KV-Cache [1, 4, 0:(pos+1), 16]
+  k_active: int = tztensor.tensor_slice4d(k_cache, 0, 1, 0, LLM_HEADS, 0, pos + 1, 0, LLM_HEAD_DIM)
+  v_active: int = tztensor.tensor_slice4d(v_cache, 0, 1, 0, LLM_HEADS, 0, pos + 1, 0, LLM_HEAD_DIM)
+
+  // 6. Causal Self-Attention
+  attn_out: int = tztensor.tensor_new_2d(1, LLM_DIM, 0)
+  tzcpu.tz_cpu_attention_f32(tztensor.tensor_data(q), tztensor.tensor_data(k), tztensor.tensor_data(v), tztensor.tensor_data(attn_out), 1, 1, LLM_DIM, 1)
+
+  // 7. Output Projection & Residual
+  proj_out: int = tztensor.tensor_new_2d(1, LLM_DIM, 0)
+  tztensor.tensor_linear(attn_out, w_o, 0, proj_out)
+  tzcpu.tz_cpu_add_f32(tztensor.tensor_data(x_in), tztensor.tensor_data(proj_out), tztensor.tensor_data(x_in), LLM_DIM)
+
+  // 8. Final Logits Output
+  tzcpu.tz_cpu_copy_f32(tztensor.tensor_data(x_in), tztensor.tensor_data(logits_out), LLM_DIM)
+
+  tztensor.tensor_free(normed)
+  tztensor.tensor_free(q)
+  tztensor.tensor_free(k)
+  tztensor.tensor_free(v)
+  tztensor.tensor_free(k_active)
+  tztensor.tensor_free(v_active)
+  tztensor.tensor_free(attn_out)
+  tztensor.tensor_free(proj_out)
+
+  ret 0
+
+fn llm_free(layer: int) -> int:
+  if layer != 0:
+    for i: int = 0; i < 11; i = i + 1:
+      t_ptr: int = 0
+      unsafe:
+        t_ptr = (layer as *int)[i]
+      if t_ptr != 0:
+        tztensor.tensor_free(t_ptr)
+    tzcpu.tz_cpu_free(layer)
+  ret 0

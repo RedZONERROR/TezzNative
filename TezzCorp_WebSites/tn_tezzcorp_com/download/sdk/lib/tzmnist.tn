@@ -1,0 +1,52 @@
+// lib/tzmnist.tn -- TezzNative MNIST DataLoader v1.0
+// Loads the official MNIST IDX binary format dataset.
+// Download dataset from: http://yann.lecun.com/exdb/mnist/
+//
+// Usage:
+//   import "tzmnist"
+//   ds: int = tzmnist.load("data/mnist", "train")  // or "test"
+//   n:  int = tzmnist.n_samples(ds)
+//   tzmnist.shuffle(ds, 42)
+//   // Training loop:
+//   x_buf: int = tz_cpu_malloc(batch * 784 * 4)
+//   y_buf: int = tz_cpu_malloc(batch * 4)
+//   tzmnist.next_batch(ds, x_buf, y_buf, batch)
+//   tzmnist.reset(ds)
+//   tzmnist.free(ds)
+
+extern fn tz_mnist_load(dir: int, split: int) -> int
+extern fn tz_mnist_n_samples(handle: int) -> int
+extern fn tz_mnist_n_features(handle: int) -> int
+extern fn tz_mnist_reset(handle: int) -> int
+extern fn tz_mnist_next_batch(handle: int, x_buf: int, y_buf: int, batch_size: int) -> int
+extern fn tz_mnist_shuffle(handle: int, seed: int) -> int
+extern fn tz_mnist_free(handle: int) -> int
+extern fn tz_mnist_get_image(handle: int, idx: int, dst_buf: int) -> int
+extern fn tz_mnist_get_label(handle: int, idx: int) -> int
+
+fn load(dir: int, split: int) -> int:
+  ret tz_mnist_load(dir, split)
+
+fn n_samples(handle: int) -> int:
+  ret tz_mnist_n_samples(handle)
+
+fn n_features(handle: int) -> int:
+  ret tz_mnist_n_features(handle)
+
+fn reset(handle: int) -> int:
+  ret tz_mnist_reset(handle)
+
+fn shuffle(handle: int, seed: int) -> int:
+  ret tz_mnist_shuffle(handle, seed)
+
+fn next_batch(handle: int, x_buf: int, y_buf: int, batch_size: int) -> int:
+  ret tz_mnist_next_batch(handle, x_buf, y_buf, batch_size)
+
+fn free(handle: int) -> int:
+  ret tz_mnist_free(handle)
+
+fn get_image(handle: int, idx: int, dst_buf: int) -> int:
+  ret tz_mnist_get_image(handle, idx, dst_buf)
+
+fn get_label(handle: int, idx: int) -> int:
+  ret tz_mnist_get_label(handle, idx)

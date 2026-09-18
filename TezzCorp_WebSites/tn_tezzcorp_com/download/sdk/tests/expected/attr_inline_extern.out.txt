@@ -1,0 +1,3 @@
+tests/attr_inline_extern.tn:2:8: tezzc error: @inline not allowed on extern fn
+  extern fn ext_ping() -> int
+         ^

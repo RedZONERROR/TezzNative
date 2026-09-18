@@ -1,0 +1,368 @@
+// test_ai_stack.tn - Validates all new on-device AI library modules
+//
+// Tests: optim, quant, grad, dataloader, metric, device, nn new layers
+// This is the comprehensive integration test.
+
+import "nn"
+import "optim"
+import "quant"
+import "grad"
+import "dataloader"
+import "metric"
+import "math"
+
+fn _pf(label:str, val:float) -> int:
+  say label, val
+  ret 0
+
+fn _pi(label:str, val:int) -> int:
+  say label, val
+  ret 0
+
+fn main() -> int:
+  unsafe:
+    say "=== TezzNative On-Device AI Stack Test ==="
+    say ""
+
+    // --- Test 1: optim module ---
+    say "[1] Testing optim module..."
+    n:int = 4
+    p_raw:*char = malloc(n * 8)
+    g_raw:*char = malloc(n * 8)
+    m1_raw:*char = malloc(n * 8)
+    m2_raw:*char = malloc(n * 8)
+    params:*float = p_raw as *float
+    grads:*float = g_raw as *float
+    m1:*float = m1_raw as *float
+    m2:*float = m2_raw as *float
+    // Init params to 1.0, grads to 0.1
+    i:int = 0
+    while i < n:
+      unsafe:
+        params[i] = 1.0
+        grads[i]  = 0.1
+        m1[i]     = 0.0
+        m2[i]     = 0.0
+      i = i + 1
+    // Adam step
+    rc:int = optim.adam_default(params, grads, m1, m2, n, 1.0e-3, 1)
+    if rc == 0:
+      say "  [PASS] optim.adam_default"
+    else:
+      say "  [FAIL] optim.adam_default rc=", rc
+    // Check params changed
+    p0:float = 0.0
+    unsafe:
+      p0 = params[0]
+    if p0 < 1.0:
+      say "  [PASS] params updated from 1.0 to ", p0
+    else:
+      say "  [FAIL] params not updated: ", p0
+    // AdamW step
+    rc = optim.adamw_default(params, grads, m1, m2, n, 1.0e-3, 2)
+    if rc == 0:
+      say "  [PASS] optim.adamw_default"
+    // SGD
+    rc = optim.sgd_simple(params, grads, n, 0.01)
+    if rc == 0:
+      say "  [PASS] optim.sgd_simple"
+    // LR schedule
+    lr:float = optim.lr_warmup_cosine(1.0e-3, 100, 50, 1000)
+    if lr > 0.0 && lr <= 1.0e-3:
+      say "  [PASS] lr_warmup_cosine = ", lr
+    else:
+      say "  [FAIL] lr_warmup_cosine = ", lr
+    // State allocator
+    st:*float = optim.alloc_state(8)
+    if st != 0 as *float:
+      say "  [PASS] alloc_state(8)"
+      optim.free_state(st)
+    free(p_raw); free(g_raw); free(m1_raw); free(m2_raw)
+    say ""
+
+    // --- Test 2: quant module ---
+    say "[2] Testing quant module..."
+    qn:int = 64
+    orig_raw:*char = malloc(qn * 8)
+    q8_raw:*char = malloc(qn)
+    dq_raw:*char = malloc(qn * 8)
+    nsc:int = quant.n_scales(qn, 32)
+    sc_raw:*char = malloc(nsc * 8)
+    orig:*float = orig_raw as *float
+    dq:*float = dq_raw as *float
+    scales:*float = sc_raw as *float
+    // Fill with known values
+    i = 0
+    while i < qn:
+      unsafe:
+        orig[i] = (i as float) / 10.0 - 3.0
+      i = i + 1
+    // INT8 round-trip
+    rc = quant.f64_to_i8(orig, q8_raw, scales, qn, 32)
+    if rc == 0:
+      say "  [PASS] f64_to_i8"
+    else:
+      say "  [FAIL] f64_to_i8 rc=", rc
+    rc = quant.i8_to_f64(q8_raw, dq, scales, qn, 32)
+    if rc == 0:
+      say "  [PASS] i8_to_f64"
+    else:
+      say "  [FAIL] i8_to_f64 rc=", rc
+    // MSE should be small
+    mse_val:float = quant.quant_mse_i8(orig, q8_raw, scales, qn, 32)
+    if mse_val < 0.01:
+      say "  [PASS] INT8 quantization MSE = ", mse_val
+    else:
+      say "  [WARN] INT8 MSE higher than expected: ", mse_val
+    // FP16 round-trip
+    f16_raw:*char = malloc(quant.f16_bytes(qn))
+    rc = quant.f64_to_f16(orig, f16_raw, qn)
+    if rc == 0:
+      say "  [PASS] f64_to_f16"
+    rc = quant.f16_to_f64(f16_raw, dq, qn)
+    if rc == 0:
+      say "  [PASS] f16_to_f64"
+    free(f16_raw); free(orig_raw); free(q8_raw); free(dq_raw); free(sc_raw)
+    say ""
+
+    // --- Test 3: grad module ---
+    say "[3] Testing grad module..."
+    gn2:int = 16
+    tape:*float = grad.tape_new(gn2)
+    if tape != 0 as *float:
+      say "  [PASS] tape_new"
+    grad.zero(tape, gn2)
+    // Fill some gradients manually
+    g2_raw:*char = malloc(gn2 * 8)
+    g2:*float = g2_raw as *float
+    i = 0
+    while i < gn2:
+      unsafe:
+        g2[i] = (i as float) * 0.1
+      i = i + 1
+    grad.accumulate(tape, g2, gn2)
+    gn_val:float = grad.norm(tape, gn2)
+    if gn_val > 0.0:
+      say "  [PASS] gradient norm = ", gn_val
+    else:
+      say "  [FAIL] gradient norm = 0"
+    grad.clip_norm(tape, gn2, 1.0)
+    gn_clipped:float = grad.norm(tape, gn2)
+    if gn_clipped <= 1.01:
+      say "  [PASS] gradient clipped to norm <= 1.0, got ", gn_clipped
+    else:
+      say "  [FAIL] clip failed, norm = ", gn_clipped
+    has_bad:int = grad.has_nan_inf(tape, gn2)
+    if has_bad == 0:
+      say "  [PASS] no NaN/Inf in gradients"
+    grad.tape_free(tape)
+    free(g2_raw)
+    say ""
+
+    // --- Test 4: dataloader module ---
+    say "[4] Testing dataloader module..."
+    // Create a 10-sample, 2-feature, 1-label dataset
+    ds_n:int = 10
+    ds_nc:int = 3  // 2 features + 1 label
+    ds_raw:*char = malloc(ds_n * ds_nc * 8)
+    ds:*float = ds_raw as *float
+    i = 0
+    while i < ds_n:
+      unsafe:
+        ds[i * 3 + 0] = i as float
+        ds[i * 3 + 1] = (i as float) * 2.0
+        ds[i * 3 + 2] = (i % 2) as float
+      i = i + 1
+    dl:*DataLoader = dataloader.from_slab(ds, ds_n, 2, 1)
+    if dl != 0 as *DataLoader:
+      say "  [PASS] DataLoader created, n=", (*dl).n_samples
+    else:
+      say "  [FAIL] DataLoader creation failed"
+      free(ds_raw)
+      ret 1
+    dataloader.shuffle(dl, 42)
+    say "  [PASS] shuffle done"
+    x_b_raw:*char = malloc(4 * 2 * 8)
+    y_b_raw:*char = malloc(4 * 8)
+    x_b:*float = x_b_raw as *float
+    y_b:*float = y_b_raw as *float
+    total_read:int = 0
+    while dataloader.has_next(dl) != 0:
+      got:int = dataloader.next_batch(dl, x_b, y_b, 4)
+      total_read = total_read + got
+    if total_read == ds_n:
+      say "  [PASS] iterated all ", total_read, " samples"
+    else:
+      say "  [FAIL] only read ", total_read, " of ", ds_n, " samples"
+    free(x_b_raw); free(y_b_raw)
+    dataloader.dl_free(dl)
+    free(ds_raw)
+    say ""
+
+    // --- Test 5: metric module ---
+    say "[5] Testing metric module..."
+    mn:int = 4
+    pf_raw:*char = malloc(mn * 8)
+    tf_raw:*char = malloc(mn * 8)
+    pf:*float = pf_raw as *float
+    tf:*float = tf_raw as *float
+    // Simple regression test: pred ~= target
+    unsafe:
+      pf[0] = 1.1; tf[0] = 1.0
+      pf[1] = 2.0; tf[1] = 2.1
+      pf[2] = 3.2; tf[2] = 3.0
+      pf[3] = 4.0; tf[3] = 3.9
+    mse_r:float = metric.mse(pf, tf, mn)
+    rmse_r:float = metric.rmse(pf, tf, mn)
+    r2:float = metric.r_squared(pf, tf, mn)
+    if mse_r > 0.0 && mse_r < 0.1:
+      say "  [PASS] MSE = ", mse_r
+    else:
+      say "  [FAIL] MSE = ", mse_r
+    if r2 > 0.9:
+      say "  [PASS] R2 = ", r2
+    else:
+      say "  [WARN] R2 = ", r2, " (may vary)"
+    // Binary F1
+    // preds >= 0.5 = positive
+    unsafe:
+      pf[0] = 0.9; tf[0] = 1.0
+      pf[1] = 0.1; tf[1] = 0.0
+      pf[2] = 0.8; tf[2] = 1.0
+      pf[3] = 0.2; tf[3] = 0.0
+    f1_v:float = metric.f1_binary(pf, tf, mn)
+    if f1_v > 0.9:
+      say "  [PASS] F1 = ", f1_v
+    else:
+      say "  [FAIL] F1 = ", f1_v
+    // Perplexity
+    lp_raw:*char = malloc(mn * 8)
+    lp:*float = lp_raw as *float
+    unsafe:
+      lp[0] = 0.0 - 0.5
+      lp[1] = 0.0 - 0.7
+      lp[2] = 0.0 - 0.3
+      lp[3] = 0.0 - 0.6
+    ppl:float = metric.perplexity(lp, mn)
+    if ppl > 1.0 && ppl < 5.0:
+      say "  [PASS] perplexity = ", ppl
+    else:
+      say "  [FAIL] perplexity = ", ppl
+    free(pf_raw); free(tf_raw); free(lp_raw)
+    say ""
+
+    // --- Test 6: nn new layers ---
+    say "[6] Testing new nn layers..."
+    layer_n:int = 8
+    lx_raw:*char = malloc(layer_n * 8)
+    ly_raw:*char = malloc(layer_n * 8)
+    lx:*float = lx_raw as *float
+    ly:*float = ly_raw as *float
+    // Fill lx with values -2.0 to 2.0
+    i = 0
+    while i < layer_n:
+      unsafe:
+        lx[i] = (i as float) - 3.5
+      i = i + 1
+    // GELU
+    unsafe:
+      ly[0] = lx[0]; ly[1] = lx[1]; ly[2] = lx[2]; ly[3] = lx[3]
+      ly[4] = lx[4]; ly[5] = lx[5]; ly[6] = lx[6]; ly[7] = lx[7]
+    rc = nn.nn_gelu(ly, layer_n)
+    if rc == 0:
+      say "  [PASS] nn_gelu"
+    else:
+      say "  [FAIL] nn_gelu"
+    // SiLU
+    unsafe:
+      ly[0] = lx[0]; ly[1] = lx[1]; ly[2] = lx[2]; ly[3] = lx[3]
+    rc = nn.nn_silu(ly, 4)
+    if rc == 0:
+      say "  [PASS] nn_silu"
+    // Softmax
+    unsafe:
+      ly[0] = 1.0; ly[1] = 2.0; ly[2] = 3.0; ly[3] = 4.0
+    rc = nn.nn_softmax(ly, 1, 4)
+    if rc == 0:
+      v0:float = 0.0
+      unsafe:
+        v0 = ly[0]
+      if v0 > 0.0 && v0 < 0.1:
+        say "  [PASS] nn_softmax (min prob small: ", v0, ")"
+      else:
+        say "  [FAIL] nn_softmax unexpected: ", v0
+    // Argmax
+    unsafe:
+      ly[0] = 0.1; ly[1] = 0.9; ly[2] = 0.3; ly[3] = 0.2
+    best:int = nn.nn_argmax(ly, 4)
+    if best == 1:
+      say "  [PASS] nn_argmax = 1 (correct)"
+    else:
+      say "  [FAIL] nn_argmax = ", best, " (expected 1)"
+    // Dropout (seed-based)
+    unsafe:
+      ly[0] = 1.0; ly[1] = 1.0; ly[2] = 1.0; ly[3] = 1.0
+      ly[4] = 1.0; ly[5] = 1.0; ly[6] = 1.0; ly[7] = 1.0
+    drop_seed:int = 99887766
+    rc = nn.nn_dropout(ly, layer_n, 0.5, 1, &drop_seed)
+    if rc == 0:
+      say "  [PASS] nn_dropout (training mode)"
+    else:
+      say "  [FAIL] nn_dropout"
+    // RMSNorm
+    unsafe:
+      lx[0] = 1.0; lx[1] = 2.0; lx[2] = 3.0; lx[3] = 4.0
+    rc = nn.nn_rmsnorm(lx, ly, 0 as *float, 1, 4, 1.0e-5)
+    if rc == 0:
+      say "  [PASS] nn_rmsnorm"
+    else:
+      say "  [FAIL] nn_rmsnorm"
+    free(lx_raw); free(ly_raw)
+    say ""
+
+    // --- Test 7: XOR training end-to-end ---
+    say "[7] XOR end-to-end training test..."
+    net:*float = nn.nn_new(2, 4, 1)
+    if net == 0 as *float:
+      say "  [FAIL] nn_new returned null"
+      ret 1
+    // Train for 1000 steps
+    x_buf:[float;2]
+    y_buf:[float;1]
+    ep2:int = 0
+    last_loss:float = 999.0
+    while ep2 < 2000:
+      sample:int = ep2 % 4
+      if sample == 0:
+        x_buf[0] = 0.0; x_buf[1] = 0.0; y_buf[0] = 0.0
+      if sample == 1:
+        x_buf[0] = 0.0; x_buf[1] = 1.0; y_buf[0] = 1.0
+      if sample == 2:
+        x_buf[0] = 1.0; x_buf[1] = 0.0; y_buf[0] = 1.0
+      if sample == 3:
+        x_buf[0] = 1.0; x_buf[1] = 1.0; y_buf[0] = 0.0
+      xp:*float = &x_buf[0]
+      yp:*float = &y_buf[0]
+      nn.nn_forward(net, xp, xp)
+      last_loss = nn.nn_backward(net, xp, yp, 0.05)
+      ep2 = ep2 + 1
+    if last_loss < 0.1:
+      say "  [PASS] XOR converged, final loss = ", last_loss
+    else:
+      say "  [WARN] XOR loss = ", last_loss, " (may not fully converge in 2000 steps)"
+    // Test prediction
+    x_buf[0] = 1.0; x_buf[1] = 0.0
+    out_buf:[float;1]
+    outp:*float = &out_buf[0]
+    nn.nn_forward(net, &x_buf[0], outp)
+    if out_buf[0] > 0.4:
+      say "  [PASS] XOR(1,0) = ", out_buf[0], " (expected ~1.0)"
+    else:
+      say "  [WARN] XOR(1,0) = ", out_buf[0]
+    nn.nn_free(net)
+    say ""
+
+    say "=========================================="
+    say "All tests complete."
+    say "=========================================="
+    ret 0

@@ -1,0 +1,51 @@
+func main (regs=45)
+L0:
+  alloca  r0 = (size=16, align=8)
+  iconst  r1 = 0
+  gep     r2 = r0 + 0
+  store   [r2] = r1 (size=1)
+  gep     r3 = r0 + 1
+  store   [r3] = r1 (size=1)
+  gep     r4 = r0 + 2
+  store   [r4] = r1 (size=1)
+  gep     r5 = r0 + 3
+  store   [r5] = r1 (size=1)
+  gep     r6 = r0 + 4
+  store   [r6] = r1 (size=1)
+  gep     r7 = r0 + 5
+  store   [r7] = r1 (size=1)
+  gep     r8 = r0 + 6
+  store   [r8] = r1 (size=1)
+  gep     r9 = r0 + 7
+  store   [r9] = r1 (size=1)
+  gep     r10 = r0 + 8
+  store   [r10] = r1 (size=1)
+  gep     r11 = r0 + 9
+  store   [r11] = r1 (size=1)
+  gep     r12 = r0 + 10
+  store   [r12] = r1 (size=1)
+  gep     r13 = r0 + 11
+  store   [r13] = r1 (size=1)
+  gep     r14 = r0 + 12
+  store   [r14] = r1 (size=1)
+  gep     r15 = r0 + 13
+  store   [r15] = r1 (size=1)
+  gep     r16 = r0 + 14
+  store   [r16] = r1 (size=1)
+  gep     r17 = r0 + 15
+  store   [r17] = r1 (size=1)
+  mov     r21 = r0
+  gep     r22 = r21 + 0
+  iconst  r23 = 3
+  store   [r22] = r23 (size=8)
+  iconst  r26 = 8
+  add    r27 = r0, r26
+  gep     r28 = r27 + 0
+  iconst  r29 = 4
+  store   [r28] = r29 (size=8)
+  load    r35 = [r22] (size=8)
+  load    r41 = [r28] (size=8)
+  add    r42 = r35, r41
+  call    r43 = say(r42)
+  ret     r1
+

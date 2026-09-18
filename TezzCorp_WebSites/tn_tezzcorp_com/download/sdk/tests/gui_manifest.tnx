@@ -1,0 +1,5 @@
+tests/gui_event_bridge.tn
+tests/gui_caps_host.tn
+tests/gui_window_smoke.tn
+tests/gui_ime_state.tn
+tests/gui_wm_runtime.tn

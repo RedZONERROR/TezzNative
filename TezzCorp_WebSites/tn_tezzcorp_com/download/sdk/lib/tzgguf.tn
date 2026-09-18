@@ -1,0 +1,79 @@
+// lib/tzgguf.tn -- TezzNative GGUF Binary Model Loader & Quantization Engine v2.2
+// Zero-dependency direct reader and dequantizer for .gguf quantized neural networks.
+
+import "tzcpu"
+import "tztensor"
+
+extern fn tz_gguf_open(path: int) -> int
+extern fn tz_gguf_num_tensors(handle: int) -> int
+extern fn tz_gguf_tensor_name(handle: int, idx: int) -> str
+extern fn tz_gguf_tensor_type(handle: int, idx: int) -> int
+extern fn tz_gguf_tensor_shape(handle: int, idx: int, dim_idx: int) -> int
+extern fn tz_gguf_tensor_numel(handle: int, idx: int) -> int
+extern fn tz_gguf_read_tensor_f32(handle: int, idx: int, dst: int) -> int
+extern fn tz_gguf_dequantize_q4_0(src: int, dst: int, k: int) -> int
+extern fn tz_gguf_dequantize_q8_0(src: int, dst: int, k: int) -> int
+extern fn tz_gguf_quantize_q4_0(src: int, dst: int, k: int) -> int
+extern fn tz_gguf_quantize_q8_0(src: int, dst: int, k: int) -> int
+extern fn tz_gguf_gemv_q4_0(w: int, x: int, y: int, rows: int, cols: int) -> int
+extern fn tz_gguf_close(handle: int) -> int
+
+let GGUF_TYPE_F32: int  = 0
+let GGUF_TYPE_F16: int  = 1
+let GGUF_TYPE_Q4_0: int = 2
+let GGUF_TYPE_Q4_1: int = 3
+let GGUF_TYPE_Q5_0: int = 6
+let GGUF_TYPE_Q5_1: int = 7
+let GGUF_TYPE_Q8_0: int = 8
+let GGUF_TYPE_Q8_1: int = 9
+let GGUF_TYPE_BF16: int = 30
+
+fn cstr(s: str) -> int:
+  unsafe:
+    ret s as int
+  ret 0
+
+fn open_file(path: str) -> int:
+  ret tz_gguf_open(cstr(path))
+
+fn num_tensors(handle: int) -> int:
+  ret tz_gguf_num_tensors(handle)
+
+fn tensor_name(handle: int, idx: int) -> str:
+  ret tz_gguf_tensor_name(handle, idx)
+
+fn tensor_type(handle: int, idx: int) -> int:
+  ret tz_gguf_tensor_type(handle, idx)
+
+fn tensor_shape(handle: int, idx: int, dim_idx: int) -> int:
+  ret tz_gguf_tensor_shape(handle, idx, dim_idx)
+
+fn tensor_numel(handle: int, idx: int) -> int:
+  ret tz_gguf_tensor_numel(handle, idx)
+
+fn load_tensor(handle: int, idx: int) -> int:
+  d0: int = tz_gguf_tensor_shape(handle, idx, 0)
+  d1: int = tz_gguf_tensor_shape(handle, idx, 1)
+  d2: int = tz_gguf_tensor_shape(handle, idx, 2)
+  d3: int = tz_gguf_tensor_shape(handle, idx, 3)
+  t: int = tztensor.tensor_zeros_4d(d0, d1, d2, d3)
+  tz_gguf_read_tensor_f32(handle, idx, tztensor.tensor_data(t))
+  ret t
+
+fn dequantize_q4_0(src: int, dst: int, numel: int) -> int:
+  ret tz_gguf_dequantize_q4_0(src, dst, numel)
+
+fn dequantize_q8_0(src: int, dst: int, numel: int) -> int:
+  ret tz_gguf_dequantize_q8_0(src, dst, numel)
+
+fn quantize_q4_0(src: int, dst: int, numel: int) -> int:
+  ret tz_gguf_quantize_q4_0(src, dst, numel)
+
+fn quantize_q8_0(src: int, dst: int, numel: int) -> int:
+  ret tz_gguf_quantize_q8_0(src, dst, numel)
+
+fn gemv_q4_0(w: int, x: int, y: int, rows: int, cols: int) -> int:
+  ret tz_gguf_gemv_q4_0(w, x, y, rows, cols)
+
+fn close_file(handle: int) -> int:
+  ret tz_gguf_close(handle)

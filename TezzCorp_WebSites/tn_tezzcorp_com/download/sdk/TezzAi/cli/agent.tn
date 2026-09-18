@@ -1,0 +1,1148 @@
+import "std"
+import "io"
+import "net"
+import "llm_core"
+import "../core/agent_core.tn"
+
+let AI_OK:int = 0
+let AI_ERR:int = 0 - 1
+
+static let g_model_path:int = 0
+static let g_codebook_path:int = 0
+static let g_max_code_chars:int = 2000
+static let g_pick_debug:int = 0
+static let g_full_source:int = 0
+static let g_v2:int = 1
+
+fn _streq(a:str, b:str) -> int:
+  if a == 0 || b == 0:
+    ret 0
+  ret strcmp(a, b) == 0
+
+fn _starts_with(s:str, p:str) -> int:
+  if s == 0 || p == 0:
+    ret 0
+  i:int = 0
+  while p[i] != 0 as char:
+    if s[i] == 0 as char:
+      ret 0
+    if s[i] != p[i]:
+      ret 0
+    i = i + 1
+  ret 1
+
+fn _contains(hay:str, needle:str) -> int:
+  if hay == 0 || needle == 0:
+    ret 0
+  nh:int = len(hay)
+  nn:int = len(needle)
+  if nn <= 0:
+    ret 1
+  if nh < nn:
+    ret 0
+  i:int = 0
+  while i <= (nh - nn):
+    j:int = 0
+    ok:int = 1
+    while j < nn:
+      if hay[i + j] != needle[j]:
+        ok = 0
+        break
+      j = j + 1
+    if ok != 0:
+      ret 1
+    i = i + 1
+  ret 0
+
+fn _slice_dup(s:str, a:int, b:int) -> str:
+  if s == 0:
+    ret ""
+  n:int = len(s)
+  s0:int = a
+  e0:int = b
+  if s0 < 0:
+    s0 = 0
+  if e0 < s0:
+    e0 = s0
+  if s0 > n:
+    s0 = n
+  if e0 > n:
+    e0 = n
+  span:int = e0 - s0
+  out:*char
+  unsafe:
+    out = (*char)malloc(span + 1)
+  if out == 0:
+    ret ""
+  if span > 0:
+    unsafe:
+      memcpy(out, (s + s0) as *char, span)
+  out[span] = 0 as char
+  ret out as str
+
+fn _trim_ws(s:str) -> str:
+  if s == 0:
+    ret ""
+  n:int = len(s)
+  a:int = 0
+  while a < n:
+    c:int = s[a] as int
+    if c != 32 && c != 9 && c != 10 && c != 13:
+      break
+    a = a + 1
+  b:int = n
+  while b > a:
+    c2:int = s[b - 1] as int
+    if c2 != 32 && c2 != 9 && c2 != 10 && c2 != 13:
+      break
+    b = b - 1
+  ret _slice_dup(s, a, b)
+
+fn _parse_int(s:str, fallback:int) -> int:
+  if s == 0 || s[0] == 0 as char:
+    ret fallback
+  i:int = 0
+  sign:int = 1
+  if s[0] == 45 as char:
+    sign = 0 - 1
+    i = 1
+  n:int = 0
+  seen:int = 0
+  while s[i] != 0 as char:
+    c:int = s[i] as int
+    if c < 48 || c > 57:
+      break
+    n = n * 10 + (c - 48)
+    seen = 1
+    i = i + 1
+  if seen == 0:
+    ret fallback
+  ret n * sign
+
+fn _sanitize_line(s:str, max_len:int) -> str:
+  if s == 0:
+    ret ""
+  n:int = len(s)
+  limit:int = n
+  if max_len > 0 && max_len < limit:
+    limit = max_len
+  out:*char
+  unsafe:
+    out = (*char)malloc(limit + 1)
+  if out == 0:
+    ret ""
+  i:int = 0
+  while i < limit:
+    c:int = s[i] as int
+    if c == 9 || c == 10 || c == 13:
+      out[i] = 32 as char
+    else:
+      out[i] = s[i]
+    i = i + 1
+  out[limit] = 0 as char
+  ret out as str
+
+fn _arg_value(flag:str) -> str:
+  i:int = 2
+  n:int = args_count()
+  while i < n:
+    a:str = arg(i)
+    if _streq(a, flag) != 0:
+      if (i + 1) < n:
+        ret arg(i + 1)
+      ret ""
+    i = i + 1
+  ret ""
+
+fn _has_flag(flag:str) -> int:
+  i:int = 2
+  n:int = args_count()
+  while i < n:
+    if _streq(arg(i), flag) != 0:
+      ret 1
+    i = i + 1
+  ret 0
+
+fn _find_positional(start_at:int) -> str:
+  i:int = start_at
+  n:int = args_count()
+  while i < n:
+    a:str = arg(i)
+    if _starts_with(a, "--") == 0:
+      ret a
+    if (i + 1) < n:
+      b:str = arg(i + 1)
+      if _starts_with(b, "--") != 0:
+        i = i + 2
+        continue
+    i = i + 1
+  ret ""
+
+fn _ensure_parent(path:str) -> int:
+  ret tezzai_ensure_parent_dir(path)
+
+fn _classify_path(path:str) -> str:
+  if path == 0:
+    ret "lib"
+  if _contains(path, "api") != 0 || _contains(path, "tezzserve") != 0 || _contains(path, "tezzapi") != 0 || _contains(path, "/net") != 0:
+    ret "api"
+  if _contains(path, "service") != 0 || _contains(path, "daemon") != 0 || _contains(path, "worker") != 0 || _contains(path, "/tsm") != 0:
+    ret "service"
+  if _contains(path, "cli") != 0 || _contains(path, "command") != 0 || _contains(path, "/tools/") != 0:
+    ret "cli"
+  ret "lib"
+
+fn _dataset_line(label:str, text:str) -> str:
+  p0:str = tezzai_str_join3(label, "\t", text)
+  out:str = tezzai_str_join2(p0, "\n")
+  if p0 != 0:
+    free(p0)
+  ret out
+
+fn _dataset_append(data_path:str, label:str, text:str) -> int:
+  _ensure_parent(data_path)
+  f:*File = io.file_open(data_path, "a")
+  ok:int = 0
+  unsafe:
+    if f != 0 && (*f).h != 0:
+      ok = 1
+  if ok == 0:
+    if f != 0:
+      free(f)
+    ret AI_ERR
+  rec:str = _dataset_line(label, text)
+  rc:int = io.file_write_line(f, rec)
+  if rec != 0:
+    free(rec)
+  io.file_close(f)
+  if rc < 0:
+    ret AI_ERR
+  ret AI_OK
+
+fn _count_dataset(data_path:str, total:*int, cli:*int, api:*int, libn:*int, service:*int) -> int:
+  if total != 0:
+    total[0] = 0
+  if cli != 0:
+    cli[0] = 0
+  if api != 0:
+    api[0] = 0
+  if libn != 0:
+    libn[0] = 0
+  if service != 0:
+    service[0] = 0
+  f:*File = io.file_open(data_path, "rb")
+  ok:int = 0
+  unsafe:
+    if f != 0 && (*f).h != 0:
+      ok = 1
+  if ok == 0:
+    if f != 0:
+      free(f)
+    ret AI_ERR
+  while io.file_eof(f) == 0:
+    line:str = io.file_read_line(f)
+    if line == 0:
+      continue
+    cut:int = 0
+    while line[cut] != 0 as char:
+      if line[cut] == 9 as char:
+        break
+      cut = cut + 1
+    if cut > 0:
+      lab:str = _slice_dup(line, 0, cut)
+      if total != 0:
+        total[0] = total[0] + 1
+      if lab != 0:
+        if _streq(lab, "cli") != 0:
+          if cli != 0:
+            cli[0] = cli[0] + 1
+        else if _streq(lab, "api") != 0:
+          if api != 0:
+            api[0] = api[0] + 1
+        else if _streq(lab, "service") != 0:
+          if service != 0:
+            service[0] = service[0] + 1
+        else:
+          if libn != 0:
+            libn[0] = libn[0] + 1
+        free(lab)
+    unsafe:
+      free(line as *char)
+  io.file_close(f)
+  ret AI_OK
+
+fn _line_is_tn(path:str) -> int:
+  if path == 0:
+    ret 0
+  n:int = len(path)
+  if n < 3:
+    ret 0
+  if path[n - 3] == 46 as char && path[n - 2] == 116 as char && path[n - 1] == 110 as char:
+    ret 1
+  ret 0
+
+fn _line_is_probably_test(path:str) -> int:
+  if path == 0:
+    ret 0
+  if _contains(path, "/tests/") != 0 || _contains(path, "\\tests\\") != 0:
+    ret 1
+  if _contains(path, "_test.tn") != 0 || _contains(path, "test_") != 0:
+    ret 1
+  ret 0
+
+fn _write_codebook_line(codebook_path:str, label:str, path:str) -> int:
+  _ensure_parent(codebook_path)
+  f:*File = io.file_open(codebook_path, "a")
+  ok:int = 0
+  unsafe:
+    if f != 0 && (*f).h != 0:
+      ok = 1
+  if ok == 0:
+    if f != 0:
+      free(f)
+    ret AI_ERR
+  p0:str = tezzai_str_join3(label, "\t", path)
+  p1:str = tezzai_str_join2(p0, "\n")
+  io.file_write_line(f, p1)
+  if p0 != 0:
+    free(p0)
+  if p1 != 0:
+    free(p1)
+  io.file_close(f)
+  ret AI_OK
+
+fn _index_root(root:str, data_path:str, codebook_path:str, with_tests:int, show_progress:int, files:*int, samples:*int) -> int:
+  listing:str = io.dir_list_rec(root)
+  if listing == 0 || listing[0] == 0 as char:
+    ret AI_OK
+  i:int = 0
+  total_lines:int = 0
+  while listing[i] != 0 as char:
+    if listing[i] == 10 as char:
+      total_lines = total_lines + 1
+    i = i + 1
+  if total_lines <= 0:
+    total_lines = 1
+  start:int = 0
+  idx:int = 0
+  n:int = len(listing)
+  while start <= n:
+    end:int = start
+    while end < n:
+      if listing[end] == 10 as char:
+        break
+      end = end + 1
+    raw_line:str = _slice_dup(listing, start, end)
+    line:str = _trim_ws(raw_line)
+    if raw_line != 0:
+      free(raw_line)
+    idx = idx + 1
+    if line != 0 && line[0] != 0 as char:
+      if _line_is_tn(line) != 0:
+        if with_tests != 0 || _line_is_probably_test(line) == 0:
+          txt:str = io.read_all(line)
+          if txt != 0 && len(txt) > 0:
+            label:str = _classify_path(line)
+            body:str = _sanitize_line(txt, 1400)
+            if body != 0 && body[0] != 0 as char:
+              _dataset_append(data_path, label, body)
+              _write_codebook_line(codebook_path, label, line)
+              if files != 0:
+                files[0] = files[0] + 1
+              if samples != 0:
+                samples[0] = samples[0] + 1
+            if body != 0:
+              free(body)
+            free(txt)
+      if show_progress != 0 && (idx % 25) == 0:
+        say "rindex | [....................] indexing..."
+        say line
+      free(line)
+    if end >= n:
+      break
+    start = end + 1
+  free(listing)
+  ret AI_OK
+
+fn _pick_source_from_codebook(codebook_path:str, tpl:str, prompt:str, pick_debug:int) -> str:
+  f:*File = io.file_open(codebook_path, "rb")
+  ok:int = 0
+  unsafe:
+    if f != 0 && (*f).h != 0:
+      ok = 1
+  if ok == 0:
+    if f != 0:
+      free(f)
+    ret ""
+  best_score:int = 0 - 2147483000
+  best_path:str = ""
+  while io.file_eof(f) == 0:
+    line:str = io.file_read_line(f)
+    if line == 0:
+      continue
+    tab:int = 0
+    while line[tab] != 0 as char:
+      if line[tab] == 9 as char:
+        break
+      tab = tab + 1
+    if line[tab] == 9 as char:
+      label:str = _slice_dup(line, 0, tab)
+      path0:str = _trim_ws(line + tab + 1)
+      score:int = 0
+      if _streq(label, tpl) != 0:
+        score = score + 40
+      if _contains(path0, "examples/") != 0 || _contains(path0, "examples\\") != 0:
+        score = score + 24
+      if _contains(path0, "lib/") != 0 || _contains(path0, "lib\\") != 0:
+        score = score + 20
+      if _contains(path0, "reference_v1/cli_") != 0 && _streq(tpl, "cli") != 0:
+        score = score + 40
+      if (_contains(path0, "tezzapi") != 0 || _contains(path0, "tezzserve") != 0) && _streq(tpl, "api") != 0:
+        score = score + 48
+      if _contains(path0, "tests/") != 0 || _contains(path0, "\\tests\\") != 0:
+        score = score - 64
+      if _streq(tpl, "api") != 0 && _contains(path0, "tests/") != 0:
+        score = score - 1000
+      if _contains(prompt, "websocket") != 0 && _contains(path0, "websocket") != 0:
+        score = score + 18
+      if _contains(prompt, "auth") != 0 && _contains(path0, "auth") != 0:
+        score = score + 16
+      if pick_debug != 0:
+        say "pick-debug: candidate"
+        say path0
+        say "pick-debug: score_total"
+        say score
+      if score > best_score:
+        if best_path != 0:
+          free(best_path)
+        best_path = tezzai_str_dup(path0)
+        best_score = score
+      if label != 0:
+        free(label)
+      if path0 != 0:
+        free(path0)
+    unsafe:
+      free(line as *char)
+  io.file_close(f)
+  if pick_debug != 0 && best_path != 0:
+    say "pick-debug: final best"
+    say best_path
+    say "pick-debug: final score"
+    say best_score
+  ret best_path
+
+fn _escape_json(s:str) -> str:
+  if s == 0:
+    ret ""
+  n:int = len(s)
+  out:*char
+  unsafe:
+    out = (*char)malloc((n * 2) + 1)
+  if out == 0:
+    ret ""
+  i:int = 0
+  j:int = 0
+  while i < n:
+    c:int = s[i] as int
+    if c == 92:
+      out[j] = 92 as char
+      out[j + 1] = 92 as char
+      j = j + 2
+    else if c == 34:
+      out[j] = 92 as char
+      out[j + 1] = 34 as char
+      j = j + 2
+    else if c == 10:
+      out[j] = 92 as char
+      out[j + 1] = 110 as char
+      j = j + 2
+    else if c == 13:
+      out[j] = 92 as char
+      out[j + 1] = 114 as char
+      j = j + 2
+    else if c == 9:
+      out[j] = 92 as char
+      out[j + 1] = 116 as char
+      j = j + 2
+    else:
+      out[j] = s[i]
+      j = j + 1
+    i = i + 1
+  out[j] = 0 as char
+  ret out as str
+
+fn _json_field(body:str, key:str) -> str:
+  if body == 0 || key == 0:
+    ret ""
+  pat0:str = tezzai_str_join3("\"", key, "\"")
+  pat1:str = tezzai_str_join2(pat0, ":")
+  if pat0 != 0:
+    free(pat0)
+  i:int = 0
+  n:int = len(body)
+  p:int = 0 - 1
+  m:int = len(pat1)
+  while i <= (n - m):
+    j:int = 0
+    ok:int = 1
+    while j < m:
+      if body[i + j] != pat1[j]:
+        ok = 0
+        break
+      j = j + 1
+    if ok != 0:
+      p = i + m
+      break
+    i = i + 1
+  if pat1 != 0:
+    free(pat1)
+  if p < 0:
+    ret ""
+  while body[p] != 0 as char:
+    c:int = body[p] as int
+    if c != 32 && c != 9 && c != 10 && c != 13:
+      break
+    p = p + 1
+  if body[p] != 34 as char:
+    ret ""
+  p = p + 1
+  q:int = p
+  while body[q] != 0 as char:
+    if body[q] == 34 as char && body[q - 1] != 92 as char:
+      break
+    q = q + 1
+  ret _slice_dup(body, p, q)
+
+fn _find_header_end(req:str) -> int:
+  if req == 0:
+    ret 0 - 1
+  n:int = len(req)
+  i:int = 0
+  while i + 3 < n:
+    if req[i] == 13 as char && req[i + 1] == 10 as char && req[i + 2] == 13 as char && req[i + 3] == 10 as char:
+      ret i + 4
+    i = i + 1
+  i = 0
+  while i + 1 < n:
+    if req[i] == 10 as char && req[i + 1] == 10 as char:
+      ret i + 2
+    i = i + 1
+  ret 0 - 1
+
+fn _request_body(req:str) -> str:
+  if req == 0:
+    ret ""
+  n:int = len(req)
+  s:int = _find_header_end(req)
+  if s < 0:
+    ret ""
+  if s > n:
+    s = n
+  ret _slice_dup(req, s, n)
+
+fn _model_path() -> str:
+  unsafe:
+    ret g_model_path as str
+
+fn _codebook_path() -> str:
+  unsafe:
+    ret g_codebook_path as str
+
+fn _set_global_paths(model_path:str, codebook_path:str) -> int:
+  unsafe:
+    if g_model_path != 0:
+      free(g_model_path as *char)
+    if g_codebook_path != 0:
+      free(g_codebook_path as *char)
+    g_model_path = tezzai_str_dup(model_path) as int
+    g_codebook_path = tezzai_str_dup(codebook_path) as int
+  ret AI_OK
+
+fn _web_file(path:str, ctype:str, sock:int) -> int:
+  txt:str = io.read_all(path)
+  if txt == 0 || txt[0] == 0 as char:
+    ret net.http_respond_not_found(sock)
+  rc:int = net.http_write_response(sock, 200, ctype, txt)
+  free(txt)
+  ret rc
+
+fn h_root(sock:int, req:str) -> int:
+  ret _web_file("TEZZAI/web/index.html", "text/html; charset=utf-8", sock)
+
+fn h_style(sock:int, req:str) -> int:
+  ret _web_file("TEZZAI/web/style.css", "text/css; charset=utf-8", sock)
+
+fn h_script(sock:int, req:str) -> int:
+  ret _web_file("TEZZAI/web/app.js", "application/javascript; charset=utf-8", sock)
+
+fn h_health(sock:int, req:str) -> int:
+  mp:str = _model_path()
+  ready:int = 0
+  if mp != 0:
+    ready = llm_core.tezz_model_ready(mp)
+  if ready != 0:
+    ret net.http_respond_json(sock, 200, "{\"ok\":true,\"status\":\"ready\"}")
+  ret net.http_respond_json(sock, 200, "{\"ok\":true,\"status\":\"cold\"}")
+
+fn h_templates(sock:int, req:str) -> int:
+  ret net.http_respond_json(sock, 200, "{\"templates\":[\"auto\",\"api\",\"cli\",\"service\",\"lib\"]}")
+
+fn _gen_code(prompt:str, forced_tpl:str, out_tpl:*str, out_source:*str) -> str:
+  model_path:str = _model_path()
+  codebook_path:str = _codebook_path()
+  tpl:str = forced_tpl
+  if tpl == 0 || tpl[0] == 0 as char || _streq(tpl, "auto") != 0:
+    tpl = tezzai_infer_template(prompt)
+  if out_tpl != 0:
+    out_tpl[0] = tpl
+  src_pick:str = ""
+  if codebook_path != 0 && path_exists(codebook_path) != 0:
+    src_pick = _pick_source_from_codebook(codebook_path, tpl, prompt, g_pick_debug)
+  if out_source != 0:
+    out_source[0] = src_pick
+  if g_full_source != 0 && src_pick != 0 && path_exists(src_pick) != 0:
+    src_body:str = io.read_all(src_pick)
+    if src_body != 0 && src_body[0] != 0 as char:
+      ret src_body
+    if src_body != 0:
+      free(src_body)
+  if model_path == 0:
+    ret ""
+  if g_v2 != 0:
+    ret llm_core.tezz_model_infer_ex(model_path, prompt, g_max_code_chars, 900, 4, 10, 1200)
+  ret llm_core.tezz_model_infer(model_path, prompt, g_max_code_chars)
+
+fn h_ai_code(sock:int, req:str) -> int:
+  body:str = _request_body(req)
+  prompt:str = _json_field(body, "prompt")
+  tpl_req:str = _json_field(body, "template")
+  if prompt == 0 || prompt[0] == 0 as char:
+    if body != 0 && body[0] != 0 as char:
+      prompt = _trim_ws(body)
+    else:
+      prompt = "build api health route"
+  tpl_out:str = ""
+  src_out:str = ""
+  code:str = _gen_code(prompt, tpl_req, &tpl_out, &src_out)
+  if code == 0:
+    code = ""
+  esc_code:str = _escape_json(code)
+  esc_tpl:str = _escape_json(tpl_out)
+  esc_src:str = _escape_json(src_out)
+  p0:str = tezzai_str_join3("{\"ok\":true,\"template\":\"", esc_tpl, "\",\"source\":\"")
+  p1:str = tezzai_str_join3(p0, esc_src, "\",\"code\":\"")
+  p2:str = tezzai_str_join3(p1, esc_code, "\"}")
+  net.http_respond_json(sock, 200, p2)
+  if p0 != 0:
+    free(p0)
+  if p1 != 0:
+    free(p1)
+  if p2 != 0:
+    free(p2)
+  if esc_code != 0:
+    free(esc_code)
+  if esc_tpl != 0:
+    free(esc_tpl)
+  if esc_src != 0:
+    free(esc_src)
+  if body != 0:
+    free(body)
+  if prompt != 0:
+    free(prompt)
+  if tpl_req != 0:
+    free(tpl_req)
+  if tpl_out != 0:
+    free(tpl_out)
+  if src_out != 0:
+    free(src_out)
+  if code != 0:
+    free(code)
+  ret AI_OK
+
+fn print_usage() -> int:
+  say "tezz ai <cmd> [args]"
+  say "  doctor [--data <path>] [--model <path>] [--codebook <path>]"
+  say "  templates"
+  say "  init-core [--data <path>] [--model <path>] [--codebook <path>]"
+  say "  collect <cli|api|lib|service> <text> [--data <path>]"
+  say "  learn-corpus [--root <dir>]... [--data <path>] [--model <path>] [--codebook <path>] [--append] [--no-train] [--with-tests] [--no-progress]"
+  say "  production|prod [same flags as learn-corpus] [--min-files N] [--min-samples N] [--min-codebook N] [--min-classes N] [--allow-low-quality]"
+  say "  train [--data <path>] [--model <path>] [--epochs N] [--max-samples N] [--lr-milli N] [--no-progress] [--v2]"
+  say "  infer <prompt> [--model <path>] [--max-new N] [--v2]"
+  say "  code <prompt> [--model <path>] [--codebook <path>] [--out <file>] [--json-out <file>] [--code-only] [--full-source] [--pick-debug] [--max-code N] [--v2]"
+  say "  serve [--host 127.0.0.1] [--port 8099] [--model <path>] [--codebook <path>] [--max-code N] [--v2]"
+  say "  ask <prompt> [same flags as code]"
+  say "  autolearn <label> <text> [--data <path>] [--model <path>] [--v2]"
+  say "  stats [--data <path>] [--model <path>] [--v2]"
+  say "  llm-init|transformer-init [--model <path>]"
+  say "  llm-train|transformer-train [--data <path>] [--model <path>]"
+  say "  llm-infer|transformer-infer <prompt> [--model <path>]"
+  say "  llm-status|transformer-status [--model <path>]"
+  ret 0
+
+fn cmd_doctor() -> int:
+  data0:str = _arg_value("--data")
+  model0:str = _arg_value("--model")
+  codebook0:str = _arg_value("--codebook")
+  paths:TezzAiPaths = tezzai_paths_resolve(data0, model0, codebook0)
+  say "TezzAi doctor:"
+  if path_exists("TEZZAI/core/agent_core.tn") != 0:
+    say "  [OK] core contract"
+  else:
+    say "  [FAIL] core contract missing"
+    ret AI_ERR
+  if path_exists("TEZZAI/cli/agent.tn") != 0:
+    say "  [OK] cli agent file"
+  else:
+    say "  [FAIL] cli agent file missing"
+    ret AI_ERR
+  if path_exists(paths.data) != 0:
+    say "  [OK] dataset records:"
+    total:int = 0
+    _count_dataset(paths.data, &total, 0, 0, 0, 0)
+    say total
+  else:
+    say "  [WARN] dataset missing"
+  if llm_core.tezz_model_ready(paths.model) != 0:
+    say "  [OK] model ready"
+  else if path_exists(paths.model) != 0:
+    say "  [WARN] model present but cold"
+  else:
+    say "  [WARN] model missing"
+  if path_exists(paths.codebook) != 0:
+    say "  [OK] codebook present"
+  else:
+    say "  [WARN] codebook missing"
+  say "doctor: PASS"
+  ret AI_OK
+
+fn cmd_templates() -> int:
+  say "templates:"
+  say "  auto"
+  say "  api"
+  say "  cli"
+  say "  service"
+  say "  lib"
+  ret AI_OK
+
+fn cmd_init_core() -> int:
+  data0:str = _arg_value("--data")
+  model0:str = _arg_value("--model")
+  codebook0:str = _arg_value("--codebook")
+  paths:TezzAiPaths = tezzai_paths_resolve(data0, model0, codebook0)
+  _ensure_parent(paths.data)
+  _ensure_parent(paths.model)
+  _ensure_parent(paths.codebook)
+  if path_exists(paths.data) == 0:
+    io.write_all(paths.data, "")
+  if path_exists(paths.codebook) == 0:
+    io.write_all(paths.codebook, "")
+  rc:int = tezzai_model_init(paths.model)
+  if rc != 0:
+    say "init-core: failed"
+    ret AI_ERR
+  say "init-core: ok"
+  say "data:"
+  say paths.data
+  say "model:"
+  say paths.model
+  say "codebook:"
+  say paths.codebook
+  ret AI_OK
+
+fn cmd_collect() -> int:
+  if args_count() < 4:
+    say "collect: usage tezz ai collect <label> <text> [--data <path>]"
+    ret AI_ERR
+  label:str = arg(2)
+  text:str = arg(3)
+  paths:TezzAiPaths = tezzai_paths_resolve(_arg_value("--data"), "", "")
+  body:str = _sanitize_line(text, 1600)
+  rc:int = _dataset_append(paths.data, label, body)
+  if body != 0:
+    free(body)
+  if rc != 0:
+    say "collect: failed"
+    ret AI_ERR
+  say "collect: ok"
+  ret AI_OK
+
+fn _learn_common(train_after:int, strict_mode:int) -> int:
+  data0:str = _arg_value("--data")
+  model0:str = _arg_value("--model")
+  codebook0:str = _arg_value("--codebook")
+  paths:TezzAiPaths = tezzai_paths_resolve(data0, model0, codebook0)
+  append:int = _has_flag("--append")
+  no_train:int = _has_flag("--no-train")
+  with_tests:int = _has_flag("--with-tests")
+  no_progress:int = _has_flag("--no-progress")
+  min_files:int = _parse_int(_arg_value("--min-files"), 1)
+  min_samples:int = _parse_int(_arg_value("--min-samples"), 1)
+  min_codebook:int = _parse_int(_arg_value("--min-codebook"), 1)
+  min_classes:int = _parse_int(_arg_value("--min-classes"), 1)
+  allow_low:int = _has_flag("--allow-low-quality")
+  roots:[str;64]
+  root_count:int = 0
+  i:int = 2
+  n:int = args_count()
+  while i < n:
+    a:str = arg(i)
+    if _streq(a, "--root") != 0 && (i + 1) < n:
+      if root_count < 64:
+        roots[root_count] = arg(i + 1)
+        root_count = root_count + 1
+      i = i + 2
+      continue
+    i = i + 1
+  if root_count == 0:
+    roots[0] = "examples"
+    roots[1] = "lib"
+    roots[2] = "TEZZAI"
+    roots[3] = "tools"
+    root_count = 4
+  _ensure_parent(paths.data)
+  _ensure_parent(paths.codebook)
+  if append == 0:
+    io.write_all(paths.data, "")
+    io.write_all(paths.codebook, "")
+  files_indexed:int = 0
+  samples_added:int = 0
+  idx:int = 0
+  while idx < root_count:
+    say "production: indexing root"
+    say roots[idx]
+    _index_root(roots[idx], paths.data, paths.codebook, with_tests, (0 - no_progress), &files_indexed, &samples_added)
+    idx = idx + 1
+  total:int = 0
+  cli:int = 0
+  api:int = 0
+  libn:int = 0
+  service:int = 0
+  _count_dataset(paths.data, &total, &cli, &api, &libn, &service)
+  class_count:int = 0
+  if cli > 0:
+    class_count = class_count + 1
+  if api > 0:
+    class_count = class_count + 1
+  if libn > 0:
+    class_count = class_count + 1
+  if service > 0:
+    class_count = class_count + 1
+  if strict_mode != 0 && allow_low == 0:
+    if files_indexed < min_files || total < min_samples || files_indexed < min_codebook || class_count < min_classes:
+      say "production: quality gate failed"
+      say "files indexed:"
+      say files_indexed
+      say "samples:"
+      say total
+      say "classes:"
+      say class_count
+      ret AI_ERR
+  if train_after != 0 && no_train == 0:
+    if path_exists(paths.model) == 0:
+      tezzai_model_init(paths.model)
+    st:LlmTrainStats = llm_core.tezz_model_train(paths.model, paths.data, _parse_int(_arg_value("--epochs"), 1), _parse_int(_arg_value("--max-samples"), 0), _parse_int(_arg_value("--lr-milli"), 1000), (0 - no_progress))
+    if st.steps <= 0:
+      say "train: failed"
+      ret AI_ERR
+    say "train: model updated"
+    say "dataset records:"
+    say total
+    say "model path:"
+    say paths.model
+  if strict_mode != 0:
+    say "production: ok"
+    say "files learned:"
+    say files_indexed
+    say "samples:"
+    say total
+  else:
+    say "learn-corpus: ok"
+    say "files learned:"
+    say files_indexed
+  ret AI_OK
+
+fn cmd_learn_corpus() -> int:
+  ret _learn_common(1, 0)
+
+fn cmd_production() -> int:
+  ret _learn_common(1, 1)
+
+fn cmd_train() -> int:
+  paths:TezzAiPaths = tezzai_paths_resolve(_arg_value("--data"), _arg_value("--model"), "")
+  if path_exists(paths.model) == 0:
+    if tezzai_model_init(paths.model) != 0:
+      say "train: model init failed"
+      ret AI_ERR
+  show_progress:int = 1
+  if _has_flag("--no-progress") != 0:
+    show_progress = 0
+  st:LlmTrainStats = llm_core.tezz_model_train(paths.model, paths.data, _parse_int(_arg_value("--epochs"), 1), _parse_int(_arg_value("--max-samples"), 0), _parse_int(_arg_value("--lr-milli"), 1000), show_progress)
+  if st.steps <= 0:
+    say "train: failed"
+    ret AI_ERR
+  say "train: model updated"
+  say "samples:"
+  say st.samples
+  say "tokens:"
+  say st.tokens
+  say "steps:"
+  say st.steps
+  say "model path:"
+  say paths.model
+  ret AI_OK
+
+fn cmd_infer() -> int:
+  prompt:str = _find_positional(2)
+  if prompt == 0 || prompt[0] == 0 as char:
+    prompt = "build api health route"
+  paths:TezzAiPaths = tezzai_paths_resolve("", _arg_value("--model"), "")
+  max_new:int = _parse_int(_arg_value("--max-new"), 800)
+  out:str = llm_core.tezz_model_infer(paths.model, prompt, max_new)
+  if out == 0:
+    say ""
+    ret AI_ERR
+  say out
+  free(out)
+  ret AI_OK
+
+fn cmd_stats() -> int:
+  paths:TezzAiPaths = tezzai_paths_resolve(_arg_value("--data"), _arg_value("--model"), "")
+  total:int = 0
+  cli:int = 0
+  api:int = 0
+  libn:int = 0
+  service:int = 0
+  _count_dataset(paths.data, &total, &cli, &api, &libn, &service)
+  say "stats: dataset"
+  say paths.data
+  say "  total:"
+  say total
+  say "  cli:"
+  say cli
+  say "  api:"
+  say api
+  say "  lib:"
+  say libn
+  say "  service:"
+  say service
+  say "stats: model"
+  say paths.model
+  if llm_core.tezz_model_ready(paths.model) != 0:
+    say "  ready:"
+    say 1
+  else:
+    say "  ready:"
+    say 0
+  ret AI_OK
+
+fn _code_command(print_only_code:int) -> int:
+  prompt:str = _find_positional(2)
+  if prompt == 0 || prompt[0] == 0 as char:
+    prompt = "build api websocket route with auth middleware"
+  out_path:str = _arg_value("--out")
+  json_out:str = _arg_value("--json-out")
+  code_only:int = _has_flag("--code-only")
+  full_source:int = _has_flag("--full-source")
+  pick_debug:int = _has_flag("--pick-debug")
+  max_code:int = _parse_int(_arg_value("--max-code"), 1200)
+  paths:TezzAiPaths = tezzai_paths_resolve("", _arg_value("--model"), _arg_value("--codebook"))
+  forced_tpl:str = _arg_value("--template")
+  unsafe:
+    g_max_code_chars = max_code
+    g_pick_debug = pick_debug
+    g_full_source = full_source
+    g_v2 = 1
+  _set_global_paths(paths.model, paths.codebook)
+  tpl_out:str = ""
+  src_out:str = ""
+  code:str = _gen_code(prompt, forced_tpl, &tpl_out, &src_out)
+  if code == 0:
+    code = ""
+  if print_only_code != 0 || code_only != 0:
+    say code
+  else:
+    say "TezzAi codegen template:"
+    say tpl_out
+    say "source:"
+    if src_out != 0 && src_out[0] != 0 as char:
+      say src_out
+    else:
+      say "(model)"
+    say "-----BEGIN TEZZNATIVE CODE-----"
+    say code
+    say "-----END TEZZNATIVE CODE-----"
+  if out_path != 0 && out_path[0] != 0 as char:
+    _ensure_parent(out_path)
+    io.write_all(out_path, code)
+    say "saved code:"
+    say out_path
+  if json_out != 0 && json_out[0] != 0 as char:
+    esc_code:str = _escape_json(code)
+    esc_tpl:str = _escape_json(tpl_out)
+    esc_src:str = _escape_json(src_out)
+    p0:str = tezzai_str_join3("{\"ok\":true,\"template\":\"", esc_tpl, "\",\"source\":\"")
+    p1:str = tezzai_str_join3(p0, esc_src, "\",\"code\":\"")
+    p2:str = tezzai_str_join3(p1, esc_code, "\"}")
+    _ensure_parent(json_out)
+    io.write_all(json_out, p2)
+    say "saved json:"
+    say json_out
+    if esc_code != 0:
+      free(esc_code)
+    if esc_tpl != 0:
+      free(esc_tpl)
+    if esc_src != 0:
+      free(esc_src)
+    if p0 != 0:
+      free(p0)
+    if p1 != 0:
+      free(p1)
+    if p2 != 0:
+      free(p2)
+  if tpl_out != 0:
+    free(tpl_out)
+  if src_out != 0:
+    free(src_out)
+  if code != 0:
+    free(code)
+  ret AI_OK
+
+fn cmd_autolearn() -> int:
+  if args_count() < 4:
+    say "autolearn: usage tezz ai autolearn <label> <text>"
+    ret AI_ERR
+  label:str = arg(2)
+  text:str = arg(3)
+  data_path:str = _arg_value("--data")
+  model_path:str = _arg_value("--model")
+  paths:TezzAiPaths = tezzai_paths_resolve(data_path, model_path, "")
+  body:str = _sanitize_line(text, 2000)
+  if _dataset_append(paths.data, label, body) != 0:
+    if body != 0:
+      free(body)
+    say "autolearn: collect failed"
+    ret AI_ERR
+  if body != 0:
+    free(body)
+  if path_exists(paths.model) == 0:
+    tezzai_model_init(paths.model)
+  st:LlmTrainStats = llm_core.tezz_model_train(paths.model, paths.data, 1, 1, 1000, 0)
+  if st.steps <= 0:
+    say "autolearn: train failed"
+    ret AI_ERR
+  say "autolearn: collected + trained"
+  total:int = 0
+  _count_dataset(paths.data, &total, 0, 0, 0, 0)
+  say "total samples:"
+  say total
+  ret AI_OK
+
+fn cmd_serve() -> int:
+  host:str = _arg_value("--host")
+  if host == 0 || host[0] == 0 as char:
+    host = "127.0.0.1"
+  port:int = _parse_int(_arg_value("--port"), 8099)
+  max_code:int = _parse_int(_arg_value("--max-code"), 2000)
+  timeout_ms:int = _parse_int(_arg_value("--timeout-ms"), 500)
+  max_req:int = _parse_int(_arg_value("--max-req"), 1048576)
+  max_clients:int = _parse_int(_arg_value("--max-clients"), 100000)
+  paths:TezzAiPaths = tezzai_paths_resolve("", _arg_value("--model"), _arg_value("--codebook"))
+  unsafe:
+    g_max_code_chars = max_code
+    g_pick_debug = _has_flag("--pick-debug")
+    g_full_source = _has_flag("--full-source")
+    g_v2 = 1
+  _set_global_paths(paths.model, paths.codebook)
+  if net.init() != 0:
+    say "serve: net init failed"
+    ret AI_ERR
+  listener:int = net.http_server_listen(host, port, 64)
+  if listener < 0:
+    net.cleanup()
+    say "serve: listen failed"
+    ret AI_ERR
+  routes:*HttpRouteTable = net.http_route_table_new(16)
+  if routes == 0:
+    net.close(listener)
+    net.cleanup()
+    say "serve: route table init failed"
+    ret AI_ERR
+  unsafe:
+    net.http_route_table_add(routes, "GET", "/", h_root as *char)
+    net.http_route_table_add(routes, "GET", "/style.css", h_style as *char)
+    net.http_route_table_add(routes, "GET", "/app.js", h_script as *char)
+    net.http_route_table_add(routes, "GET", "/health", h_health as *char)
+    net.http_route_table_add(routes, "GET", "/ai/templates", h_templates as *char)
+    net.http_route_table_add(routes, "GET", "/ai/code", h_ai_code as *char)
+    net.http_route_table_add(routes, "POST", "/ai/code", h_ai_code as *char)
+  ses:*HttpServerSession = net.http_server_session_new(listener, routes, timeout_ms, max_req)
+  if ses == 0:
+    net.http_route_table_free(routes)
+    net.close(listener)
+    net.cleanup()
+    say "serve: session init failed"
+    ret AI_ERR
+  net.http_server_session_set_limits(ses, max_clients, 128)
+  say "TezzAi serve online"
+  say "host:"
+  say host
+  say "port:"
+  say port
+  say "routes: GET /, /style.css, /app.js, /health, GET/POST /ai/code, GET /ai/templates"
+  net.http_server_session_serve_loop(ses, max_clients)
+  net.http_server_session_free(ses)
+  net.http_route_table_free(routes)
+  net.close(listener)
+  net.cleanup()
+  ret AI_OK
+
+fn _legacy_llm_alias(cmd:str) -> int:
+  if _streq(cmd, "llm-init") != 0 || _streq(cmd, "transformer-init") != 0:
+    ret cmd_init_core()
+  if _streq(cmd, "llm-train") != 0 || _streq(cmd, "transformer-train") != 0:
+    ret cmd_train()
+  if _streq(cmd, "llm-infer") != 0 || _streq(cmd, "transformer-infer") != 0:
+    ret cmd_infer()
+  if _streq(cmd, "llm-status") != 0 || _streq(cmd, "transformer-status") != 0:
+    ret cmd_doctor()
+  ret 999
+
+fn main() -> int:
+  if args_count() < 2:
+    ret print_usage()
+  cmd:str = arg(1)
+  rc_alias:int = _legacy_llm_alias(cmd)
+  if rc_alias != 999:
+    ret rc_alias
+  if _streq(cmd, "help") != 0 || _streq(cmd, "--help") != 0 || _streq(cmd, "-h") != 0:
+    ret print_usage()
+  if _streq(cmd, "doctor") != 0:
+    ret cmd_doctor()
+  if _streq(cmd, "templates") != 0:
+    ret cmd_templates()
+  if _streq(cmd, "init-core") != 0:
+    ret cmd_init_core()
+  if _streq(cmd, "collect") != 0:
+    ret cmd_collect()
+  if _streq(cmd, "learn-corpus") != 0:
+    ret cmd_learn_corpus()
+  if _streq(cmd, "production") != 0 || _streq(cmd, "prod") != 0:
+    ret cmd_production()
+  if _streq(cmd, "train") != 0:
+    ret cmd_train()
+  if _streq(cmd, "infer") != 0:
+    ret cmd_infer()
+  if _streq(cmd, "assist") != 0 || _streq(cmd, "code") != 0:
+    ret _code_command(0)
+  if _streq(cmd, "ask") != 0:
+    ret _code_command(1)
+  if _streq(cmd, "autolearn") != 0:
+    ret cmd_autolearn()
+  if _streq(cmd, "stats") != 0:
+    ret cmd_stats()
+  if _streq(cmd, "serve") != 0:
+    ret cmd_serve()
+  say "ai: unknown command"
+  say cmd
+  ret print_usage()

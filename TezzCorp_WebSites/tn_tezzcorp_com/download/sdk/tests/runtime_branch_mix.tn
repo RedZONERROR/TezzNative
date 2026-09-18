@@ -1,0 +1,12 @@
+fn classify(n:int) -> int:
+  if n < 0:
+    ret 0 - 1
+  if n < 10:
+    ret n * 2
+  ret n + 3
+
+fn main() -> int:
+  say classify(0 - 5)
+  say classify(4)
+  say classify(12)
+  ret 0

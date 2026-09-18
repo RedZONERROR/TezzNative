@@ -1,0 +1,2 @@
+tests/freestanding_boot_stub.tn
+tests/runtime_loop_sum.tn

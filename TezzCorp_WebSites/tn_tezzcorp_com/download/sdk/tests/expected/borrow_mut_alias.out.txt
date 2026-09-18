@@ -1,0 +1,3 @@
+tests/borrow_mut_alias.tn:7:14: tezzc error: mut borrow requires unique pointer arguments 'p' (pass distinct pointers or use unsafe)
+    alias_pair(p, p)
+               ^

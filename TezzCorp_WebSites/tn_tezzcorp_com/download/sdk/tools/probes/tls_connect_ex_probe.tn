@@ -1,0 +1,7 @@
+fn main() -> int:
+  // Compatibility probe must compile across baseline compiler builds.
+  // Optional advanced TLS APIs (like tls_connect_ex) are validated separately.
+  h:int = tls_connect("127.0.0.1", 443)
+  if h >= 0:
+    tls_close(h)
+  ret 0

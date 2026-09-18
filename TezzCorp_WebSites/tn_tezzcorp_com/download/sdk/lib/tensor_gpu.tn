@@ -1,0 +1,30 @@
+import "gpu"
+import "tensor"
+
+struct TensorGpuArgs:
+  out:*float
+  a:*float
+  b:*float
+  n:int
+
+kernel fn tensor_add_kernel(p:*char) -> int:
+  unsafe:
+    args:*TensorGpuArgs = p as *TensorGpuArgs
+    i:int = gpu_tid()
+    if i < (*args).n:
+      (*args).out[i] = (*args).a[i] + (*args).b[i]
+  ret 0
+
+kernel fn tensor_mul_kernel(p:*char) -> int:
+  unsafe:
+    args:*TensorGpuArgs = p as *TensorGpuArgs
+    i:int = gpu_tid()
+    if i < (*args).n:
+      (*args).out[i] = (*args).a[i] * (*args).b[i]
+  ret 0
+
+fn add(a:*Tensor, b:*Tensor) -> *Tensor:
+  ret tensor.tensor_add_gpu(a, b, tensor_add_kernel)
+
+fn mul(a:*Tensor, b:*Tensor) -> *Tensor:
+  ret tensor.tensor_mul_gpu(a, b, tensor_mul_kernel)

@@ -1,0 +1,126 @@
+// TezzNative Feature Showcase
+// Demonstrates: new literals, str/math/vec/arena modules, builtins
+
+import "str"
+import "math"
+import "vec"
+import "arena"
+import "intrin"
+
+fn main() -> int:
+  say "=== TezzNative v1.1.0 Feature Showcase ==="
+
+  // ── Literal sugar ───────────────────────────────────────────────
+  hex_val:int  = 0xFF00_ABCD
+  bin_val:int  = 0b1010_0101
+  big_num:int  = 1_000_000_000
+  char_val:int = 'A'
+
+  say "Hex:  "
+  say hex_val
+  say "Bin:  "
+  say bin_val
+  say "Big:  "
+  say big_num
+  say "Char: "
+  say char_val
+
+  // ── Hardware intrinsics (via builtins) ──────────────────────────
+  x:int = 0xDEADBEEF_CAFEBABE
+  say "\nBit operations:"
+  say "popcnt(x) = "
+  say intrin.popcnt(x)
+  say "clz(x)    = "
+  say intrin.clz(x)
+  say "ctz(x)    = "
+  say intrin.ctz(x)
+  say "bswap(x)  = "
+  say intrin.bswap(x)
+  say "rotl(x,8) = "
+  say intrin.rotl(x, 8)
+
+  // ── Math library ────────────────────────────────────────────────
+  say "\nMath library:"
+  say "PI  = "
+  say math.PI()
+  say "sin(PI/6) = "
+  say math.sin(math.PI() / 6.0)
+  say "cos(0) = "
+  say math.cos(0.0)
+  say "sqrt(2) = "
+  say math.sqrt(2.0)
+  say "pow(2,10) = "
+  say math.pow(2.0, 10.0)
+  say "log(E) = "
+  say math.log(math.E())
+  say "gcd(48,18) = "
+  say math.gcd(48, 18)
+
+  // ── String module ───────────────────────────────────────────────
+  say "\nString utilities:"
+  hello:str = "  Hello, TezzNative!  "
+  trimmed:str = str.str_trim(hello)
+  say trimmed
+
+  upper:str = str.str_upper(trimmed)
+  say upper
+
+  has:int = str.str_contains(trimmed, "Tezz")
+  say "contains 'Tezz': "
+  say has
+
+  replaced:str = str.str_replace(trimmed, "TezzNative", "World")
+  say replaced
+
+  n_str:str = str.int_to_str(1_000_000)
+  say n_str
+
+  pi_str:str = str.float_to_str(math.PI())
+  say pi_str
+
+  unsafe:
+    free(trimmed)
+    free(upper)
+    free(replaced)
+    free(n_str)
+    free(pi_str)
+
+  // ── Dynamic vector ──────────────────────────────────────────────
+  say "\nDynamic vector (ivec):"
+  v:*Vec = vec.ivec_new()
+  i:int = 0
+  while i < 10:
+    vec.ivec_push(v, i * i)
+    i = i + 1
+  say "Squares 0..9:"
+  j:int = 0
+  while j < vec.vec_len(v):
+    say vec.ivec_get(v, j)
+    j = j + 1
+  vec.vec_free(v)
+
+  // ── Arena allocator ─────────────────────────────────────────────
+  say "\nArena allocator:"
+  a:*Arena = arena.arena_new(4096)
+  s1:str = arena.arena_strdup(a, "First string in arena")
+  s2:str = arena.arena_strdup(a, "Second string in arena")
+  say s1
+  say s2
+  say "Used bytes: "
+  say arena.arena_used(a)
+  arena.arena_reset(a)
+  say "After reset, used: "
+  say arena.arena_used(a)
+  arena.arena_free(a)
+
+  // ── String parsing ──────────────────────────────────────────────
+  say "\nString parsing:"
+  parsed_int:int = str.str_to_int("   -12345")
+  say parsed_int
+  parsed_float:float = str.str_to_float("3.14159")
+  say parsed_float
+  hex_parsed:int = str.hex_to_int("0xFF")
+  say hex_parsed
+
+  say "\nAll done!"
+  ret 0

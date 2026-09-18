@@ -1,0 +1,9 @@
+import "tzui"
+import "tnui"
+
+fn main() -> int:
+  app:TzUiApp
+  canonical:TnUiApp
+  if app.ready != canonical.ready:
+    ret 0
+  ret 0

@@ -1,0 +1,10 @@
+fn mix4(a:int, b:int, c:int, d:int) -> int:
+  ret (a * 1000) + (b * 100) + (c * 10) + d
+
+fn main() -> int:
+  v:int = mix4(1, 2, 3, 4)
+  if v != 1234:
+    say "runtime_call_multiarg: bad value"
+    say v
+    ret 1
+  ret 0

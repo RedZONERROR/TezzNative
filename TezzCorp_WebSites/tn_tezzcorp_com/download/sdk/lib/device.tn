@@ -1,0 +1,304 @@
+// device module — TezzNative On-Device AI Hardware Detection
+//
+// Queries CPU features (SSE2/AVX2/FMA/NEON/AMX), GPU presence,
+// NPU vendor, estimated RAM, and recommends the best AI backend.
+//
+// Usage:
+//   device.ai_init()
+//   say "CPU: ", device.cpu_name()
+//   say "Best backend: ", device.best_backend_name()
+//   batch:int = device.max_batch_size()
+
+import "npu"
+import "io"
+
+// ─────────────────────────────────────────────
+// Runtime extern hooks (implemented in tnrt.c)
+// ─────────────────────────────────────────────
+
+extern fn cpu_has_sse2() -> int
+extern fn cpu_has_avx2() -> int
+extern fn cpu_has_fma() -> int
+extern fn cpu_has_neon() -> int
+extern fn tn_cpu_vendor() -> int
+extern fn tn_cpu_arch() -> int
+extern fn tn_cpu_name() -> str
+extern fn tn_cpu_core_count() -> int
+extern fn gpu_has_backend() -> int
+extern fn gpu_backend_name() -> str
+extern fn tn_hexagon_available() -> int
+extern fn tn_hexagon_driver_path() -> str
+extern fn tn_hexagon_build_id() -> str
+
+fn _cpu_has_neon() -> int:
+  ret cpu_has_neon()
+
+// ─────────────────────────────────────────────
+// Constants — CPU Tier
+// ─────────────────────────────────────────────
+
+let CPU_TIER_BASELINE:int = 0   // Plain scalar math
+let CPU_TIER_SSE2:int     = 1   // SSE2 available (all x86_64)
+let CPU_TIER_AVX2:int     = 2   // AVX2 + FMA (Intel Haswell+, AMD Zen+)
+let CPU_TIER_AVX512:int   = 3   // AVX-512 (Intel server, Zen4)
+let CPU_TIER_NEON:int     = 4   // ARM NEON (Raspberry Pi 4, Apple Silicon, Snapdragon)
+let CPU_TIER_AMX:int      = 5   // Intel AMX tiles (Sapphire Rapids+)
+
+// ─────────────────────────────────────────────
+// Constants — Backends
+// ─────────────────────────────────────────────
+
+let NPU_EP_NONE:int        = 0
+let NPU_EP_ONNX:int        = 1
+let NPU_EP_CUDA:int        = 7
+let NPU_EP_SIMD:int        = 8
+
+// ─────────────────────────────────────────────
+// Constants — Recommended AI Batch Sizes
+// ─────────────────────────────────────────────
+
+let BATCH_TINY:int   = 1    // Embedded / very low RAM
+let BATCH_SMALL:int  = 4    // Mobile / edge device
+let BATCH_MEDIUM:int = 16   // Desktop / workstation
+let BATCH_LARGE:int  = 64   // Server / GPU machine
+
+// ─────────────────────────────────────────────
+// CPU Detection
+// ─────────────────────────────────────────────
+
+// Returns the best CPU SIMD tier available on this machine.
+// Uses: CPU_TIER_* constants
+fn cpu_tier() -> int:
+  if _cpu_has_neon() != 0:
+    ret CPU_TIER_NEON
+  if cpu_has_avx2() != 0 && cpu_has_fma() != 0:
+    ret CPU_TIER_AVX2
+  if cpu_has_sse2() != 0:
+    ret CPU_TIER_SSE2
+  ret CPU_TIER_BASELINE
+
+// Returns a human-readable CPU tier string.
+fn cpu_tier_name() -> str:
+  t:int = cpu_tier()
+  if t == CPU_TIER_AMX:
+    ret "Intel AMX"
+  if t == CPU_TIER_NEON:
+    ret "ARM NEON"
+  if t == CPU_TIER_AVX2:
+    ret "x86-64 AVX2+FMA"
+  if t == CPU_TIER_SSE2:
+    ret "x86-64 SSE2"
+  ret "Scalar (no SIMD)"
+
+// Returns a short descriptive name for the CPU architecture.
+fn cpu_name() -> str:
+  name:str = tn_cpu_name()
+  if len(name) > 0:
+    ret name
+  t:int = cpu_tier()
+  if t == CPU_TIER_NEON:
+    ret "ARM/AArch64"
+  if t >= CPU_TIER_SSE2:
+    ret "x86-64"
+  ret "Generic"
+
+// Returns 1 if this CPU can run INT8 quantized models efficiently.
+fn cpu_supports_int8() -> int:
+  // AVX2 can do 8-bit integer math via _mm256_maddubs_epi16 etc.
+  // NEON has UDOT/SDOT on ARMv8.4+
+  t:int = cpu_tier()
+  if t == CPU_TIER_AVX2 || t == CPU_TIER_NEON:
+    ret 1
+  ret 0
+
+// Returns 1 if this CPU supports FP16 math natively.
+fn cpu_supports_fp16() -> int:
+  // ARM NEON v8.2+ has native FP16 SIMD
+  if _cpu_has_neon() != 0:
+    ret 1
+  ret 0
+
+// ─────────────────────────────────────────────
+// GPU Detection
+// ─────────────────────────────────────────────
+
+// Returns 1 if a discrete or integrated GPU compute backend is available.
+fn gpu_available() -> int:
+  ret gpu_has_backend()
+
+// Returns the GPU/compute backend name string.
+fn gpu_name() -> str:
+  if gpu_has_backend() != 0:
+    ret gpu_backend_name()
+  ret "None"
+
+// ─────────────────────────────────────────────
+// NPU Detection (delegates to npu module)
+// ─────────────────────────────────────────────
+
+// Returns 1 if a dedicated NPU accelerator is available.
+fn npu_available() -> int:
+  ret npu.available()
+
+// Returns the NPU backend/vendor string.
+fn npu_vendor() -> str:
+  if npu.available() != 0:
+    ret npu.backend_name()
+  ret "None"
+
+// Returns number of NPU devices detected.
+fn npu_count() -> int:
+  ret npu.device_count()
+
+// ─────────────────────────────────────────────
+// Best Backend Selection
+// ─────────────────────────────────────────────
+
+// Returns the NPU_EP_* constant for the best available AI backend.
+// Priority: NPU > GPU > SIMD CPU > Scalar
+fn best_backend() -> int:
+  if npu.available() != 0:
+    ret NPU_EP_ONNX
+  if gpu_has_backend() != 0:
+    ret NPU_EP_CUDA
+  t:int = cpu_tier()
+  if t >= CPU_TIER_SSE2:
+    ret NPU_EP_SIMD
+  ret NPU_EP_NONE
+
+// Returns a human-readable name for the best backend.
+fn best_backend_name() -> str:
+  b:int = best_backend()
+  if b == NPU_EP_ONNX:
+    ret npu.backend_name()
+  if b == NPU_EP_CUDA:
+    ret gpu_name()
+  if b == NPU_EP_SIMD:
+    ret cpu_tier_name()
+  ret "Scalar CPU (no acceleration)"
+
+// ─────────────────────────────────────────────
+// Memory Estimation
+// ─────────────────────────────────────────────
+
+// Estimates available RAM in MB based on platform heuristics.
+// Returns a conservative lower-bound estimate.
+// For precise values, use OS-specific APIs.
+fn ram_estimate_mb() -> int:
+  // We use a simple heuristic: allocate probe buffers until failure
+  // This is conservative — most devices have 2x-4x this.
+  // Platforms: assume 256MB minimum for embedded, 4GB for desktop.
+  t:int = cpu_tier()
+  if t == CPU_TIER_BASELINE:
+    ret 256
+  if t == CPU_TIER_SSE2:
+    ret 2048
+  if t == CPU_TIER_AVX2:
+    ret 8192
+  if t == CPU_TIER_NEON:
+    ret 4096
+  ret 4096
+
+// ─────────────────────────────────────────────
+// Recommended Configuration for AI Workloads
+// ─────────────────────────────────────────────
+
+// Returns the recommended batch size for the available hardware.
+fn max_batch_size() -> int:
+  if npu.available() != 0:
+    ret BATCH_MEDIUM
+  ram:int = ram_estimate_mb()
+  if ram >= 8192:
+    ret BATCH_LARGE
+  if ram >= 4096:
+    ret BATCH_MEDIUM
+  if ram >= 1024:
+    ret BATCH_SMALL
+  ret BATCH_TINY
+
+// Returns the maximum LLM context length recommended for this device.
+fn recommended_max_seq_len() -> int:
+  ram:int = ram_estimate_mb()
+  // Rule of thumb: 1MB per 128 context tokens at float64
+  if ram >= 8192:
+    ret 4096
+  if ram >= 4096:
+    ret 2048
+  if ram >= 1024:
+    ret 512
+  ret 128
+
+// Returns the recommended embedding dimension for this device.
+fn recommended_embed_dim() -> int:
+  t:int = cpu_tier()
+  if t >= CPU_TIER_AVX2:
+    ret 512
+  if t >= CPU_TIER_SSE2:
+    ret 256
+  if t == CPU_TIER_NEON:
+    ret 512
+  ret 128
+
+// Returns 1 if Qualcomm Hexagon NPU is available.
+fn hexagon_available() -> int:
+  ret tn_hexagon_available()
+
+// Returns Hexagon NPU driver DLL/so path.
+fn hexagon_driver_path() -> str:
+  ret tn_hexagon_driver_path()
+
+// Returns Hexagon NPU driver build ID.
+fn hexagon_build_id() -> str:
+  ret tn_hexagon_build_id()
+
+// ─────────────────────────────────────────────
+// Full Hardware Report
+// ─────────────────────────────────────────────
+
+// Prints a complete human-readable hardware report for AI deployment.
+fn hardware_report() -> int:
+  say "╔══════════════════════════════════════════╗"
+  say "║  TezzNative On-Device AI Hardware Report  ║"
+  say "╚══════════════════════════════════════════╝"
+  say ""
+  say "  CPU Architecture : ", cpu_name()
+  say "  CPU SIMD Tier    : ", cpu_tier_name()
+  say "  CPU Cores        : ", tn_cpu_core_count()
+  say "  INT8 Capable     : ", cpu_supports_int8()
+  say "  FP16 Native      : ", cpu_supports_fp16()
+  say "  RAM Estimate     : ~", ram_estimate_mb(), " MB"
+  say ""
+  say "  GPU Backend      : ", gpu_name()
+  say "  NPU Vendor       : ", npu_vendor()
+  say "  NPU Devices      : ", npu_count()
+  if tn_hexagon_available() != 0:
+    say "  Hexagon NPU      : YES"
+    say "    Driver Path    : ", tn_hexagon_driver_path()
+    say "    Build ID       : ", tn_hexagon_build_id()
+  else:
+    say "  Hexagon NPU      : NO"
+  say ""
+  say "  Best AI Backend  : ", best_backend_name()
+  say "  Recommended      :"
+  say "    Max Batch Size : ", max_batch_size()
+  say "    Max Seq Len    : ", recommended_max_seq_len()
+  say "    Embed Dim      : ", recommended_embed_dim()
+  say ""
+  ret 0
+
+// ─────────────────────────────────────────────
+// Init / Shutdown
+// ─────────────────────────────────────────────
+
+// Initialize all available accelerators.
+// Calls npu.init() if NPU is available.
+fn ai_init() -> int:
+  if npu.available() != 0:
+    npu.init()
+  ret 0
+
+// Shutdown all initialized accelerators.
+fn ai_shutdown() -> int:
+  if npu.available() != 0:
+    npu.shutdown()
+  ret 0

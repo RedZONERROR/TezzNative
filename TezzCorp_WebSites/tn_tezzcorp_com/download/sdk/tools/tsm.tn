@@ -1,0 +1,247 @@
+import "std"
+import "tsm"
+
+let TSM_RESTART_NEVER:int = 0
+let TSM_RESTART_ALWAYS:int = 1
+
+fn streq(a:str, b:str) -> int:
+  if a == 0 || b == 0:
+    ret 0
+  if strcmp(a, b) == 0:
+    ret 1
+  ret 0
+
+fn _is_internal_opt(a:str) -> int:
+  if a == 0:
+    ret 0
+  if streq(a, "--tezzc") != 0:
+    ret 1
+  if streq(a, "--sdk-root") != 0:
+    ret 1
+  ret 0
+
+fn _usage() -> int:
+  say "tezz tsm <cmd> [args]"
+  say "  doctor [--registry <path>]"
+  say "  init [--registry <path>]"
+  say "  add --name <name> --cmd <command> [--cwd <dir>] [--autostart] [--restart always|never] [--disabled] [--registry <path>]"
+  say "  list [--registry <path>]"
+  say "  remove <name> [--registry <path>]"
+  say "  enable <name> [--registry <path>]"
+  say "  disable <name> [--registry <path>]"
+  say "  run <name> [--registry <path>]"
+  say "  start <name> [--registry <path>] [--log-dir <path>]"
+  say "  stop <name> [--registry <path>] [--log-dir <path>]"
+  say "  status <name> [--registry <path>] [--log-dir <path>]"
+  ret 0
+
+fn _parse_restart(v:str) -> int:
+  if v == 0:
+    ret TSM_RESTART_NEVER
+  if streq(v, "always") != 0:
+    ret TSM_RESTART_ALWAYS
+  ret TSM_RESTART_NEVER
+
+fn _cmd_doctor() -> int:
+  registry:str = tsm.registry_default()
+  i:int = 1
+  while i < args_count():
+    a:str = arg(i)
+    if _is_internal_opt(a) != 0:
+      i = i + 2
+      continue
+    if streq(a, "--registry") != 0 && (i + 1) < args_count():
+      registry = arg(i + 1)
+      i = i + 2
+      continue
+    i = i + 1
+  say "TSM doctor:"
+  say "  registry:"
+  say registry
+  if path_exists(registry) != 0:
+    say "  [OK] registry file present"
+  else:
+    say "  [WARN] registry file missing (run: tezz tsm init)"
+  say "  services:"
+  say tsm.service_count(registry)
+  ret 0
+
+fn _cmd_init() -> int:
+  registry:str = tsm.registry_default()
+  i:int = 1
+  while i < args_count():
+    a:str = arg(i)
+    if _is_internal_opt(a) != 0:
+      i = i + 2
+      continue
+    if streq(a, "--registry") != 0 && (i + 1) < args_count():
+      registry = arg(i + 1)
+      i = i + 2
+      continue
+    i = i + 1
+  if tsm.registry_init(registry) != 0:
+    say "tsm init failed"
+    ret 0 - 1
+  say "tsm init ok"
+  say registry
+  ret 0
+
+fn _cmd_add() -> int:
+  registry:str = tsm.registry_default()
+  name:str = ""
+  cmd_txt:str = ""
+  cwd:str = ""
+  autostart:int = 0
+  restart:int = TSM_RESTART_NEVER
+  enabled:int = 1
+  i:int = 1
+  while i < args_count():
+    a:str = arg(i)
+    if _is_internal_opt(a) != 0:
+      i = i + 2
+      continue
+    if streq(a, "--registry") != 0 && (i + 1) < args_count():
+      registry = arg(i + 1)
+      i = i + 2
+      continue
+    if streq(a, "--name") != 0 && (i + 1) < args_count():
+      name = arg(i + 1)
+      i = i + 2
+      continue
+    if streq(a, "--cmd") != 0 && (i + 1) < args_count():
+      cmd_txt = arg(i + 1)
+      i = i + 2
+      continue
+    if streq(a, "--cwd") != 0 && (i + 1) < args_count():
+      cwd = arg(i + 1)
+      i = i + 2
+      continue
+    if streq(a, "--autostart") != 0:
+      autostart = 1
+      i = i + 1
+      continue
+    if streq(a, "--disabled") != 0:
+      enabled = 0
+      i = i + 1
+      continue
+    if streq(a, "--restart") != 0 && (i + 1) < args_count():
+      restart = _parse_restart(arg(i + 1))
+      i = i + 2
+      continue
+    i = i + 1
+  if len(name) == 0 || len(cmd_txt) == 0:
+    say "tsm add: missing --name or --cmd"
+    ret 0 - 1
+  if tsm.service_add(registry, name, cmd_txt, cwd, autostart, restart, enabled) != 0:
+    say "tsm add failed (already exists or invalid)"
+    ret 0 - 1
+  say "tsm add ok"
+  say name
+  ret 0
+
+fn _parse_common_name_and_paths(out_name:*str, out_registry:*str, out_log_dir:*str) -> int:
+  out_registry[0] = tsm.registry_default()
+  out_log_dir[0] = "build/tsm"
+  out_name[0] = ""
+  i:int = 1
+  while i < args_count():
+    a:str = arg(i)
+    if _is_internal_opt(a) != 0:
+      i = i + 2
+      continue
+    if streq(a, "--registry") != 0 && (i + 1) < args_count():
+      out_registry[0] = arg(i + 1)
+      i = i + 2
+      continue
+    if streq(a, "--log-dir") != 0 && (i + 1) < args_count():
+      out_log_dir[0] = arg(i + 1)
+      i = i + 2
+      continue
+    if a[0] != 45 as char:
+      out_name[0] = a
+    i = i + 1
+  if len(out_name[0]) == 0:
+    ret 0 - 1
+  ret 0
+
+fn _cmd_list() -> int:
+  registry:str = tsm.registry_default()
+  i:int = 1
+  while i < args_count():
+    a:str = arg(i)
+    if _is_internal_opt(a) != 0:
+      i = i + 2
+      continue
+    if streq(a, "--registry") != 0 && (i + 1) < args_count():
+      registry = arg(i + 1)
+      i = i + 2
+      continue
+    i = i + 1
+  out:str = tsm.service_list(registry)
+  if out == 0 || len(out) == 0:
+    say "(no services)"
+  else:
+    say out
+  if out != 0:
+    free(out)
+  ret 0
+
+fn _cmd_name_action(kind:str) -> int:
+  name:str = ""
+  registry:str = ""
+  log_dir:str = ""
+  if _parse_common_name_and_paths(&name, &registry, &log_dir) != 0:
+    say "missing service name"
+    ret 0 - 1
+  if streq(kind, "remove") != 0:
+    ret tsm.service_remove(registry, name)
+  if streq(kind, "enable") != 0:
+    ret tsm.service_set_enabled(registry, name, 1)
+  if streq(kind, "disable") != 0:
+    ret tsm.service_set_enabled(registry, name, 0)
+  if streq(kind, "run") != 0:
+    ret tsm.service_run_once(registry, name)
+  if streq(kind, "start") != 0:
+    ret tsm.service_start(registry, name, log_dir)
+  if streq(kind, "stop") != 0:
+    ret tsm.service_stop(registry, name, log_dir)
+  if streq(kind, "status") != 0:
+    st:str = tsm.service_status(registry, name, log_dir)
+    say st
+    if st != 0:
+      free(st)
+    ret 0
+  ret 0 - 1
+
+fn main() -> int:
+  if args_count() <= 0:
+    _usage()
+    ret 0
+  cmd:str = arg(0)
+  if streq(cmd, "--help") != 0 || streq(cmd, "-h") != 0 || streq(cmd, "help") != 0:
+    _usage()
+    ret 0
+  if streq(cmd, "doctor") != 0:
+    ret _cmd_doctor()
+  if streq(cmd, "init") != 0:
+    ret _cmd_init()
+  if streq(cmd, "add") != 0:
+    ret _cmd_add()
+  if streq(cmd, "list") != 0:
+    ret _cmd_list()
+  if streq(cmd, "remove") != 0:
+    ret _cmd_name_action("remove")
+  if streq(cmd, "enable") != 0:
+    ret _cmd_name_action("enable")
+  if streq(cmd, "disable") != 0:
+    ret _cmd_name_action("disable")
+  if streq(cmd, "run") != 0:
+    ret _cmd_name_action("run")
+  if streq(cmd, "start") != 0:
+    ret _cmd_name_action("start")
+  if streq(cmd, "stop") != 0:
+    ret _cmd_name_action("stop")
+  if streq(cmd, "status") != 0:
+    ret _cmd_name_action("status")
+  _usage()
+  ret 0

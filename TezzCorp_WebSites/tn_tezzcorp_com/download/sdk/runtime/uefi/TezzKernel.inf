@@ -1,0 +1,21 @@
+[Defines]
+  INF_VERSION    = 0x0001001B
+  BASE_NAME      = TezzKernel
+  FILE_GUID      = 1D9A5F5A-4B76-4B6C-9C4D-2F2EAD6B1D11
+  MODULE_TYPE    = UEFI_APPLICATION
+  VERSION_STRING = 0.1
+  ENTRY_POINT    = tn_uefi_entry
+
+[Sources]
+  tnrt_uefi_stub.c
+  tnrt_kernel_bridge.c
+  paging.S
+  kernel.s
+
+[Packages]
+  MdePkg/MdePkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  UefiLib

@@ -1,0 +1,44 @@
+// lib/cuda.tn -- TezzNative CUDA runtime extern wrappers
+// Provides CPU-side access to cudaMalloc, cudaFree, cudaMemcpy for
+// GPU tensor allocation and host<->device data transfer.
+//
+// Usage (CUDA-target only, compile with: tezzc buildcuda foo.tn foo.cu):
+//   import "cuda"
+//   gptr: int = cuda.cu_malloc(numel * 8)    // returns device pointer as int
+//   cuda.cu_h2d(gptr, host_ptr, numel * 8)   // upload
+//   cuda.cu_d2h(host_ptr, gptr, numel * 8)   // download
+//   cuda.cu_free(gptr)
+
+// ?? cudaMemcpyKind constants (matches CUDA SDK values) ????????????????????????
+let CUDA_H2D: int = 1   // cudaMemcpyHostToDevice
+let CUDA_D2H: int = 2   // cudaMemcpyDeviceToHost
+let CUDA_D2D: int = 3   // cudaMemcpyDeviceToDevice
+
+// ?? Low-level wrappers declared as extern (implemented by CUDA runtime) ???????
+// cudaMalloc: allocate nbytes on device; returns device pointer (as int for TN)
+extern fn cu_malloc(nbytes: int) -> int
+// cudaFree: release device memory
+extern fn cu_free(devptr: int) -> int
+// cudaMemcpy: transfer count bytes from src to dst
+// kind: CUDA_H2D, CUDA_D2H, or CUDA_D2D
+extern fn cu_memcpy(dst: int, src: int, count: int, kind: int) -> int
+// cudaDeviceSynchronize: block until all GPU ops complete
+extern fn cu_sync() -> int
+// cudaGetDeviceCount: returns number of available GPUs
+extern fn cu_device_count() -> int
+// cudaSetDevice: select GPU by index
+extern fn cu_set_device(idx: int) -> int
+
+// ?? Convenience wrappers ??????????????????????????????????????????????????????
+fn cu_h2d(devptr: int, hostptr: *char, count: int) -> int:
+  ret cu_memcpy(devptr, hostptr as int, count, CUDA_H2D)
+
+fn cu_d2h(hostptr: *char, devptr: int, count: int) -> int:
+  ret cu_memcpy(hostptr as int, devptr, count, CUDA_D2H)
+
+fn cu_d2d(dst: int, src: int, count: int) -> int:
+  ret cu_memcpy(dst, src, count, CUDA_D2D)
+
+// ?? GPU memory info (via cudaMemGetInfo) ??????????????????????????????????????
+extern fn cu_mem_free() -> int    // free bytes on current device
+extern fn cu_mem_total() -> int   // total bytes on current device

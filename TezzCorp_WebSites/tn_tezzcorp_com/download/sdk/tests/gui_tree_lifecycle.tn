@@ -1,0 +1,118 @@
+import "tzgui"
+import "frame"
+import "gui"
+
+fn _fail(msg:str) -> int:
+  say msg
+  ret 1
+
+fn main() -> int:
+  tree:TzWidgetTree
+  surf:GuiSurface
+  dmg:TzDamage
+
+  unsafe:
+    if tzgui.tree_init(&tree, 128, 96) != 0:
+      ret _fail("tree_init failed")
+    if tzgui.tree_widget_count(&tree) != 0:
+      ret _fail("tree should start empty")
+    if tzgui.tree_dirty_pixels(&tree) != (128 * 96):
+      ret _fail("unexpected initial dirty area")
+
+  unsafe:
+    surf.addr = 0 as *char
+  surf.width = 128
+  surf.height = 96
+  surf.pitch = 512
+  surf.bpp = 32
+  unsafe:
+    if tzgui.tree_render_dirty(&tree, &surf) <= 0:
+      ret _fail("expected initial render")
+    if tzgui.tree_dirty_pixels(&tree) != 0:
+      ret _fail("dirty area should clear after render")
+    if tzgui.tree_full_redraw_reason(&tree) != 0:
+      ret _fail("full redraw reason should clear")
+
+  panel:TzWidgetSpec
+  panel.parent = 0
+  panel.kind = 1
+  panel.x = 4
+  panel.y = 4
+  panel.w = 110
+  panel.h = 80
+  panel.z = 0
+  panel.visible = 1
+  panel.bg = 3355443
+  panel.fg = 16777215
+  panel.text = "Root"
+  id_panel:int = 0
+  unsafe:
+    id_panel = tzgui.widget_add(&tree, &panel)
+  if id_panel <= 0:
+    ret _fail("panel add failed")
+
+  label:TzWidgetSpec
+  label.parent = id_panel
+  label.kind = 2
+  label.x = 12
+  label.y = 16
+  label.w = 72
+  label.h = 16
+  label.z = 1
+  label.visible = 1
+  label.bg = 0
+  label.fg = 16777215
+  label.text = "Title"
+  id_label:int = 0
+  unsafe:
+    id_label = tzgui.widget_add(&tree, &label)
+  if id_label <= 0:
+    ret _fail("label add failed")
+
+  button:TzWidgetSpec
+  button.parent = id_panel
+  button.kind = 3
+  button.x = 12
+  button.y = 42
+  button.w = 80
+  button.h = 24
+  button.z = 2
+  button.visible = 1
+  button.bg = 4473924
+  button.fg = 16777215
+  button.text = "Save"
+  id_button:int = 0
+  unsafe:
+    id_button = tzgui.widget_add(&tree, &button)
+  if id_button <= 0:
+    ret _fail("button add failed")
+
+  unsafe:
+    if tzgui.tree_widget_count(&tree) != 3:
+      ret _fail("widget count mismatch after add")
+    if tzgui.widget_set_visible(&tree, id_label, 0) != 0:
+      ret _fail("widget_set_visible failed")
+    if tzgui.widget_update_bounds(&tree, id_button, 14, 44, 84, 24) != 0:
+      ret _fail("widget_update_bounds failed")
+    if tzgui.widget_set_text(&tree, id_button, "Apply") != 0:
+      ret _fail("widget_set_text failed")
+    if tzgui.widget_mark_dirty(&tree, id_button) <= 0:
+      ret _fail("widget_mark_dirty failed")
+    if tzgui.tree_collect_damage(&tree, &dmg) <= 0:
+      ret _fail("expected dirty damage")
+    if frame.tz_damage_count(&dmg) <= 0:
+      ret _fail("damage count should be positive")
+    if tzgui.widget_remove(&tree, id_panel) != 0:
+      ret _fail("widget_remove failed")
+    if tzgui.tree_widget_count(&tree) != 2:
+      ret _fail("widget count mismatch after remove")
+
+    if tzgui.tree_request_full_redraw(&tree, 2) <= 0:
+      ret _fail("tree_request_full_redraw failed")
+    if tzgui.tree_full_redraw_reason(&tree) != 2:
+      ret _fail("full redraw reason mismatch")
+    if tzgui.tree_present_dirty(&tree, &surf) <= 0:
+      ret _fail("expected present_dirty work")
+    if tzgui.tree_full_redraw_reason(&tree) != 0:
+      ret _fail("full redraw reason should reset")
+  ret 0

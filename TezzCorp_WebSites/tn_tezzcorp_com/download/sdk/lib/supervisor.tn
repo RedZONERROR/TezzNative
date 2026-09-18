@@ -1,0 +1,82 @@
+// supervisor.tn — Erlang/Elixir OTP Supervisor Tree Engine for TezzNative
+//
+// Implements "Let It Crash" fault-tolerance architecture. Stores supervisor
+// state and logs cleanly inside `.log/` subfolder.
+
+import "otp_sys"
+import "str"
+import "io"
+import "sys"
+
+fn ensure_log_dir() -> int:
+  if io.dir_exists(".log") == 0:
+    io.dir_make(".log")
+  ret 1
+
+// Start a top-level OTP Supervisor process
+fn start_supervisor(name:str) -> int:
+  if name == 0 as str || str.str_len(name) == 0:
+    name = "DefaultSupervisor"
+
+  ensure_log_dir()
+  sup_pid:int = otp_sys.spawn_actor(name, 0)
+  
+  sup_key:str = ".log/otp_sup_"
+  sup_key = str.str_cat(sup_key, str.int_to_str(sup_pid))
+  
+  meta:str = "SUPERVISOR="
+  meta = str.str_cat(meta, name)
+  meta = str.str_cat(meta, "\nSTRATEGY=ONE_FOR_ONE\nTOTAL_RESTARTS=0\n")
+  
+  io.write_all(sup_key, meta)
+  say "[OTP Supervisor] Started supervisor '", name, "' (PID: ", sup_pid, ")"
+  ret sup_pid
+
+// Spawn a worker process under supervisor monitoring
+fn start_worker(sup_pid:int, worker_name:str) -> int:
+  if worker_name == 0 as str || str.str_len(worker_name) == 0:
+    worker_name = "HttpAcceptWorker"
+
+  ensure_log_dir()
+  worker_pid:int = otp_sys.spawn_actor(worker_name, sup_pid)
+  say "[OTP Supervisor] Worker '", worker_name, "' started under supervisor ", sup_pid, " (PID: ", worker_pid, ")"
+  ret worker_pid
+
+// Monitor worker and auto-restart if worker has crashed ("Let it Crash" paradigm)
+fn supervise(sup_pid:int, worker_pid:int, worker_name:str) -> int:
+  if worker_name == 0 as str || str.str_len(worker_name) == 0:
+    worker_name = "HttpAcceptWorker"
+
+  if worker_pid <= 0:
+    ret start_worker(sup_pid, worker_name)
+
+  status:str = otp_sys.process_status(worker_pid)
+  
+  if str.str_eq(status, "CRASHED") != 0:
+    say "[OTP Supervisor] Trapped worker exit: '", worker_name, "' (PID: ", worker_pid, ") was CRASHED!"
+    
+    // Execute ONE_FOR_ONE restart strategy
+    new_worker_pid:int = start_worker(sup_pid, worker_name)
+    say "[OTP Supervisor] Recovered: Worker '", worker_name, "' restarted (New PID: ", new_worker_pid, ")"
+    
+    // Increment supervisor restart metrics
+    ensure_log_dir()
+    sup_key:str = ".log/otp_sup_"
+    sup_key = str.str_cat(sup_key, str.int_to_str(sup_pid))
+    curr_meta:str = io.read_all(sup_key)
+    if curr_meta != 0 as str:
+      curr_meta = str.str_cat(curr_meta, "RESTART_EVENT=")
+      curr_meta = str.str_cat(curr_meta, worker_name)
+      curr_meta = str.str_cat(curr_meta, "\n")
+      io.write_all(sup_key, curr_meta)
+
+    ret new_worker_pid
+
+  ret worker_pid
+
+// Return summary metrics of the Supervisor Tree
+fn supervisor_metrics(sup_pid:int) -> str:
+  ensure_log_dir()
+  sup_key:str = ".log/otp_sup_"
+  sup_key = str.str_cat(sup_key, str.int_to_str(sup_pid))
+  ret io.read_all(sup_key)

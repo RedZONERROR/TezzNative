@@ -1,0 +1,160 @@
+RewriteEngine On
+
+# ------------------------------------------------------------
+# 0) Directory index
+# ------------------------------------------------------------
+DirectoryIndex index.php index.html
+
+# ------------------------------------------------------------
+# 1) Canonical domain + HTTPS redirect
+#    Skip for localhost / loopback / test environments
+# ------------------------------------------------------------
+RewriteCond %{REMOTE_ADDR}    !^127\.0\.0\.1$
+RewriteCond %{REMOTE_ADDR}    !^::1$
+RewriteCond %{HTTP_HOST}      !^(.+\.)?localhost(:[0-9]+)?$ [NC]
+RewriteCond %{HTTP_HOST}      !^127\.0\.0\.1(:[0-9]+)?$    [NC]
+RewriteCond %{HTTP_HOST}      !^\[::1\](:[0-9]+)?$         [NC]
+RewriteCond %{HTTP_HOST}      !^(.+\.)?test(:[0-9]+)?$     [NC]
+RewriteCond %{HTTPS}          !=on
+RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
+
+# Force www only for bare tezzcorp.com
+RewriteCond %{REMOTE_ADDR}  !^127\.0\.0\.1$
+RewriteCond %{REMOTE_ADDR}  !^::1$
+RewriteCond %{HTTP_HOST}    ^tezzcorp\.com$ [NC]
+RewriteRule ^ https://www.tezzcorp.com%{REQUEST_URI} [R=301,L]
+
+# ------------------------------------------------------------
+# 2) Subpath routing: /community/ → community.php
+#    /community, /community/index.php → community.php
+# ------------------------------------------------------------
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^community/?$        community.php     [L,QSA]
+RewriteRule ^community/index\.php$ community.php   [L,QSA]
+
+# ------------------------------------------------------------
+# 3) Pretty URLs: strip .php extension
+# ------------------------------------------------------------
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteCond %{REQUEST_FILENAME}.php -f
+RewriteRule ^([^/]+)$ $1.php [L,QSA]
+
+# Also handle /path/ → /path.php for single-segment paths
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{DOCUMENT_ROOT}/%{REQUEST_URI}.php -f
+RewriteRule ^([^/]+)/?$ $1.php [L,QSA]
+
+# ------------------------------------------------------------
+# 4) Security: disable directory listing
+# ------------------------------------------------------------
+Options -Indexes
+
+# ------------------------------------------------------------
+# 5) Block access to sensitive files
+# ------------------------------------------------------------
+<IfModule mod_authz_core.c>
+  <FilesMatch "(^\.env(\..+)?$|^\.envrc$|config\.php$|community_db\.php$|db\.php$|.*\.log$|composer\.(json|lock)$|phpunit\.xml$|\.git|\.svn|^(debug_db_check|db_probe|env_probe)\.php$)">
+    Require all denied
+  </FilesMatch>
+</IfModule>
+
+<IfModule !mod_authz_core.c>
+  <FilesMatch "(^\.env(\..+)?$|^\.envrc$|config\.php$|community_db\.php$|db\.php$|.*\.log$|composer\.(json|lock)$|phpunit\.xml$|\.git|\.svn|^(debug_db_check|db_probe|env_probe)\.php$)">
+    Order allow,deny
+    Deny from all
+  </FilesMatch>
+</IfModule>
+
+# ------------------------------------------------------------
+# 6) Hardening security headers
+# ------------------------------------------------------------
+<IfModule mod_headers.c>
+  Header always unset X-Powered-By
+  Header always unset X-AspNet-Version
+  Header always unset X-AspNetMvc-Version
+
+  Header always set X-Frame-Options            "SAMEORIGIN"
+  Header always set X-Content-Type-Options     "nosniff"
+  Header always set Referrer-Policy            "strict-origin-when-cross-origin"
+  Header always set Permissions-Policy         "geolocation=(), microphone=(), camera=()"
+
+  # Content Security Policy — allow Google Fonts + self only
+  Header always set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self'; frame-ancestors 'self';"
+</IfModule>
+
+# ------------------------------------------------------------
+# 7) Static asset caching (CSS/JS/images/fonts)
+# ------------------------------------------------------------
+<IfModule mod_expires.c>
+  ExpiresActive On
+
+  # Images
+  ExpiresByType image/jpeg          "access plus 30 days"
+  ExpiresByType image/png           "access plus 30 days"
+  ExpiresByType image/webp          "access plus 30 days"
+  ExpiresByType image/svg+xml       "access plus 30 days"
+  ExpiresByType image/x-icon        "access plus 1 year"
+  ExpiresByType image/gif           "access plus 30 days"
+
+  # Fonts
+  ExpiresByType font/woff           "access plus 1 year"
+  ExpiresByType font/woff2          "access plus 1 year"
+  ExpiresByType application/font-woff2 "access plus 1 year"
+
+  # CSS/JS (versioned via ?v= query strings)
+  ExpiresByType text/css            "access plus 7 days"
+  ExpiresByType application/javascript "access plus 7 days"
+  ExpiresByType text/javascript     "access plus 7 days"
+
+  # HTML/PHP — no cache
+  ExpiresByType text/html           "access plus 0 seconds"
+  ExpiresByType application/x-httpd-php "access plus 0 seconds"
+</IfModule>
+
+<IfModule mod_headers.c>
+  # Remove ETags for security
+  Header unset ETag
+  # Vary for compressed content
+  <FilesMatch "\.(css|js|html|htm|php|xml|json)$">
+    Header append Vary: Accept-Encoding
+  </FilesMatch>
+</IfModule>
+
+# ------------------------------------------------------------
+# 8) GZIP compression
+# ------------------------------------------------------------
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html text/plain text/css text/javascript
+  AddOutputFilterByType DEFLATE application/javascript application/json
+  AddOutputFilterByType DEFLATE application/xml text/xml
+  AddOutputFilterByType DEFLATE image/svg+xml
+  BrowserMatch ^Mozilla/4 gzip-only-text/html
+  BrowserMatch ^Mozilla/4\.0[678] no-gzip
+  BrowserMatch \bMSIE !no-gzip !gzip-only-text/html
+</IfModule>
+
+# ------------------------------------------------------------
+# 9) Block common backup/temp files
+# ------------------------------------------------------------
+<FilesMatch "\.(bak|backup|old|tmp|swp|sql|orig)$">
+  <IfModule mod_authz_core.c>
+    Require all denied
+  </IfModule>
+  <IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+  </IfModule>
+</FilesMatch>
+
+# ------------------------------------------------------------
+# 10) Prevent script injection in uploads (if any)
+# ------------------------------------------------------------
+<FilesMatch "\.(php|php3|php4|php5|phtml|pl|py|rb|cgi)$">
+  <IfModule mod_authz_core.c>
+    <If "%{REQUEST_URI} =~ m#^/storage/#">
+      Require all denied
+    </If>
+  </IfModule>
+</FilesMatch>

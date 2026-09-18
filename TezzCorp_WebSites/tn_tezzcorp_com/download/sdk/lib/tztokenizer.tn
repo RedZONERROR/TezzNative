@@ -1,0 +1,30 @@
+// lib/tztokenizer.tn -- TezzNative HuggingFace BPE Tokenizer Wrapper v2.2
+// High-level text encoding and decoding interface.
+
+import "tzcpu"
+
+extern fn tz_tokenizer_load(path: int) -> int
+extern fn tz_tokenizer_encode(handle: int, text: int, out_ids: int) -> int
+extern fn tz_tokenizer_decode(handle: int, ids: int, count: int, out_text: int) -> int
+extern fn tz_tokenizer_vocab_size(handle: int) -> int
+extern fn tz_tokenizer_free(handle: int) -> int
+
+fn cstr(s: str) -> int:
+  unsafe:
+    ret s as int
+  ret 0
+
+fn load_tokenizer(path: str) -> int:
+  ret tz_tokenizer_load(cstr(path))
+
+fn encode_text(handle: int, text: str, out_ids_buf: int) -> int:
+  ret tz_tokenizer_encode(handle, cstr(text), out_ids_buf)
+
+fn decode_ids(handle: int, ids_buf: int, count: int, out_text_buf: int) -> int:
+  ret tz_tokenizer_decode(handle, ids_buf, count, out_text_buf)
+
+fn vocab_size(handle: int) -> int:
+  ret tz_tokenizer_vocab_size(handle)
+
+fn free_tokenizer(handle: int) -> int:
+  ret tz_tokenizer_free(handle)

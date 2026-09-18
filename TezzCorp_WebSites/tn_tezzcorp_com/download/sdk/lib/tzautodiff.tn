@@ -1,0 +1,270 @@
+// lib/tzautodiff.tn -- TezzNative Dynamic Autograd Tape Engine v2.2
+// PyTorch-style Automatic Differentiation Tape & Computation Graph.
+// Records operations during forward pass and propagates gradients in reverse topological order.
+
+import "tzcpu"
+import "tztensor"
+
+// ── Operation Identifiers ─────────────────────────────────────────────────────
+let OP_NONE: int           = 0
+let OP_LINEAR: int         = 1
+let OP_RELU: int           = 2
+let OP_GELU: int           = 3
+let OP_CROSS_ENTROPY: int   = 4
+let OP_ADD: int            = 5
+let OP_MUL: int            = 6
+let OP_MATMUL: int         = 7
+let OP_RMSNORM: int        = 8
+let OP_CONV2D: int         = 9
+let OP_MAXPOOL2D: int      = 10
+let OP_SLICE: int          = 11
+
+let MAX_TAPE_NODES: int    = 2048
+let NODE_WORDS: int        = 18   // 144 bytes per tape node (allows full 4D slice bounds)
+
+// Global tape state pointer:
+// [0] = tape_buffer_ptr
+// [1] = tape_length
+// [2] = grad_enabled (1=enabled, 0=disabled)
+// [3] = is_initialized
+let g_autodiff_state: int  = 0
+
+fn autodiff_ensure_init() -> int:
+  if g_autodiff_state == 0:
+    g_autodiff_state = tzcpu.tz_cpu_malloc(64)
+    tape_buf: int = tzcpu.tz_cpu_malloc(MAX_TAPE_NODES * NODE_WORDS * 8)
+    unsafe:
+      (g_autodiff_state as *int)[0] = tape_buf
+      (g_autodiff_state as *int)[1] = 0
+      (g_autodiff_state as *int)[2] = 1 // grad enabled by default
+      (g_autodiff_state as *int)[3] = 1
+  ret 0
+
+fn autodiff_set_grad_enabled(enabled: int) -> int:
+  autodiff_ensure_init()
+  unsafe:
+    (g_autodiff_state as *int)[2] = enabled
+  ret 0
+
+fn autodiff_is_grad_enabled() -> int:
+  autodiff_ensure_init()
+  val: int = 1
+  unsafe:
+    val = (g_autodiff_state as *int)[2]
+  ret val
+
+fn autodiff_reset() -> int:
+  autodiff_ensure_init()
+  unsafe:
+    (g_autodiff_state as *int)[1] = 0
+  ret 0
+
+fn autodiff_record(op_id: int, out_t: int, in0: int, in1: int, in2: int, in3: int, saved0: int, saved1: int) -> int:
+  if autodiff_is_grad_enabled() == 0:
+    ret 0
+  
+  // Only record if at least one input tensor tracks gradients
+  req0: int = 0
+  req1: int = 0
+  req2: int = 0
+  req3: int = 0
+  if in0 != 0:
+    req0 = tztensor.tensor_requires_grad(in0)
+  if in1 != 0:
+    req1 = tztensor.tensor_requires_grad(in1)
+  if in2 != 0:
+    req2 = tztensor.tensor_requires_grad(in2)
+  if in3 != 0:
+    req3 = tztensor.tensor_requires_grad(in3)
+
+  if req0 == 0 && req1 == 0 && req2 == 0 && req3 == 0:
+    ret 0
+
+  autodiff_ensure_init()
+  idx: int = 0
+  tape_buf: int = 0
+  unsafe:
+    idx = (g_autodiff_state as *int)[1]
+    tape_buf = (g_autodiff_state as *int)[0]
+  
+  if idx >= MAX_TAPE_NODES:
+    say "[WARN] Autograd Tape capacity reached, dropping oldest op"
+    ret 0
+
+  node_offset: int = idx * NODE_WORDS
+  unsafe:
+    (tape_buf as *int)[node_offset + 0] = op_id
+    (tape_buf as *int)[node_offset + 1] = out_t
+    (tape_buf as *int)[node_offset + 2] = in0
+    (tape_buf as *int)[node_offset + 3] = in1
+    (tape_buf as *int)[node_offset + 4] = in2
+    (tape_buf as *int)[node_offset + 5] = in3
+    (tape_buf as *int)[node_offset + 6] = saved0
+    (tape_buf as *int)[node_offset + 7] = saved1
+    (g_autodiff_state as *int)[1] = idx + 1
+
+  ret 0
+
+fn autodiff_record_slice(out_t: int, in0: int, s0: int, e0: int, s1: int, e1: int, s2: int, e2: int, s3: int, e3: int) -> int:
+  if autodiff_is_grad_enabled() == 0:
+    ret 0
+  if in0 == 0:
+    ret 0
+  if tztensor.tensor_requires_grad(in0) == 0:
+    ret 0
+
+  autodiff_ensure_init()
+  idx: int = 0
+  tape_buf: int = 0
+  unsafe:
+    idx = (g_autodiff_state as *int)[1]
+    tape_buf = (g_autodiff_state as *int)[0]
+
+  if idx >= MAX_TAPE_NODES:
+    ret 0
+
+  node_offset: int = idx * NODE_WORDS
+  unsafe:
+    (tape_buf as *int)[node_offset + 0] = OP_SLICE
+    (tape_buf as *int)[node_offset + 1] = out_t
+    (tape_buf as *int)[node_offset + 2] = in0
+    (tape_buf as *int)[node_offset + 8] = s0
+    (tape_buf as *int)[node_offset + 9] = e0
+    (tape_buf as *int)[node_offset + 10] = s1
+    (tape_buf as *int)[node_offset + 11] = e1
+    (tape_buf as *int)[node_offset + 12] = s2
+    (tape_buf as *int)[node_offset + 13] = e2
+    (tape_buf as *int)[node_offset + 14] = s3
+    (tape_buf as *int)[node_offset + 15] = e3
+    (g_autodiff_state as *int)[1] = idx + 1
+
+  ret 0
+
+// ── Backward Graph Execution ──────────────────────────────────────────────────
+fn autodiff_backward(root_loss: int) -> int:
+  autodiff_ensure_init()
+  tape_len: int = 0
+  tape_buf: int = 0
+  unsafe:
+    tape_len = (g_autodiff_state as *int)[1]
+    tape_buf = (g_autodiff_state as *int)[0]
+
+  if tape_len == 0:
+    ret 0
+
+  // 1. Initialize root gradient = 1.0
+  root_grad: int = tztensor.tensor_grad(root_loss)
+  root_numel: int = tztensor.tensor_numel(root_loss)
+  if root_grad != 0:
+    tzcpu.tz_cpu_fill_f32(root_grad, root_numel, 1.0)
+
+  // 2. Traverse tape in reverse order
+  curr: int = tape_len - 1
+  while curr >= 0:
+    node_off: int = curr * NODE_WORDS
+    op_id: int = 0
+    out_t: int = 0
+    in0: int = 0
+    in1: int = 0
+    in2: int = 0
+    in3: int = 0
+    saved0: int = 0
+    saved1: int = 0
+
+    unsafe:
+      op_id = (tape_buf as *int)[node_off + 0]
+      out_t = (tape_buf as *int)[node_off + 1]
+      in0   = (tape_buf as *int)[node_off + 2]
+      in1   = (tape_buf as *int)[node_off + 3]
+      in2   = (tape_buf as *int)[node_off + 4]
+      in3   = (tape_buf as *int)[node_off + 5]
+      saved0 = (tape_buf as *int)[node_off + 6]
+      saved1 = (tape_buf as *int)[node_off + 7]
+
+    if op_id == OP_LINEAR:
+      // Linear Layer: in0=X, in1=W, in2=b, out_t=h
+      batch: int = tztensor.tensor_d0(in0)
+      in_dim: int = tztensor.tensor_d1(in0)
+      out_dim: int = tztensor.tensor_d0(in1)
+      out_g: int = tztensor.tensor_grad(out_t)
+      in0_d: int = tztensor.tensor_data(in0)
+      in1_d: int = tztensor.tensor_data(in1)
+      in1_g: int = tztensor.tensor_grad(in1)
+      in2_g: int = 0
+      if in2 != 0:
+        in2_g = tztensor.tensor_grad(in2)
+      in0_g: int = tztensor.tensor_grad(in0)
+
+      if in1_g != 0:
+        tzcpu.tz_cpu_gemm_tn_f32(out_g, in0_d, in1_g, out_dim, batch, in_dim, 1.0, 1.0)
+      if in2_g != 0:
+        tzcpu.tz_cpu_reduce_sum_cols_f32(out_g, in2_g, batch, out_dim)
+      if in0_g != 0:
+        tzcpu.tz_cpu_gemm_nt_f32(out_g, in1_d, in0_g, batch, out_dim, in_dim, 1.0, 0.0)
+
+    else if op_id == OP_RELU:
+      // ReLU: in0=X, out_t=a
+      in0_g: int = tztensor.tensor_grad(in0)
+      if in0_g != 0:
+        tzcpu.tz_cpu_relu_bwd_f32(tztensor.tensor_grad(out_t), tztensor.tensor_data(in0), in0_g, tztensor.tensor_numel(in0))
+
+    else if op_id == OP_GELU:
+      // GELU: in0=X, out_t=a
+      in0_g: int = tztensor.tensor_grad(in0)
+      if in0_g != 0:
+        tzcpu.tz_cpu_gelu_bwd_f32(tztensor.tensor_grad(out_t), tztensor.tensor_data(in0), in0_g, tztensor.tensor_numel(in0))
+
+    else if op_id == OP_CROSS_ENTROPY:
+      // CrossEntropy: in0=logits, in1=targets, out_t=loss
+      logits_g: int = tztensor.tensor_grad(in0)
+      if logits_g != 0:
+        tzcpu.tz_cpu_cross_entropy_bwd_f32(tztensor.tensor_data(in0), tztensor.tensor_data(in1), logits_g, tztensor.tensor_d0(in0), tztensor.tensor_d1(in0))
+
+    else if op_id == OP_RMSNORM:
+      // RMSNorm: in0=X, in1=w, out_t=out
+      in0_g: int = tztensor.tensor_grad(in0)
+      in1_g: int = tztensor.tensor_grad(in1)
+      tzcpu.tz_cpu_rmsnorm_bwd_f32(tztensor.tensor_grad(out_t), tztensor.tensor_data(in0), tztensor.tensor_data(in1), in0_g, in1_g, tztensor.tensor_d0(in0), tztensor.tensor_d1(in0), 0)
+
+    else if op_id == OP_CONV2D:
+      // Conv2D: in0=X, in1=W, in2=b, out_t=out, saved0=pad, saved1=stride
+      b_g: int = 0
+      if in2 != 0:
+        b_g = tztensor.tensor_grad(in2)
+      tzcpu.tz_cpu_conv2d_bwd_f32(tztensor.tensor_grad(out_t), tztensor.tensor_data(in0), tztensor.tensor_data(in1), tztensor.tensor_grad(in0), tztensor.tensor_grad(in1), b_g, tztensor.tensor_d0(in0), tztensor.tensor_d1(in0), tztensor.tensor_d2(in0), tztensor.tensor_d3(in0), tztensor.tensor_d0(in1), tztensor.tensor_d2(in1), tztensor.tensor_d3(in1), saved0, saved1)
+
+    else if op_id == OP_MAXPOOL2D:
+      // MaxPool2D: in0=X, out_t=out, saved0=pool_mask
+      in0_g: int = tztensor.tensor_grad(in0)
+      if in0_g != 0:
+        tzcpu.tz_cpu_maxpool2d_bwd_f32(tztensor.tensor_grad(out_t), saved0, in0_g, tztensor.tensor_d0(in0), tztensor.tensor_d1(in0), tztensor.tensor_d2(in0), tztensor.tensor_d3(in0), tztensor.tensor_d2(out_t), tztensor.tensor_d3(out_t))
+
+    else if op_id == OP_SLICE:
+      // Slice: in0=parent, out_t=slice
+      in0_g: int = tztensor.tensor_grad(in0)
+      out_g: int = tztensor.tensor_grad(out_t)
+      if in0_g != 0 && out_g != 0:
+        s0: int = 0
+        e0: int = 0
+        s1: int = 0
+        e1: int = 0
+        s2: int = 0
+        e2: int = 0
+        s3: int = 0
+        e3: int = 0
+        unsafe:
+          s0 = (tape_buf as *int)[node_off + 8]
+          e0 = (tape_buf as *int)[node_off + 9]
+          s1 = (tape_buf as *int)[node_off + 10]
+          e1 = (tape_buf as *int)[node_off + 11]
+          s2 = (tape_buf as *int)[node_off + 12]
+          e2 = (tape_buf as *int)[node_off + 13]
+          s3 = (tape_buf as *int)[node_off + 14]
+          e3 = (tape_buf as *int)[node_off + 15]
+        tzcpu.tz_cpu_slice4d_bwd_f32(out_g, in0_g, tztensor.tensor_d0(in0), tztensor.tensor_d1(in0), tztensor.tensor_d2(in0), tztensor.tensor_d3(in0), s0, e0, s1, e1, s2, e2, s3, e3)
+
+    curr = curr - 1
+
+  // Reset tape for next forward iteration
+  autodiff_reset()
+  ret 0

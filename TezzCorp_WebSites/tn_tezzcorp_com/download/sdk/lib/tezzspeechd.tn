@@ -1,0 +1,268 @@
+import "tezzspeech"
+import "tsm"
+import "time"
+
+let TEZZSPEECHD_OK:int = 0
+let TEZZSPEECHD_ERR:int = 0 - 1
+let TEZZSPEECHD_ERR_START:int = 0 - 2
+let TEZZSPEECHD_ERR_TIMEOUT:int = 0 - 3
+
+let _SVC_NAME:str = "tezzspeechd"
+let _SVC_REGISTRY:str = "build/tezzspeech/registry.tnx"
+let _SVC_LOG_DIR:str = "build/tezzspeech"
+let _SVC_START_TIMEOUT_MS:int = 8000
+
+fn _safe(s:str) -> str:
+  if s == 0:
+    ret ""
+  ret s
+
+fn _join2(a:str, b:str) -> str:
+  a = _safe(a)
+  b = _safe(b)
+  na:int = len(a)
+  nb:int = len(b)
+  out:*char = malloc(na + nb + 1)
+  if out == 0:
+    ret 0 as str
+  if na > 0:
+    unsafe:
+      memcpy(out, a as *char, na)
+  if nb > 0:
+    unsafe:
+      memcpy(out + na, b as *char, nb)
+  out[na + nb] = 0 as char
+  ret out as str
+
+fn _join3(a:str, b:str, c:str) -> str:
+  t:str = _join2(a, b)
+  if t == 0:
+    ret 0 as str
+  out:str = _join2(t, c)
+  free(t)
+  ret out
+
+fn _dup(s:str) -> str:
+  if s == 0:
+    ret 0 as str
+  n:int = len(s)
+  out:*char = malloc(n + 1)
+  if out == 0:
+    ret 0 as str
+  if n > 0:
+    unsafe:
+      memcpy(out, s as *char, n)
+  out[n] = 0 as char
+  ret out as str
+
+fn _append(out:*char, off:int, s:str) -> int:
+  if out == 0:
+    ret off
+  if s == 0:
+    ret off
+  i:int = 0
+  while s[i] != 0 as char:
+    out[off] = s[i]
+    off = off + 1
+    i = i + 1
+  ret off
+
+fn _itoa(v:int) -> str:
+  n:int = v
+  neg:int = 0
+  if n < 0:
+    neg = 1
+    n = 0 - n
+  tmp:[char;32]
+  i:int = 0
+  if n == 0:
+    tmp[i] = 48 as char
+    i = i + 1
+  while n > 0:
+    d:int = n % 10
+    tmp[i] = (48 + d) as char
+    i = i + 1
+    n = n / 10
+  if neg != 0:
+    tmp[i] = 45 as char
+    i = i + 1
+  out:*char = malloc(i + 1)
+  if out == 0:
+    ret 0 as str
+  j:int = 0
+  while j < i:
+    out[j] = tmp[i - j - 1]
+    j = j + 1
+  out[i] = 0 as char
+  ret out as str
+
+fn service_name() -> str:
+  ret _SVC_NAME
+
+fn service_registry_path() -> str:
+  ret _SVC_REGISTRY
+
+fn service_log_dir() -> str:
+  ret _SVC_LOG_DIR
+
+fn service_start_timeout_ms() -> int:
+  ret _SVC_START_TIMEOUT_MS
+
+fn service_command(host:str, port:int, verbose:int) -> str:
+  h:str = host
+  p:int = port
+  if h == 0 || h[0] == 0 as char:
+    h = tezzspeech.speech_default_host()
+  if p <= 0:
+    p = tezzspeech.speech_default_port()
+  ps:str = _itoa(p)
+  if ps == 0:
+    ret 0 as str
+  entry:str = "examples/tezzspeech_service.tn"
+  if path_exists("tools/tezzspeech_service.tn") != 0:
+    entry = "tools/tezzspeech_service.tn"
+  cmd_len:int = len("tezz run ") + len(entry) + len(" --host ") + len(h) + len(" --port ") + len(ps)
+  if verbose != 0:
+    cmd_len = cmd_len + len(" --verbose")
+  out:*char = malloc(cmd_len + 1)
+  if out == 0:
+    free(ps)
+    ret 0 as str
+  off:int = 0
+  off = _append(out, off, "tezz run ")
+  off = _append(out, off, entry)
+  off = _append(out, off, " --host ")
+  off = _append(out, off, h)
+  off = _append(out, off, " --port ")
+  off = _append(out, off, ps)
+  if verbose != 0:
+    off = _append(out, off, " --verbose")
+  out[off] = 0 as char
+  free(ps)
+  ret out as str
+
+fn service_register(host:str, port:int, verbose:int) -> int:
+  cmd:str = service_command(host, port, verbose)
+  if cmd == 0 || len(cmd) == 0:
+    if cmd != 0:
+      free(cmd)
+    ret TEZZSPEECHD_ERR
+  tsm.service_remove(service_registry_path(), service_name())
+  rc:int = tsm.service_add(service_registry_path(), service_name(), cmd, "", 1, 1, 1)
+  free(cmd)
+  if rc != 0:
+    ret TEZZSPEECHD_ERR
+  ret TEZZSPEECHD_OK
+
+fn service_status() -> str:
+  st:str = tsm.service_status(service_registry_path(), service_name(), service_log_dir())
+  if st == 0:
+    ret _dup("unknown")
+  ret st
+
+fn service_start(host:str, port:int, verbose:int) -> int:
+  if service_register(host, port, verbose) != TEZZSPEECHD_OK:
+    ret TEZZSPEECHD_ERR
+  rc:int = tsm.service_start(service_registry_path(), service_name(), service_log_dir())
+  if rc == 0:
+    ret TEZZSPEECHD_OK
+  st:str = service_status()
+  if st != 0:
+    if strcmp(st, "running") == 0:
+      free(st)
+      ret TEZZSPEECHD_OK
+    free(st)
+  ret TEZZSPEECHD_ERR_START
+
+fn service_stop() -> int:
+  rc:int = tsm.service_stop(service_registry_path(), service_name(), service_log_dir())
+  if rc == 0:
+    ret TEZZSPEECHD_OK
+  st:str = service_status()
+  if st != 0:
+    if strcmp(st, "stopped") == 0:
+      free(st)
+      ret TEZZSPEECHD_OK
+    free(st)
+  ret TEZZSPEECHD_ERR
+
+fn _service_ready(host:str, port:int) -> int:
+  hrc:int = tezzspeech.speech_health(host, port)
+  if hrc != 0:
+    ret 0
+  s:str = tezzspeech.speech_stats(host, port)
+  if s == 0:
+    ret 0
+  ok:int = tezzspeech.speech_payload_ok(s)
+  free(s)
+  ret ok
+
+fn service_ensure(host:str, port:int, verbose:int, timeout_ms:int) -> int:
+  h:str = host
+  p:int = port
+  if h == 0 || h[0] == 0 as char:
+    h = tezzspeech.speech_default_host()
+  if p <= 0:
+    p = tezzspeech.speech_default_port()
+  if _service_ready(h, p) != 0:
+    ret TEZZSPEECHD_OK
+  rc:int = service_start(h, p, verbose)
+  if rc != TEZZSPEECHD_OK:
+    if _service_ready(h, p) != 0:
+      ret TEZZSPEECHD_OK
+    ret rc
+  wait_ms:int = timeout_ms
+  if wait_ms <= 0:
+    wait_ms = service_start_timeout_ms()
+  start_ms:int = time.now_ms()
+  while (time.now_ms() - start_ms) < wait_ms:
+    if _service_ready(h, p) != 0:
+      ret TEZZSPEECHD_OK
+    sleep_ms(120)
+  ret TEZZSPEECHD_ERR_TIMEOUT
+
+fn speech_send_auto(host:str, port:int, text:str, lang:str, voice:str, rate:int, clone_ref:str, trace_id:str, timeout_ms:int) -> int:
+  rc:int = service_ensure(host, port, 0, service_start_timeout_ms())
+  if rc != TEZZSPEECHD_OK:
+    ret rc
+  ret tezzspeech.speech_send_ex(host, port, text, lang, voice, rate, clone_ref, trace_id, timeout_ms)
+
+fn speech_listen_auto(host:str, port:int, trace_id:str, lang:str, voice:str, rate:int, clone_ref:str) -> str:
+  ret speech_listen_auto_match(host, port, trace_id, lang, voice, rate, clone_ref, "")
+
+fn speech_listen_auto_match(host:str, port:int, trace_id:str, lang:str, voice:str, rate:int, clone_ref:str, expect_text:str) -> str:
+  rc:int = service_ensure(host, port, 0, service_start_timeout_ms())
+  if rc != TEZZSPEECHD_OK:
+    ret 0 as str
+  p:str = tezzspeech.speech_listen_to_match(host, port, trace_id, lang, voice, rate, clone_ref, expect_text)
+  if p == 0:
+    ret 0 as str
+  if tezzspeech.speech_payload_ok(p) == 0:
+    free(p)
+    ret 0 as str
+  ret p
+
+fn speech_listener_match_score(host:str, port:int, trace_id:str, lang:str, voice:str, rate:int, clone_ref:str) -> int:
+  ret speech_listener_match_score_match(host, port, trace_id, lang, voice, rate, clone_ref, "")
+
+fn speech_listener_match_score_match(host:str, port:int, trace_id:str, lang:str, voice:str, rate:int, clone_ref:str, expect_text:str) -> int:
+  p:str = speech_listen_auto_match(host, port, trace_id, lang, voice, rate, clone_ref, expect_text)
+  if p == 0:
+    ret 0
+  score:int = tezzspeech.speech_listener_match_score(p)
+  free(p)
+  ret score
+
+fn speech_roundtrip(host:str, port:int, text:str, lang:str, voice:str, rate:int, clone_ref:str, trace_id:str, timeout_ms:int) -> str:
+  rc:int = speech_send_auto(host, port, text, lang, voice, rate, clone_ref, trace_id, timeout_ms)
+  if rc != TEZZSPEECHD_OK:
+    ret 0 as str
+  ret speech_listen_auto_match(host, port, trace_id, lang, voice, rate, clone_ref, text)
+
+fn speech_roundtrip_score(host:str, port:int, text:str, lang:str, voice:str, rate:int, clone_ref:str, trace_id:str, timeout_ms:int) -> int:
+  p:str = speech_roundtrip(host, port, text, lang, voice, rate, clone_ref, trace_id, timeout_ms)
+  if p == 0:
+    ret 0
+  score:int = tezzspeech.speech_listener_match_score(p)
+  free(p)
+  ret score

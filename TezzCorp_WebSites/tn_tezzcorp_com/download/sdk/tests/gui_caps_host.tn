@@ -1,0 +1,33 @@
+import "tzgui"
+
+fn _fail(msg:str) -> int:
+  say msg
+  ret 1
+
+fn main() -> int:
+  caps:TzGuiCaps
+  unsafe:
+    if tzgui.detect_caps(&caps) != 0:
+      ret _fail("detect_caps failed")
+  if caps.backend == 0:
+    ret _fail("backend missing")
+  if caps.windowing != 0 && caps.windowing != 1:
+    ret _fail("windowing flag out of range")
+  if strcmp(caps.backend, "none") == 0:
+    if caps.framebuffer != 0:
+      ret _fail("none backend with framebuffer flag")
+    if caps.input != 0:
+      ret _fail("none backend with input flag")
+  else:
+    if strcmp(caps.backend, "framebuffer") != 0 && strcmp(caps.backend, "host-window") != 0:
+      ret _fail("unsupported backend name")
+    if strcmp(caps.backend, "framebuffer") == 0:
+      if caps.framebuffer == 0:
+        ret _fail("framebuffer backend missing flag")
+      if caps.input == 0:
+        ret _fail("framebuffer backend missing input flag")
+    if strcmp(caps.backend, "host-window") == 0 && caps.windowing == 0:
+      ret _fail("host-window backend missing windowing flag")
+  if caps.hidpi_scale_hint < 1:
+    ret _fail("invalid hidpi hint")
+  ret 0

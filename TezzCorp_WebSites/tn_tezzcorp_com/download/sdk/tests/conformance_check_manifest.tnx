@@ -1,0 +1,3 @@
+tests/fmt_struct_sample.tn
+tests/ir_struct_array.tn
+tests/runtime_missing_file.tn

@@ -1,0 +1,464 @@
+// pipeline module — TezzNative End-to-End AI Pipeline
+//
+// Provides one-call interfaces for the most common on-device AI tasks:
+//   - Text generation (LLM)
+//   - Speech-to-text (STT/Whisper-style)
+//   - Text-to-speech (TTS)
+//   - Classification (MLP)
+//   - Image classification (CNN via ONNX)
+//
+// The pipeline auto-selects the best hardware backend via device.tn
+// and dispatches to npu/gpu/simd as appropriate.
+//
+// Usage:
+//   // Text generation
+//   result:str = pipeline.run_text("model.tnw", "Hello, how are", 64)
+//
+//   // Speech-to-text
+//   text:str = pipeline.run_stt("model.tnw", "audio.wav")
+//
+//   // Classification
+//   class_id:int = pipeline.run_classify("model.tnw", features, 128)
+
+import "model"
+import "llm"
+import "stt"
+import "tts"
+import "tokenizer"
+import "device"
+import "npu"
+import "nn"
+import "io"
+import "math"
+
+// ─────────────────────────────────────────────
+// Pipeline Constants
+// ─────────────────────────────────────────────
+
+let PIPE_OK:int  = 0
+let PIPE_ERR:int = 0 - 1
+
+let PIPE_TASK_TEXT:int      = 0  // Text generation (LLM)
+let PIPE_TASK_STT:int       = 1  // Speech-to-text
+let PIPE_TASK_TTS:int       = 2  // Text-to-speech
+let PIPE_TASK_CLASSIFY:int  = 3  // Classification
+let PIPE_TASK_VISION:int    = 4  // Image classification (ONNX)
+
+// Default generation parameters
+let PIPE_DEFAULT_TEMP:float    = 0.7
+let PIPE_DEFAULT_TOP_K:int     = 40
+let PIPE_DEFAULT_TOP_P:float   = 0.9
+let PIPE_DEFAULT_MAX_TOKENS:int = 128
+
+// ─────────────────────────────────────────────
+// Pipeline Config
+// ─────────────────────────────────────────────
+
+struct PipelineConfig:
+  model_path:str
+  task:int
+  // Text generation params
+  temperature:float
+  top_k:int
+  top_p:float
+  max_new_tokens:int
+  rep_penalty:float   // repetition penalty (1.0 = none)
+  // Classification params
+  n_classes:int
+  // TTS params
+  voice:str
+  // STT params
+  stt_duration_ms:int
+  // Device override
+  force_backend:int   // NPU_EP_* constant, -1 = auto
+
+// Create a default PipelineConfig for text generation.
+fn config_text(model_path:str, max_tokens:int) -> PipelineConfig:
+  c:PipelineConfig
+  c.model_path = model_path
+  c.task = PIPE_TASK_TEXT
+  c.temperature = PIPE_DEFAULT_TEMP
+  c.top_k = PIPE_DEFAULT_TOP_K
+  c.top_p = PIPE_DEFAULT_TOP_P
+  c.max_new_tokens = max_tokens
+  c.rep_penalty = 1.1
+  c.n_classes = 0
+  c.voice = "neutral"
+  c.stt_duration_ms = 5000
+  c.force_backend = 0 - 1
+  ret c
+
+fn config_classify(model_path:str, n_classes:int) -> PipelineConfig:
+  c:PipelineConfig = config_text(model_path, 0)
+  c.task = PIPE_TASK_CLASSIFY
+  c.n_classes = n_classes
+  ret c
+
+fn config_stt(model_path:str, duration_ms:int) -> PipelineConfig:
+  c:PipelineConfig = config_text(model_path, 0)
+  c.task = PIPE_TASK_STT
+  c.stt_duration_ms = duration_ms
+  ret c
+
+// ─────────────────────────────────────────────
+// Internal helper: str strdup
+// ─────────────────────────────────────────────
+
+fn _pdup(s:str) -> str:
+  if s == 0:
+    ret 0 as str
+  n:int = len(s)
+  p:*char = malloc(n + 1)
+  if p == 0:
+    ret 0 as str
+  unsafe:
+    memcpy(p, s as *char, n)
+  p[n] = 0 as char
+  ret p as str
+
+fn _pjoin(a:str, b:str) -> str:
+  if a == 0:
+    ret _pdup(b)
+  if b == 0:
+    ret _pdup(a)
+  na:int = len(a)
+  nb:int = len(b)
+  p:*char = malloc(na + nb + 1)
+  if p == 0:
+    ret 0 as str
+  unsafe:
+    memcpy(p, a as *char, na)
+    memcpy(p + na, b as *char, nb)
+  p[na + nb] = 0 as char
+  ret p as str
+
+// ─────────────────────────────────────────────
+// LLM Text Generation Pipeline
+// ─────────────────────────────────────────────
+
+// Run LLM text generation.
+// prompt_tokens: [prompt_len] integer token IDs (caller provides pre-tokenized)
+// Returns a newly allocated token array of length *out_len.
+fn run_llm_tokens(m:*Model, prompt_tokens:*int, prompt_len:int, max_new_tokens:int, temp:float, top_k:int, top_p:float, rep_penalty:float, out_len:*int) -> *int:
+  if m == 0 || (*m).ready == 0:
+    (*out_len) = 0
+    ret 0 as *int
+  if prompt_tokens == 0 as *int || prompt_len <= 0 || max_new_tokens <= 0:
+    (*out_len) = 0
+    ret 0 as *int
+
+  vocab_sz:int = (*m).vocab_size
+  if vocab_sz <= 0:
+    vocab_sz = 1000  // fallback tiny vocab
+
+  out_cap:int = max_new_tokens + prompt_len
+  out_raw:*char = malloc(out_cap * 8)
+  if out_raw == 0:
+    (*out_len) = 0
+    ret 0 as *int
+  out_tokens:*int = out_raw as *int
+
+  // Copy prompt tokens into output
+  i:int = 0
+  while i < prompt_len:
+    unsafe:
+      out_tokens[i] = prompt_tokens[i]
+    i = i + 1
+
+  // Logits buffer
+  logits_raw:*char = malloc(vocab_sz * 8)
+  if logits_raw == 0:
+    free(out_raw)
+    (*out_len) = 0
+    ret 0 as *int
+  logits:*float = logits_raw as *float
+
+  // Run forward pass for each prompt token (warm up KV cache)
+  t:int = 0
+  while t < prompt_len - 1:
+    unsafe:
+      llm.llm_forward_step((*m).slab, out_tokens[t], t, logits)
+    t = t + 1
+
+  // Generate new tokens
+  n_generated:int = 0
+  while n_generated < max_new_tokens:
+    current_tok:int = 0
+    unsafe:
+      current_tok = out_tokens[prompt_len + n_generated - 1]
+    // Forward step
+    unsafe:
+      llm.llm_forward_step((*m).slab, current_tok, prompt_len + n_generated - 1, logits)
+    // Apply repetition penalty
+    if rep_penalty > 1.0:
+      hist_start:int = prompt_len + n_generated - 32
+      if hist_start < 0:
+        hist_start = 0
+      hh:int = hist_start
+      while hh < prompt_len + n_generated:
+        prev_tok:int = 0
+        unsafe:
+          prev_tok = out_tokens[hh]
+        if prev_tok >= 0 && prev_tok < vocab_sz:
+          v:float = 0.0
+          unsafe:
+            v = logits[prev_tok]
+          if v > 0.0:
+            unsafe:
+              logits[prev_tok] = v / rep_penalty
+          else:
+            unsafe:
+              logits[prev_tok] = v * rep_penalty
+        hh = hh + 1
+    // Sample next token
+    next_tok:int = llm.llm_sample(logits, vocab_sz, temp, top_k, top_p)
+    // EOS check (token 0 or 2 = common EOS in Llama-style models)
+    if next_tok == 0 || next_tok == 2:
+      break
+    // Append
+    if prompt_len + n_generated < out_cap:
+      unsafe:
+        out_tokens[prompt_len + n_generated] = next_tok
+    n_generated = n_generated + 1
+
+  free(logits_raw)
+  (*out_len) = prompt_len + n_generated
+  ret out_tokens
+
+// Run text generation pipeline end-to-end (with built-in trivial tokenizer).
+// Returns a newly allocated result string.
+fn run_text(model_path:str, prompt:str, max_tokens:int) -> str:
+  if model_path == 0 || prompt == 0 || max_tokens <= 0:
+    ret _pdup("[error: invalid args]")
+
+  // Initialize hardware
+  device.ai_init()
+
+  // Load model
+  m:*Model = model.open(model_path)
+  if m == 0 as *Model || model.is_ready(m) == 0:
+    say "[Pipeline] Failed to load model: ", model_path
+    ret _pdup("[error: model load failed]")
+
+  // Simple character-level tokenization (works without a tokenizer file)
+  prompt_len:int = len(prompt)
+  tok_raw:*char = malloc(prompt_len * 8)
+  if tok_raw == 0:
+    model.close(m)
+    ret _pdup("[error: OOM]")
+  tok_ids:*int = tok_raw as *int
+  i:int = 0
+  while i < prompt_len:
+    unsafe:
+      tok_ids[i] = (prompt as *char)[i] as int & 255
+    i = i + 1
+
+  // Generate
+  out_len:int = 0
+  out_toks:*int = run_llm_tokens(m, tok_ids, prompt_len, max_tokens, PIPE_DEFAULT_TEMP, PIPE_DEFAULT_TOP_K, PIPE_DEFAULT_TOP_P, 1.1, &out_len)
+
+  model.close(m)
+  free(tok_raw)
+
+  if out_toks == 0 as *int || out_len <= 0:
+    ret _pdup("[error: generation failed]")
+
+  // Decode back to string (character-level)
+  result_raw:*char = malloc(out_len + 1)
+  if result_raw == 0:
+    free(out_toks as *char)
+    ret _pdup("[error: OOM]")
+  i = 0
+  while i < out_len:
+    tok:int = 0
+    unsafe:
+      tok = out_toks[i]
+    c:int = tok & 127
+    if c < 32:
+      c = 32  // Replace control chars with space
+    result_raw[i] = c as char
+    i = i + 1
+  result_raw[out_len] = 0 as char
+  free(out_toks as *char)
+  ret result_raw as str
+
+// ─────────────────────────────────────────────
+// Speech-to-Text Pipeline
+// ─────────────────────────────────────────────
+
+// Transcribe a WAV file using the STT engine.
+fn run_stt_file(model_path:str, wav_path:str) -> str:
+  if wav_path == 0:
+    ret _pdup("[error: invalid args]")
+  device.ai_init()
+  eng:*SttEngine = stt.stt_new()
+  if eng == 0 as *SttEngine:
+    ret _pdup("[error: STT init failed]")
+  if model_path != 0:
+    stt.stt_load_model(eng, model_path)
+  result:str = stt.stt_from_file(eng, wav_path)
+  out:str = _pdup(result)
+  stt.stt_free(eng)
+  ret out
+
+// Transcribe audio from the microphone.
+fn run_stt_mic(model_path:str, duration_ms:int) -> str:
+  device.ai_init()
+  eng:*SttEngine = stt.stt_new()
+  if eng == 0 as *SttEngine:
+    ret _pdup("[error: STT init failed]")
+  if model_path != 0:
+    stt.stt_load_model(eng, model_path)
+  result:str = stt.stt_from_mic(eng, duration_ms)
+  out:str = _pdup(result)
+  stt.stt_free(eng)
+  ret out
+
+// ─────────────────────────────────────────────
+// Text-to-Speech Pipeline
+// ─────────────────────────────────────────────
+
+// Synthesize speech and save to WAV file.
+fn run_tts_file(text:str, out_wav:str, voice_name:str) -> int:
+  if text == 0 || out_wav == 0:
+    ret PIPE_ERR
+  eng:*TtsEngine = tts.tts_new()
+  if eng == 0 as *TtsEngine:
+    ret PIPE_ERR
+  if voice_name != 0:
+    tts.tts_set_voice(eng, voice_name)
+  r:int = tts.tts_speak_to_file(eng, out_wav, text)
+  tts.tts_free(eng)
+  ret r
+
+// Synthesize and play through system speaker.
+fn run_tts_speak(text:str, voice_name:str) -> int:
+  if text == 0:
+    ret PIPE_ERR
+  eng:*TtsEngine = tts.tts_new()
+  if eng == 0 as *TtsEngine:
+    ret PIPE_ERR
+  if voice_name != 0:
+    tts.tts_set_voice(eng, voice_name)
+  r:int = tts.tts_speak(eng, text)
+  tts.tts_free(eng)
+  ret r
+
+// ─────────────────────────────────────────────
+// Classification Pipeline
+// ─────────────────────────────────────────────
+
+// Run classification inference. Returns the predicted class index (argmax).
+// features: [n_features] float input vector
+fn run_classify(model_path:str, features:*float, n_features:int, n_classes:int) -> int:
+  if model_path == 0 || features == 0 as *float || n_features <= 0 || n_classes <= 0:
+    ret PIPE_ERR
+
+  device.ai_init()
+
+  m:*Model = model.open(model_path)
+  if m == 0 as *Model || model.is_ready(m) == 0:
+    say "[Pipeline] Failed to load model: ", model_path
+    ret PIPE_ERR
+
+  out_raw:*char = malloc(n_classes * 8)
+  if out_raw == 0:
+    model.close(m)
+    ret PIPE_ERR
+  out:*float = out_raw as *float
+
+  rc:int = model.infer(m, features, n_features, out, n_classes)
+  model.close(m)
+
+  if rc != 0:
+    free(out_raw)
+    ret PIPE_ERR
+
+  // Argmax
+  best:int = 0
+  best_v:float = 0.0
+  unsafe:
+    best_v = out[0]
+  j:int = 1
+  v:float = 0.0
+  while j < n_classes:
+    unsafe:
+      v = out[j]
+    if v > best_v:
+      best_v = v
+      best = j
+    j = j + 1
+
+  free(out_raw)
+  ret best
+
+// ─────────────────────────────────────────────
+// Universal run() dispatcher
+// ─────────────────────────────────────────────
+
+// Run any task via config struct.
+fn run(cfg:PipelineConfig, input_str:str, input_features:*float, n_features:int) -> str:
+  device.ai_init()
+
+  if cfg.task == PIPE_TASK_TEXT:
+    n:int = cfg.max_new_tokens
+    if n <= 0:
+      n = PIPE_DEFAULT_MAX_TOKENS
+    ret run_text(cfg.model_path, input_str, n)
+
+  if cfg.task == PIPE_TASK_STT:
+    ret run_stt_file(cfg.model_path, input_str)
+
+  if cfg.task == PIPE_TASK_TTS:
+    run_tts_speak(input_str, cfg.voice)
+    ret _pdup(input_str)
+
+  if cfg.task == PIPE_TASK_CLASSIFY:
+    cls:int = run_classify(cfg.model_path, input_features, n_features, cfg.n_classes)
+    // Convert class int to string
+    result_raw:*char = malloc(32)
+    result_raw[0] = 99 as char   // 'c'
+    result_raw[1] = 108 as char  // 'l'
+    result_raw[2] = 115 as char  // 's'
+    result_raw[3] = 95 as char   // '_'
+    // Simple int-to-str
+    tmp:int = cls
+    digits:[char;16]
+    nd:int = 0
+    if tmp == 0:
+      digits[0] = 48 as char
+      nd = 1
+    else:
+      while tmp > 0:
+        digits[nd] = (48 + tmp % 10) as char
+        tmp = tmp / 10
+        nd = nd + 1
+      // Reverse
+      ii:int = 0
+      while ii < nd / 2:
+        tc:char = digits[ii]
+        digits[ii] = digits[nd - 1 - ii]
+        digits[nd - 1 - ii] = tc
+        ii = ii + 1
+    kk:int = 0
+    while kk < nd:
+      result_raw[4 + kk] = digits[kk]
+      kk = kk + 1
+    result_raw[4 + nd] = 0 as char
+    ret result_raw as str
+
+  ret _pdup("[error: unknown task]")
+
+// ─────────────────────────────────────────────
+// Hardware Warmup
+// ─────────────────────────────────────────────
+
+// Prime all accelerators and print readiness report.
+fn warmup() -> int:
+  device.ai_init()
+  device.hardware_report()
+  if npu.available() != 0:
+    say "[Pipeline] NPU ready: ", npu.backend_name()
+  else:
+    say "[Pipeline] No NPU. Using: ", device.cpu_tier_name()
+  ret 0

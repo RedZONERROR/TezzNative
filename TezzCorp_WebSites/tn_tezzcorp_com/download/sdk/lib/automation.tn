@@ -1,0 +1,89 @@
+// automation.tn — Scripting & Task Automation Library for TezzNative
+//
+// Provides high-level utilities for:
+// - Process Execution & Output Capturing
+// - Environment Variable Queries
+// - File System Operations & Directory Sweeps
+// - Text Filtering & Regex-based Pipeline Processing
+
+import "runtime"
+import "os"
+import "sys"
+import "str"
+import "regex"
+import "cli"
+import "json"
+
+extern fn system(cmd:str) -> int
+extern fn getenv(key:str) -> str
+extern fn path_exists(path:str) -> int
+extern fn remove(path:str) -> int
+
+// Execute a system command and return exit status (0 = success).
+fn run_command(cmd:str) -> int:
+  if cmd == 0 as str:
+    ret 0 - 1
+  ret system(cmd)
+
+// Query an environment variable. Returns empty string "" if unset.
+fn env_var(key:str) -> str:
+  if key == 0 as str:
+    ret ""
+  val:str = getenv(key)
+  if val == 0 as str:
+    ret ""
+  ret val
+
+// Check if a file or directory exists at path.
+fn file_exists(path:str) -> int:
+  if path == 0 as str:
+    ret 0
+  ret path_exists(path)
+
+// Remove a file at path. Returns 0 on success.
+fn remove_file(path:str) -> int:
+  if path == 0 as str:
+    ret 0 - 1
+  ret remove(path)
+
+// Simple single-pass pipeline text filter using regex pattern match.
+fn filter_lines_matching(input_text:str, pattern:str, out_buf:*char, max_bytes:int) -> int:
+  if input_text == 0 as str || pattern == 0 as str || out_buf == 0 as *char || max_bytes <= 0:
+    ret 0 - 1
+  
+  re:*Regex
+  unsafe:
+    re = regex.regex_compile(pattern)
+  if (re as int) == 0:
+    ret 0 - 1
+
+  unsafe:
+    runtime.memset(out_buf, 0, max_bytes)
+
+  slen:int = str.str_len(input_text)
+  pos:int = 0
+  out_pos:int = 0
+  
+  while pos < slen && out_pos + 2 < max_bytes:
+    // Extract line
+    line_start:int = pos
+    while pos < slen && (input_text[pos] as int) != 10:
+      pos = pos + 1
+    line_len:int = pos - line_start
+    if pos < slen && (input_text[pos] as int) == 10:
+      pos = pos + 1
+
+    if line_len > 0:
+      sub:str = str.str_slice(input_text, line_start, line_start + line_len)
+      if regex.regex_contains(re, sub) != 0 || regex.regex_match(re, sub) != 0:
+        // Copy matching line to out_buf
+        k:int = 0
+        while k < line_len && out_pos + 2 < max_bytes:
+          out_buf[out_pos] = sub[k]
+          out_pos = out_pos + 1
+          k = k + 1
+        out_buf[out_pos] = 10 as char  // '\n'
+        out_pos = out_pos + 1
+
+  regex.regex_free(re)
+  ret out_pos

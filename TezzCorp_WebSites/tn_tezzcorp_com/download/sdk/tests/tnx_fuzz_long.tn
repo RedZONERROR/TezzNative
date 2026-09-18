@@ -1,0 +1,9 @@
+fn main() -> int:
+  i:int = 0
+  s:int = 0
+  while i < 2048:
+    s = s + (i % 17)
+    i = i + 1
+  if s < 0:
+    ret 1
+  ret 0

@@ -1,0 +1,38 @@
+import "npu"
+import "os"
+import "kernel"
+import "driver"
+import "arduino"
+import "raspi"
+
+fn main() -> int:
+  unsafe:
+    say "--- Testing Advanced Systems Stack ---"
+    
+    // NPU / SIMD
+    npu_status:int = npu.npu_init()
+    say "NPU initialization status: ", npu_status
+    
+    // OS Platform Check
+    plat:str = os.os_platform()
+    say "OS Platform: ", plat
+    free(plat)
+    
+    // Kernel Interface Smoke Check
+    kernel_status:int = kernel.k_init()
+    say "Kernel Subsystem status: ", kernel_status
+    
+    // Driver Subsystem Check
+    driver_status:int = driver.driver_init()
+    say "Driver Subsystem status: ", driver_status
+    
+    // Arduino HAL Check
+    arduino_status:int = arduino.arduino_init()
+    say "Arduino HAL status: ", arduino_status
+    
+    // Raspberry Pi HAL Check
+    raspi_status:int = raspi.raspi_init()
+    say "Raspberry Pi HAL status: ", raspi_status
+    
+    say "SUCCESS: All remaining advanced systems libraries compiled perfectly!"
+    ret 0

@@ -1,0 +1,574 @@
+// tznum: compact numeric kernels for TezzNative
+// Focus: concise, NumPy-style core operations without runtime overhead.
+import "intrin"
+import "ai_kernels"
+
+struct Vec:
+  data:*float
+  len:int
+  owns:int
+
+struct Mat:
+  data:*float
+  rows:int
+  cols:int
+  owns:int
+
+static let g_native_kernels:int = 0
+static let g_i64_max:int = 9223372036854775807
+
+fn native_kernels_set(on:int) -> int:
+  g_native_kernels = on
+  ret g_native_kernels
+
+fn native_kernels_get() -> int:
+  ret g_native_kernels
+
+fn _min_i(a:int, b:int) -> int:
+  if a < b:
+    ret a
+  ret b
+
+fn _mul_overflow_i64_pos(a:int, b:int) -> int:
+  if a <= 0 || b <= 0:
+    ret 0
+  if a > (g_i64_max / b):
+    ret 1
+  ret 0
+
+fn _dot_f32_safe(a:*float, b:*float, n:int) -> float:
+  if a == 0 || b == 0 || n <= 0:
+    ret 0.0
+  if g_native_kernels != 0:
+    ret intrin.simd_dot_f64(a, b, n)
+  acc:float = 0.0
+  i:int = 0
+  while i < n:
+    unsafe:
+      acc = acc + (a[i] * b[i])
+    i = i + 1
+  ret acc
+
+fn vec_new(n:int) -> *Vec:
+  if n <= 0:
+    ret 0 as *Vec
+  v:*Vec = (*Vec)malloc(sizeof(Vec))
+  if v == 0:
+    ret 0 as *Vec
+  bytes:int = n * sizeof(float)
+  d:*float = 0 as *float
+  unsafe:
+    d = (*float)malloc(bytes)
+  if d == 0:
+    free(v)
+    ret 0 as *Vec
+  unsafe:
+    i:int = 0
+    while i < n:
+      d[i] = 0.0
+      i = i + 1
+    (*v).data = d
+    (*v).len = n
+    (*v).owns = 1
+  ret v
+
+fn vec_wrap(data:*float, n:int) -> *Vec:
+  if data == 0 || n <= 0:
+    ret 0 as *Vec
+  v:*Vec = (*Vec)malloc(sizeof(Vec))
+  if v == 0:
+    ret 0 as *Vec
+  unsafe:
+    (*v).data = data
+    (*v).len = n
+    (*v).owns = 0
+  ret v
+
+fn vec_free(v:*Vec) -> int:
+  if v == 0:
+    ret 0
+  unsafe:
+    if (*v).owns != 0 && (*v).data != 0:
+      free((*v).data as *char)
+  free(v)
+  ret 0
+
+fn vec_get(v:*Vec, i:int) -> float:
+  if v == 0:
+    ret 0.0
+  unsafe:
+    if i < 0 || i >= (*v).len || (*v).data == 0:
+      ret 0.0
+    ret (*v).data[i]
+
+fn vec_set(v:*Vec, i:int, x:float) -> int:
+  if v == 0:
+    ret 0 - 1
+  unsafe:
+    if i < 0 || i >= (*v).len || (*v).data == 0:
+      ret 0 - 1
+    (*v).data[i] = x
+  ret 0
+
+fn vec_fill(v:*Vec, x:float) -> int:
+  if v == 0:
+    ret 0 - 1
+  unsafe:
+    if (*v).data == 0:
+      ret 0 - 1
+    i:int = 0
+    while i < (*v).len:
+      (*v).data[i] = x
+      i = i + 1
+  ret 0
+
+fn vec_copy(v:*Vec) -> *Vec:
+  if v == 0:
+    ret 0 as *Vec
+  unsafe:
+    out:*Vec = vec_new((*v).len)
+    if out == 0:
+      ret 0 as *Vec
+    memcpy((*out).data as *char, (*v).data as *char, (*v).len * sizeof(float))
+    ret out
+
+fn vec_add(a:*Vec, b:*Vec) -> *Vec:
+  if a == 0 || b == 0:
+    ret 0 as *Vec
+  unsafe:
+    n:int = _min_i((*a).len, (*b).len)
+    out:*Vec = vec_new(n)
+    if out == 0:
+      ret 0 as *Vec
+    intrin.simd_add_f64((*out).data, (*a).data, (*b).data, n)
+    ret out
+
+fn vec_sub(a:*Vec, b:*Vec) -> *Vec:
+  if a == 0 || b == 0:
+    ret 0 as *Vec
+  unsafe:
+    n:int = _min_i((*a).len, (*b).len)
+    out:*Vec = vec_new(n)
+    if out == 0:
+      ret 0 as *Vec
+    intrin.simd_sub_f64((*out).data, (*a).data, (*b).data, n)
+    ret out
+
+fn vec_scale(a:*Vec, s:float) -> *Vec:
+  if a == 0:
+    ret 0 as *Vec
+  unsafe:
+    out:*Vec = vec_new((*a).len)
+    if out == 0:
+      ret 0 as *Vec
+    i:int = 0
+    while i < (*a).len:
+      (*out).data[i] = (*a).data[i] * s
+      i = i + 1
+    ret out
+
+fn vec_dot(a:*Vec, b:*Vec) -> float:
+  if a == 0 || b == 0:
+    ret 0.0
+  unsafe:
+    n:int = _min_i((*a).len, (*b).len)
+    ret intrin.simd_dot_f64((*a).data, (*b).data, n)
+
+fn vec_sum(a:*Vec) -> float:
+  if a == 0:
+    ret 0.0
+  unsafe:
+    acc:float = 0.0
+    i:int = 0
+    while i < (*a).len:
+      acc = acc + (*a).data[i]
+      i = i + 1
+    ret acc
+
+fn vec_mean(a:*Vec) -> float:
+  if a == 0:
+    ret 0.0
+  unsafe:
+    if (*a).len <= 0:
+      ret 0.0
+    ret vec_sum(a) / ((*a).len as float)
+
+fn mat_new(rows:int, cols:int) -> *Mat:
+  if rows <= 0 || cols <= 0:
+    ret 0 as *Mat
+  m:*Mat = (*Mat)malloc(sizeof(Mat))
+  if m == 0:
+    ret 0 as *Mat
+  n:int = rows * cols
+  bytes:int = n * sizeof(float)
+  d:*float = 0 as *float
+  unsafe:
+    d = (*float)malloc(bytes)
+  if d == 0:
+    free(m)
+    ret 0 as *Mat
+  unsafe:
+    i:int = 0
+    while i < n:
+      d[i] = 0.0
+      i = i + 1
+    (*m).data = d
+    (*m).rows = rows
+    (*m).cols = cols
+    (*m).owns = 1
+  ret m
+
+fn mat_wrap(data:*float, rows:int, cols:int) -> *Mat:
+  if data == 0 || rows <= 0 || cols <= 0:
+    ret 0 as *Mat
+  m:*Mat = (*Mat)malloc(sizeof(Mat))
+  if m == 0:
+    ret 0 as *Mat
+  unsafe:
+    (*m).data = data
+    (*m).rows = rows
+    (*m).cols = cols
+    (*m).owns = 0
+  ret m
+
+fn mat_free(m:*Mat) -> int:
+  if m == 0:
+    ret 0
+  unsafe:
+    if (*m).owns != 0 && (*m).data != 0:
+      free((*m).data as *char)
+  free(m)
+  ret 0
+
+fn mat_get(m:*Mat, r:int, c:int) -> float:
+  if m == 0:
+    ret 0.0
+  unsafe:
+    if r < 0 || c < 0 || r >= (*m).rows || c >= (*m).cols || (*m).data == 0:
+      ret 0.0
+    ret (*m).data[(r * (*m).cols) + c]
+
+fn mat_set(m:*Mat, r:int, c:int, x:float) -> int:
+  if m == 0:
+    ret 0 - 1
+  unsafe:
+    if r < 0 || c < 0 || r >= (*m).rows || c >= (*m).cols || (*m).data == 0:
+      ret 0 - 1
+    (*m).data[(r * (*m).cols) + c] = x
+  ret 0
+
+fn mat_fill(m:*Mat, x:float) -> int:
+  if m == 0:
+    ret 0 - 1
+  unsafe:
+    if (*m).data == 0:
+      ret 0 - 1
+    n:int = (*m).rows * (*m).cols
+    i:int = 0
+    while i < n:
+      (*m).data[i] = x
+      i = i + 1
+  ret 0
+
+fn mat_add(a:*Mat, b:*Mat) -> *Mat:
+  if a == 0 || b == 0:
+    ret 0 as *Mat
+  unsafe:
+    if (*a).rows != (*b).rows || (*a).cols != (*b).cols:
+      ret 0 as *Mat
+    out:*Mat = mat_new((*a).rows, (*a).cols)
+    if out == 0:
+      ret 0 as *Mat
+    n:int = (*a).rows * (*a).cols
+    intrin.simd_add_f64((*out).data, (*a).data, (*b).data, n)
+    ret out
+
+fn mat_mul(a:*Mat, b:*Mat) -> *Mat:
+  if a == 0 || b == 0:
+    ret 0 as *Mat
+  unsafe:
+    if (*a).cols != (*b).rows:
+      ret 0 as *Mat
+    out:*Mat = mat_new((*a).rows, (*b).cols)
+    if out == 0:
+      ret 0 as *Mat
+    r:int = 0
+    while r < (*a).rows:
+      c:int = 0
+      while c < (*b).cols:
+        acc:float = 0.0
+        k:int = 0
+        while k < (*a).cols:
+          av:float = (*a).data[(r * (*a).cols) + k]
+          bv:float = (*b).data[(k * (*b).cols) + c]
+          acc = acc + (av * bv)
+          k = k + 1
+        (*out).data[(r * (*b).cols) + c] = acc
+        c = c + 1
+      r = r + 1
+    ret out
+
+fn mat_transpose(a:*Mat) -> *Mat:
+  if a == 0:
+    ret 0 as *Mat
+  unsafe:
+    out:*Mat = mat_new((*a).cols, (*a).rows)
+    if out == 0:
+      ret 0 as *Mat
+    r:int = 0
+    while r < (*a).rows:
+      c:int = 0
+      while c < (*a).cols:
+        (*out).data[(c * (*out).cols) + r] = (*a).data[(r * (*a).cols) + c]
+        c = c + 1
+      r = r + 1
+    ret out
+
+fn _abs_f(x:float) -> float:
+  if x < 0.0:
+    ret 0.0 - x
+  ret x
+
+fn _clamp_f(x:float, lo:float, hi:float) -> float:
+  if x < lo:
+    ret lo
+  if x > hi:
+    ret hi
+  ret x
+
+fn _fast_sigmoid_f(x:float) -> float:
+  ax:float = _abs_f(x)
+  ret 0.5 * (x / (1.0 + ax)) + 0.5
+
+fn _fast_exp_f(x:float) -> float:
+  xc:float = _clamp_f(x, 0.0 - 10.0, 10.0)
+  x2:float = xc * xc
+  x3:float = x2 * xc
+  x4:float = x3 * xc
+  x5:float = x4 * xc
+  ret 1.0 + xc + (0.5 * x2) + ((1.0 / 6.0) * x3) + ((1.0 / 24.0) * x4) + ((1.0 / 120.0) * x5)
+
+fn _inv_sqrt_f(x:float) -> float:
+  if x <= 0.0:
+    ret 0.0
+  y:float = 1.0
+  if x > 1.0:
+    y = 1.0 / x
+  i:int = 0
+  while i < 6:
+    y = y * (1.5 - (0.5 * x * y * y))
+    i = i + 1
+  ret y
+
+fn f32_matmul(out:*float, a:*float, b:*float, m:int, n:int, k:int) -> int:
+  if out == 0 || a == 0 || b == 0:
+    ret 0 - 1
+  if m <= 0 || n <= 0 || k <= 0:
+    ret 0 - 1
+  if _mul_overflow_i64_pos(m, n) != 0 || _mul_overflow_i64_pos(m, k) != 0 || _mul_overflow_i64_pos(k, n) != 0:
+    ret 0 - 1
+  if g_native_kernels != 0:
+    rc_native:int = ai_kernels.matmul_f32(out, a, b, m, n, k)
+    if rc_native == 0:
+      ret 0
+
+  bt:*float = 0 as *float
+  bytes_bt:int = n * k * sizeof(float)
+  unsafe:
+    bt = (*float)malloc(bytes_bt)
+  if bt == 0:
+    ret 0 - 1
+
+  p:int = 0
+  while p < k:
+    c0:int = 0
+    while c0 < n:
+      unsafe:
+        bt[c0 * k + p] = b[p * n + c0]
+      c0 = c0 + 1
+    p = p + 1
+
+  r:int = 0
+  while r < m:
+    c:int = 0
+    while c < n:
+      dot:float = _dot_f32_safe(a + (r * k), bt + (c * k), k)
+      unsafe:
+        out[r * n + c] = dot
+      c = c + 1
+    r = r + 1
+
+  free(bt as *char)
+  ret 0
+
+fn f32_matmul_bias(out:*float, a:*float, b:*float, bias:*float, m:int, n:int, k:int) -> int:
+  if out == 0 || a == 0 || b == 0:
+    ret 0 - 1
+  if m <= 0 || n <= 0 || k <= 0:
+    ret 0 - 1
+  if _mul_overflow_i64_pos(m, n) != 0 || _mul_overflow_i64_pos(m, k) != 0 || _mul_overflow_i64_pos(k, n) != 0:
+    ret 0 - 1
+  if bias == 0:
+    ret f32_matmul(out, a, b, m, n, k)
+
+  bt:*float = 0 as *float
+  bytes_bt:int = n * k * sizeof(float)
+  unsafe:
+    bt = (*float)malloc(bytes_bt)
+  if bt == 0:
+    ret 0 - 1
+
+  p:int = 0
+  while p < k:
+    c0:int = 0
+    while c0 < n:
+      unsafe:
+        bt[c0 * k + p] = b[p * n + c0]
+      c0 = c0 + 1
+    p = p + 1
+
+  r:int = 0
+  while r < m:
+    c:int = 0
+    while c < n:
+      dot:float = _dot_f32_safe(a + (r * k), bt + (c * k), k)
+      unsafe:
+        out[r * n + c] = dot + bias[c]
+      c = c + 1
+    r = r + 1
+
+  free(bt as *char)
+  ret 0
+
+fn f32_relu_inplace(x:*float, n:int) -> int:
+  if x == 0 || n <= 0:
+    ret 0 - 1
+  i:int = 0
+  while i < n:
+    unsafe:
+      if x[i] < 0.0:
+        x[i] = 0.0
+    i = i + 1
+  ret 0
+
+fn f32_silu_inplace(x:*float, n:int) -> int:
+  if x == 0 || n <= 0:
+    ret 0 - 1
+  i:int = 0
+  while i < n:
+    unsafe:
+      v:float = x[i]
+      x[i] = v * _fast_sigmoid_f(v)
+    i = i + 1
+  ret 0
+
+fn f32_gelu_fast_inplace(x:*float, n:int) -> int:
+  if x == 0 || n <= 0:
+    ret 0 - 1
+  i:int = 0
+  while i < n:
+    unsafe:
+      v:float = x[i]
+      x[i] = v * _fast_sigmoid_f(1.702 * v)
+    i = i + 1
+  ret 0
+
+fn llm_rmsnorm_rows_f32(out:*float, x:*float, weight:*float, rows:int, cols:int, eps:float) -> int:
+  if out == 0 || x == 0 || rows <= 0 || cols <= 0:
+    ret 0 - 1
+  if _mul_overflow_i64_pos(rows, cols) != 0:
+    ret 0 - 1
+  if eps <= 0.0:
+    eps = 0.00001
+  if g_native_kernels != 0:
+    rc_native:int = ai_kernels.rmsnorm_rows_f32(out, x, weight, rows, cols, eps)
+    if rc_native == 0:
+      ret 0
+
+  r:int = 0
+  while r < rows:
+    base:int = r * cols
+    sum_sq:float = 0.0
+    c:int = 0
+    while c < cols:
+      unsafe:
+        v:float = x[base + c]
+        sum_sq = sum_sq + (v * v)
+      c = c + 1
+    mean_sq:float = (sum_sq / (cols as float)) + eps
+    inv:float = _inv_sqrt_f(mean_sq)
+    c2:int = 0
+    while c2 < cols:
+      unsafe:
+        nv:float = x[base + c2] * inv
+        if weight != 0:
+          nv = nv * weight[c2]
+        out[base + c2] = nv
+      c2 = c2 + 1
+    r = r + 1
+  ret 0
+
+fn llm_softmax_rows_f32_inplace(x:*float, rows:int, cols:int) -> int:
+  if x == 0 || rows <= 0 || cols <= 0:
+    ret 0 - 1
+
+  r:int = 0
+  while r < rows:
+    base:int = r * cols
+    max_v:float = 0.0
+    unsafe:
+      max_v = x[base]
+    c:int = 1
+    while c < cols:
+      unsafe:
+        if x[base + c] > max_v:
+          max_v = x[base + c]
+      c = c + 1
+
+    sum_e:float = 0.0
+    c2:int = 0
+    while c2 < cols:
+      unsafe:
+        e:float = _fast_exp_f(x[base + c2] - max_v)
+        x[base + c2] = e
+        sum_e = sum_e + e
+      c2 = c2 + 1
+
+    if sum_e <= 0.0:
+      uniform:float = 1.0 / (cols as float)
+      c3:int = 0
+      while c3 < cols:
+        unsafe:
+          x[base + c3] = uniform
+        c3 = c3 + 1
+    else:
+      inv_sum:float = 1.0 / sum_e
+      c4:int = 0
+      while c4 < cols:
+        unsafe:
+          x[base + c4] = x[base + c4] * inv_sum
+        c4 = c4 + 1
+    r = r + 1
+  ret 0
+
+fn llm_argmax_rows_i32(out_ids:*int, logits:*float, rows:int, cols:int) -> int:
+  if out_ids == 0 || logits == 0 || rows <= 0 || cols <= 0:
+    ret 0 - 1
+  r:int = 0
+  while r < rows:
+    base:int = r * cols
+    best_i:int = 0
+    best_v:float = 0.0
+    unsafe:
+      best_v = logits[base]
+    c:int = 1
+    while c < cols:
+      unsafe:
+        if logits[base + c] > best_v:
+          best_v = logits[base + c]
+          best_i = c
+      c = c + 1
+    unsafe:
+      out_ids[r] = best_i
+    r = r + 1
+  ret 0

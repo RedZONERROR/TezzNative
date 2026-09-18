@@ -1,0 +1,5 @@
+@inline
+extern fn ext_ping() -> int
+
+fn main() -> int:
+  ret 0

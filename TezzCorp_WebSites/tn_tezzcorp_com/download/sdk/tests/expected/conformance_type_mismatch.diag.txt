@@ -1,0 +1,3 @@
+tests/conformance_type_mismatch.tn:2:15: tezzc error: type mismatch in assignment/call argument
+    value:int = "oops"
+                ^

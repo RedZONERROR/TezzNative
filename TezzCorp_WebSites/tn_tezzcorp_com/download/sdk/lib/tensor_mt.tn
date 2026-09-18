@@ -1,0 +1,227 @@
+import "task"
+
+let _MT_MAX_THREADS:int = 4
+let _MT_OP_ADD:int = 1
+let _MT_OP_MUL:int = 2
+let _MT_OP_AXPY:int = 3
+let _MT_OP_DOT:int = 4
+
+static let g_mt_op:int = 0
+static let g_mt_a:*float = 0 as *float
+static let g_mt_b:*float = 0 as *float
+static let g_mt_out:*float = 0 as *float
+static let g_mt_n:int = 0
+static let g_mt_threads:int = 1
+static let g_mt_alpha:float = 1.0
+static let g_mt_partials:[float;4]
+
+static let g_mm_a:*float = 0 as *float
+static let g_mm_b:*float = 0 as *float
+static let g_mm_out:*float = 0 as *float
+static let g_mm_m:int = 0
+static let g_mm_n:int = 0
+static let g_mm_k:int = 0
+static let g_mm_threads:int = 1
+
+fn _clamp_threads(requested:int, items:int) -> int:
+  t:int = requested
+  if t < 1:
+    t = 1
+  if t > _MT_MAX_THREADS:
+    t = _MT_MAX_THREADS
+  if items > 0 && t > items:
+    t = items
+  if task.workers() < 2:
+    t = 1
+  if t < 1:
+    t = 1
+  ret t
+
+fn _slot_begin(slot:int) -> int:
+  ret (g_mt_n * slot) / g_mt_threads
+
+fn _slot_end(slot:int) -> int:
+  ret (g_mt_n * (slot + 1)) / g_mt_threads
+
+fn _run_vec_slot(slot:int) -> int:
+  start:int = _slot_begin(slot)
+  stop:int = _slot_end(slot)
+  if g_mt_op == _MT_OP_DOT:
+    acc:float = 0.0
+    i:int = start
+    while i < stop:
+      unsafe:
+        acc = acc + g_mt_a[i] * g_mt_b[i]
+      i = i + 1
+    unsafe:
+      g_mt_partials[slot] = acc
+    ret 0
+  i2:int = start
+  while i2 < stop:
+    if g_mt_op == _MT_OP_ADD:
+      unsafe:
+        g_mt_out[i2] = g_mt_a[i2] + g_mt_b[i2]
+    else if g_mt_op == _MT_OP_MUL:
+      unsafe:
+        g_mt_out[i2] = g_mt_a[i2] * g_mt_b[i2]
+    else if g_mt_op == _MT_OP_AXPY:
+      unsafe:
+        g_mt_out[i2] = g_mt_a[i2] + g_mt_alpha * g_mt_b[i2]
+    i2 = i2 + 1
+  ret 0
+
+fn _vec_w1() -> int:
+  ret _run_vec_slot(1)
+
+fn _vec_w2() -> int:
+  ret _run_vec_slot(2)
+
+fn _vec_w3() -> int:
+  ret _run_vec_slot(3)
+
+fn _dispatch_vec(threads:int) -> int:
+  if threads <= 1:
+    ret _run_vec_slot(0)
+  t1:AsyncTask
+  t2:AsyncTask
+  t3:AsyncTask
+  if threads > 1:
+    t1 = task.spawn(_vec_w1)
+  if threads > 2:
+    t2 = task.spawn(_vec_w2)
+  if threads > 3:
+    t3 = task.spawn(_vec_w3)
+  _run_vec_slot(0)
+  if threads > 1:
+    task.await(t1)
+  if threads > 2:
+    task.await(t2)
+  if threads > 3:
+    task.await(t3)
+  ret 0
+
+fn f32_add(out:*float, a:*float, b:*float, n:int, threads:int) -> int:
+  if out == 0 || a == 0 || b == 0 || n <= 0:
+    ret 0 - 1
+  g_mt_op = _MT_OP_ADD
+  g_mt_out = out
+  g_mt_a = a
+  g_mt_b = b
+  g_mt_n = n
+  g_mt_threads = _clamp_threads(threads, n)
+  ret _dispatch_vec(g_mt_threads)
+
+fn f32_mul(out:*float, a:*float, b:*float, n:int, threads:int) -> int:
+  if out == 0 || a == 0 || b == 0 || n <= 0:
+    ret 0 - 1
+  g_mt_op = _MT_OP_MUL
+  g_mt_out = out
+  g_mt_a = a
+  g_mt_b = b
+  g_mt_n = n
+  g_mt_threads = _clamp_threads(threads, n)
+  ret _dispatch_vec(g_mt_threads)
+
+fn f32_axpy(out:*float, a:*float, b:*float, alpha:float, n:int, threads:int) -> int:
+  if out == 0 || a == 0 || b == 0 || n <= 0:
+    ret 0 - 1
+  g_mt_op = _MT_OP_AXPY
+  g_mt_out = out
+  g_mt_a = a
+  g_mt_b = b
+  g_mt_alpha = alpha
+  g_mt_n = n
+  g_mt_threads = _clamp_threads(threads, n)
+  ret _dispatch_vec(g_mt_threads)
+
+fn f32_dot(a:*float, b:*float, n:int, threads:int) -> float:
+  if a == 0 || b == 0 || n <= 0:
+    ret 0.0
+  g_mt_op = _MT_OP_DOT
+  g_mt_out = 0 as *float
+  g_mt_a = a
+  g_mt_b = b
+  g_mt_n = n
+  g_mt_threads = _clamp_threads(threads, n)
+  i:int = 0
+  while i < _MT_MAX_THREADS:
+    unsafe:
+      g_mt_partials[i] = 0.0
+    i = i + 1
+  _dispatch_vec(g_mt_threads)
+  acc:float = 0.0
+  i = 0
+  while i < g_mt_threads:
+    unsafe:
+      acc = acc + g_mt_partials[i]
+    i = i + 1
+  ret acc
+
+fn _mm_row_begin(slot:int) -> int:
+  ret (g_mm_m * slot) / g_mm_threads
+
+fn _mm_row_end(slot:int) -> int:
+  ret (g_mm_m * (slot + 1)) / g_mm_threads
+
+fn _run_mm_slot(slot:int) -> int:
+  row:int = _mm_row_begin(slot)
+  row_stop:int = _mm_row_end(slot)
+  while row < row_stop:
+    col:int = 0
+    while col < g_mm_n:
+      acc:float = 0.0
+      p:int = 0
+      while p < g_mm_k:
+        unsafe:
+          acc = acc + g_mm_a[row * g_mm_k + p] * g_mm_b[p * g_mm_n + col]
+        p = p + 1
+      unsafe:
+        g_mm_out[row * g_mm_n + col] = acc
+      col = col + 1
+    row = row + 1
+  ret 0
+
+fn _mm_w1() -> int:
+  ret _run_mm_slot(1)
+
+fn _mm_w2() -> int:
+  ret _run_mm_slot(2)
+
+fn _mm_w3() -> int:
+  ret _run_mm_slot(3)
+
+fn _dispatch_mm(threads:int) -> int:
+  if threads <= 1:
+    ret _run_mm_slot(0)
+  t1:AsyncTask
+  t2:AsyncTask
+  t3:AsyncTask
+  if threads > 1:
+    t1 = task.spawn(_mm_w1)
+  if threads > 2:
+    t2 = task.spawn(_mm_w2)
+  if threads > 3:
+    t3 = task.spawn(_mm_w3)
+  _run_mm_slot(0)
+  if threads > 1:
+    task.await(t1)
+  if threads > 2:
+    task.await(t2)
+  if threads > 3:
+    task.await(t3)
+  ret 0
+
+fn f32_matmul(out:*float, a:*float, b:*float, m:int, n:int, k:int, threads:int) -> int:
+  if out == 0 || a == 0 || b == 0:
+    ret 0 - 1
+  if m <= 0 || n <= 0 || k <= 0:
+    ret 0 - 1
+  g_mm_out = out
+  g_mm_a = a
+  g_mm_b = b
+  g_mm_m = m
+  g_mm_n = n
+  g_mm_k = k
+  g_mm_threads = _clamp_threads(threads, m)
+  ret _dispatch_mm(g_mm_threads)
+

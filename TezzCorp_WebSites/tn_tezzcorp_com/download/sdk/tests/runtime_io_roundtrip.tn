@@ -1,0 +1,16 @@
+import "io"
+
+fn main() -> int:
+  path:str = "build/runtime_io_roundtrip.txt"
+  if io.write_all(path, "roundtrip-data") < 0:
+    say "write-fail"
+    ret 1
+  data:str = io.read_all(path)
+  if data == 0:
+    say "read-fail"
+    ret 1
+  say data
+  if strcmp(data, "roundtrip-data") != 0:
+    ret 1
+  remove(path)
+  ret 0

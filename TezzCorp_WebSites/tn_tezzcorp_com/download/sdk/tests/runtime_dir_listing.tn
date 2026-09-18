@@ -1,0 +1,105 @@
+import "io"
+
+fn contains(s:str, token:str) -> int:
+  if s == 0 || token == 0:
+    ret 0
+  n:int = len(s)
+  m:int = len(token)
+  if m <= 0 || n < m:
+    ret 0
+  i:int = 0
+  while i <= n - m:
+    j:int = 0
+    ok:int = 1
+    while j < m:
+      unsafe:
+        if (s as *char)[i + j] != (token as *char)[j]:
+          ok = 0
+          break
+      j = j + 1
+    if ok != 0:
+      ret 1
+    i = i + 1
+  ret 0
+
+fn token_pos(s:str, token:str) -> int:
+  if s == 0 || token == 0:
+    ret 0 - 1
+  n:int = len(s)
+  m:int = len(token)
+  if m <= 0 || n < m:
+    ret 0 - 1
+  i:int = 0
+  while i <= n - m:
+    j:int = 0
+    ok:int = 1
+    while j < m:
+      unsafe:
+        if (s as *char)[i + j] != (token as *char)[j]:
+          ok = 0
+          break
+      j = j + 1
+    if ok != 0:
+      ret i
+    i = i + 1
+  ret 0 - 1
+
+fn cleanup(root:str, child:str, alpha:str, beta:str, gamma:str) -> int:
+  io.file_delete(alpha)
+  io.file_delete(beta)
+  io.file_delete(gamma)
+  io.dir_remove(child)
+  io.dir_remove(root)
+  ret 0
+
+fn main() -> int:
+  root:str = "build/runtime_dir_listing"
+  child:str = "build/runtime_dir_listing/child"
+  alpha:str = "build/runtime_dir_listing/alpha.txt"
+  beta:str = "build/runtime_dir_listing/beta.log"
+  gamma:str = "build/runtime_dir_listing/child/gamma.txt"
+
+  cleanup(root, child, alpha, beta, gamma)
+
+  if io.dir_make(root) != 0:
+    ret 1
+  if io.dir_make(child) != 0:
+    cleanup(root, child, alpha, beta, gamma)
+    ret 2
+  if io.write_all(alpha, "alpha") != 5:
+    cleanup(root, child, alpha, beta, gamma)
+    ret 3
+  if io.write_all(beta, "beta") != 4:
+    cleanup(root, child, alpha, beta, gamma)
+    ret 4
+  if io.write_all(gamma, "gamma") != 5:
+    cleanup(root, child, alpha, beta, gamma)
+    ret 5
+
+  listing:str = io.dir_list(root)
+  if contains(listing, "alpha.txt") == 0:
+    cleanup(root, child, alpha, beta, gamma)
+    ret 6
+  if contains(listing, "beta.log") == 0:
+    cleanup(root, child, alpha, beta, gamma)
+    ret 7
+  if token_pos(listing, "alpha.txt") > token_pos(listing, "beta.log"):
+    cleanup(root, child, alpha, beta, gamma)
+    ret 8
+
+  rec:str = io.dir_list_rec(root)
+  if contains(rec, "gamma.txt") == 0:
+    cleanup(root, child, alpha, beta, gamma)
+    ret 9
+
+  globbed:str = io.glob_list("build/runtime_dir_listing/*.txt")
+  if contains(globbed, "alpha.txt") == 0:
+    cleanup(root, child, alpha, beta, gamma)
+    ret 10
+  if contains(globbed, "beta.log") != 0:
+    cleanup(root, child, alpha, beta, gamma)
+    ret 11
+
+  cleanup(root, child, alpha, beta, gamma)
+  say "runtime-dir-listing-ok"
+  ret 0

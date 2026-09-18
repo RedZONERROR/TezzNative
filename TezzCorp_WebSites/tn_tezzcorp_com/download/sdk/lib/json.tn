@@ -1,0 +1,1196 @@
+// json module — JSON parser and serializer for TezzNative
+// Stability: Beta
+// Depends: runtime (for memset, memcpy, atoi, atof, sprintf_int, fputs)
+//
+// All returned *JsonVal pointers are heap-allocated.
+// Call json_free() when done.
+// Uses an iterative stack-based parser — no recursion, no forward decls.
+
+import "runtime"
+
+// ---------------------------------------------------------------------------
+// Error state
+// ---------------------------------------------------------------------------
+
+let _json_err:int     = 0
+let _json_err_pos:int = 0
+
+fn json_ok() -> int:
+  ret _json_err == 0
+
+fn json_error_pos() -> int:
+  ret _json_err_pos
+
+fn _json_set_err(pos:int) -> int:
+  _json_err     = 1
+  _json_err_pos = pos
+  ret 0 - 1
+
+fn json_reset_error() -> int:
+  _json_err     = 0
+  _json_err_pos = 0
+  ret 0
+
+// ---------------------------------------------------------------------------
+// JSON value types
+// ---------------------------------------------------------------------------
+
+let JSON_NULL:int   = 0
+let JSON_BOOL:int   = 1
+let JSON_INT:int    = 2
+let JSON_FLOAT:int  = 3
+let JSON_STRING:int = 4
+let JSON_ARRAY:int  = 5
+let JSON_OBJECT:int = 6
+
+// ---------------------------------------------------------------------------
+// Struct
+// ---------------------------------------------------------------------------
+
+struct JsonVal:
+  kind:int        // one of JSON_* constants
+  bval:int        // JSON_BOOL: 0/1
+  ival:int        // JSON_INT
+  fval:float      // JSON_FLOAT
+  sval:str        // JSON_STRING: heap-owned, null-terminated
+  count:int       // JSON_ARRAY/OBJECT: number of children
+  cap:int         // allocated capacity of children[]
+  children:*JsonVal // heap array of count JsonVal children
+  keys:str        // JSON_OBJECT: newline-separated key list (heap-owned)
+  keys_len:int    // byte length of keys buffer
+  keys_cap:int    // allocated capacity
+
+// ---------------------------------------------------------------------------
+// Internal: whitespace and character helpers
+// ---------------------------------------------------------------------------
+
+fn _json_is_ws(c:int) -> int:
+  if c == 32 || c == 9 || c == 10 || c == 13:
+    ret 1
+  ret 0
+
+fn _json_skip_ws(s:str, i:int) -> int:
+  while s[i] != 0 as char:
+    if _json_is_ws(s[i] as int) == 0:
+      break
+    i = i + 1
+  ret i
+
+fn _json_is_digit(c:int) -> int:
+  if c >= 48 && c <= 57:
+    ret 1
+  ret 0
+
+// ---------------------------------------------------------------------------
+// Internal: heap allocation helpers
+// ---------------------------------------------------------------------------
+
+fn _json_alloc(n:int) -> *char:
+  if n <= 0:
+    n = 1
+  p:*char = (*char)malloc(n + 1)
+  if p == 0:
+    ret 0 as *char
+  p[n] = 0 as char
+  ret p
+
+fn _json_new_val() -> *JsonVal:
+  v:*JsonVal = (*JsonVal)malloc(sizeof(JsonVal))
+  if v == 0:
+    ret 0 as *JsonVal
+  (*v).kind     = JSON_NULL
+  (*v).bval     = 0
+  (*v).ival     = 0
+  (*v).fval     = 0.0
+  (*v).sval     = 0 as str
+  (*v).count    = 0
+  (*v).cap      = 0
+  (*v).children = 0 as *JsonVal
+  (*v).keys     = 0 as str
+  (*v).keys_len = 0
+  (*v).keys_cap = 0
+  ret v
+
+// ---------------------------------------------------------------------------
+// Internal: number parsing (inline, no atoi/atof needed externally)
+// ---------------------------------------------------------------------------
+
+fn _json_parse_int(s:str, start:int, end_i:int) -> int:
+  neg:int = 0
+  i:int = start
+  if s[i] as int == 45:
+    neg = 1
+    i = i + 1
+  result:int = 0
+  while i < end_i:
+    c:int = s[i] as int
+    if c < 48 || c > 57:
+      break
+    result = result * 10 + (c - 48)
+    i = i + 1
+  if neg != 0:
+    ret 0 - result
+  ret result
+
+fn _json_parse_float(s:str, start:int, end_i:int) -> float:
+  neg:int = 0
+  i:int = start
+  if s[i] as int == 45:
+    neg = 1
+    i = i + 1
+  whole:float = 0.0
+  while i < end_i:
+    c:int = s[i] as int
+    if c < 48 || c > 57:
+      break
+    whole = whole * 10.0 + (c - 48) as float
+    i = i + 1
+  if i < end_i && s[i] as int == 46:
+    i = i + 1
+    div:float = 10.0
+    while i < end_i:
+      c2:int = s[i] as int
+      if c2 < 48 || c2 > 57:
+        break
+      whole = whole + (c2 - 48) as float / div
+      div = div * 10.0
+      i = i + 1
+  // Scientific notation
+  if i < end_i && (s[i] as int == 101 || s[i] as int == 69):
+    i = i + 1
+    esign:int = 1
+    if i < end_i && s[i] as int == 45:
+      esign = 0 - 1
+      i = i + 1
+    else if i < end_i && s[i] as int == 43:
+      i = i + 1
+    exp:int = 0
+    while i < end_i:
+      c3:int = s[i] as int
+      if c3 < 48 || c3 > 57:
+        break
+      exp = exp * 10 + (c3 - 48)
+      i = i + 1
+    pow10:float = 1.0
+    j:int = 0
+    while j < exp:
+      pow10 = pow10 * 10.0
+      j = j + 1
+    if esign < 0:
+      whole = whole / pow10
+    else:
+      whole = whole * pow10
+  if neg != 0:
+    ret 0.0 - whole
+  ret whole
+
+// ---------------------------------------------------------------------------
+// Internal: parse a JSON string starting at s[i] (i points to '"')
+// Sets *end_out to position after closing '"'. Returns heap str or null.
+// ---------------------------------------------------------------------------
+
+fn _json_read_string(s:str, i:int, end_out:*int) -> str:
+  if s[i] as int != 34:   // '"'
+    (*end_out) = i
+    ret 0 as str
+  i = i + 1
+  // Count length first
+  cap:int = 64
+  buf:*char = _json_alloc(cap)
+  if buf == 0:
+    (*end_out) = i
+    ret 0 as str
+  used:int = 0
+  while s[i] != 0 as char:
+    c:int = s[i] as int
+    if c == 34:   // closing '"'
+      i = i + 1
+      break
+    if c == 92:   // backslash escape
+      i = i + 1
+      esc:int = s[i] as int
+      if esc == 110:
+        c = 10
+      else if esc == 116:
+        c = 9
+      else if esc == 114:
+        c = 13
+      else if esc == 92:
+        c = 92
+      else if esc == 34:
+        c = 34
+      else if esc == 47:
+        c = 47
+      else:
+        c = esc
+    // Grow buf if needed
+    if used >= cap - 1:
+      ncap:int = cap * 2
+      nbuf:*char = _json_alloc(ncap)
+      if nbuf == 0:
+        free(buf)
+        (*end_out) = i
+        ret 0 as str
+      runtime.memcpy(nbuf, buf, used)
+      free(buf)
+      buf = nbuf
+      cap = ncap
+    unsafe:
+      buf[used] = c as char
+    used = used + 1
+    i = i + 1
+  unsafe:
+    buf[used] = 0 as char
+  (*end_out) = i
+  ret buf as str
+
+// ---------------------------------------------------------------------------
+// Internal: parse number (returns end pos, sets kind/ival/fval via ptrs)
+// ---------------------------------------------------------------------------
+
+fn _json_parse_number(s:str, i:int, kind_out:*int, ival_out:*int, fval_out:*float) -> int:
+  start:int = i
+  is_float:int = 0
+  if s[i] as int == 45:
+    i = i + 1
+  while _json_is_digit(s[i] as int) != 0:
+    i = i + 1
+  if s[i] as int == 46:
+    is_float = 1
+    i = i + 1
+    while _json_is_digit(s[i] as int) != 0:
+      i = i + 1
+  if s[i] as int == 101 || s[i] as int == 69:
+    is_float = 1
+    i = i + 1
+    if s[i] as int == 43 || s[i] as int == 45:
+      i = i + 1
+    while _json_is_digit(s[i] as int) != 0:
+      i = i + 1
+  if is_float != 0:
+    (*kind_out) = JSON_FLOAT
+    (*fval_out) = _json_parse_float(s, start, i)
+  else:
+    (*kind_out) = JSON_INT
+    (*ival_out) = _json_parse_int(s, start, i)
+  ret i
+
+// ---------------------------------------------------------------------------
+// Internal: string equality check for n bytes starting at ks[ks_start]
+// ---------------------------------------------------------------------------
+
+fn _json_streqn(ks:str, ks_start:int, name:str, n:int) -> int:
+  i:int = 0
+  while i < n:
+    ca:int = ks[ks_start + i] as int
+    cb:int = name[i] as int
+    if ca != cb:
+      ret 0
+    i = i + 1
+  ret 1
+
+// ---------------------------------------------------------------------------
+// Internal: append key to object's key buffer
+// ---------------------------------------------------------------------------
+
+fn _json_append_key(v:*JsonVal, key:str) -> int:
+  kl:int = 0
+  if key != 0:
+    kl = len(key)
+  need:int = (*v).keys_len + kl + 2  // key + '\n' + null
+  kcap:int = (*v).keys_cap
+  if need > kcap:
+    ncap:int = kcap * 2
+    if ncap < need:
+      ncap = need + 64
+    nkeys:*char = _json_alloc(ncap)
+    if nkeys == 0:
+      ret 0 - 1
+    if (*v).keys != 0 && (*v).keys_len > 0:
+      runtime.memcpy(nkeys, (*v).keys as *char, (*v).keys_len)
+    if (*v).keys != 0:
+      free((*v).keys as *char)
+    (*v).keys     = nkeys as str
+    (*v).keys_cap = ncap
+  ks:*char = (*v).keys as *char
+  pos:int = (*v).keys_len
+  i:int = 0
+  while i < kl:
+    unsafe:
+      ks[pos] = key[i]
+    pos = pos + 1
+    i = i + 1
+  unsafe:
+    ks[pos] = 10 as char  // '\n'
+  pos = pos + 1
+  unsafe:
+    ks[pos] = 0 as char
+  (*v).keys_len = pos
+  ret 0
+
+// ---------------------------------------------------------------------------
+// Internal: grow children array
+// ---------------------------------------------------------------------------
+
+fn _json_grow_children(v:*JsonVal) -> int:
+  cap:int = (*v).cap
+  ncap:int = cap * 2
+  if ncap < 4:
+    ncap = 4
+  nch:*JsonVal = (*JsonVal)malloc(ncap * sizeof(JsonVal))
+  if nch == 0:
+    ret 0 - 1
+  old:*JsonVal = (*v).children
+  cnt:int = (*v).count
+  if old != 0 && cnt > 0:
+    i:int = 0
+    while i < cnt:
+      src:*JsonVal = old + i
+      dst:*JsonVal = nch + i
+      (*dst).kind     = (*src).kind
+      (*dst).bval     = (*src).bval
+      (*dst).ival     = (*src).ival
+      (*dst).fval     = (*src).fval
+      (*dst).sval     = (*src).sval
+      (*dst).count    = (*src).count
+      (*dst).cap      = (*src).cap
+      (*dst).children = (*src).children
+      (*dst).keys     = (*src).keys
+      (*dst).keys_len = (*src).keys_len
+      (*dst).keys_cap = (*src).keys_cap
+      i = i + 1
+  if old != 0:
+    free(old)
+  (*v).children = nch
+  (*v).cap      = ncap
+  ret 0
+
+// ---------------------------------------------------------------------------
+// Internal: init a JsonVal slot to zero/null
+// ---------------------------------------------------------------------------
+
+fn _json_init_slot(v:*JsonVal) -> int:
+  (*v).kind     = JSON_NULL
+  (*v).bval     = 0
+  (*v).ival     = 0
+  (*v).fval     = 0.0
+  (*v).sval     = 0 as str
+  (*v).count    = 0
+  (*v).cap      = 0
+  (*v).children = 0 as *JsonVal
+  (*v).keys     = 0 as str
+  (*v).keys_len = 0
+  (*v).keys_cap = 0
+  ret 0
+
+// ---------------------------------------------------------------------------
+// Parse entry point
+// ---------------------------------------------------------------------------
+
+// Stack frame for the iterative parser
+struct _JsonFrame:
+  parent:*JsonVal
+  key:str
+  is_object:int
+
+let _JSON_STACK_MAX:int = 256
+
+fn json_parse(s:str) -> *JsonVal:
+  if s == 0:
+    ret 0 as *JsonVal
+
+  json_reset_error()
+
+  i:int = _json_skip_ws(s, 0)
+  if s[i] == 0 as char:
+    _json_set_err(0)
+    ret 0 as *JsonVal
+
+  // Allocate result root
+  root:*JsonVal = _json_new_val()
+  if root == 0:
+    _json_set_err(0)
+    ret 0 as *JsonVal
+
+  // Handle scalar root (not array/object)
+  c0:int = s[i] as int
+  if c0 != 91 && c0 != 123:
+    kind_v:int = 0
+    ival_v:int = 0
+    fval_v:float = 0.0
+    if c0 == 34:   // string
+      pos_h:int = 0
+      sv:str = _json_read_string(s, i, &pos_h)
+      (*root).kind = JSON_STRING
+      (*root).sval = sv
+    else if c0 == 116:   // true
+      (*root).kind = JSON_BOOL
+      (*root).bval = 1
+    else if c0 == 102:   // false
+      (*root).kind = JSON_BOOL
+      (*root).bval = 0
+    else if c0 == 110:   // null
+      (*root).kind = JSON_NULL
+    else if c0 == 45 || _json_is_digit(c0) != 0:   // number
+      _json_parse_number(s, i, &kind_v, &ival_v, &fval_v)
+      (*root).kind = kind_v
+      (*root).ival = ival_v
+      (*root).fval = fval_v
+    ret root
+
+  // Allocate parser stack
+  stack:*_JsonFrame = (*_JsonFrame)malloc(_JSON_STACK_MAX * sizeof(_JsonFrame))
+  if stack == 0:
+    _json_set_err(0)
+    free(root)
+    ret 0 as *JsonVal
+  // init stack frames
+  si:int = 0
+  while si < _JSON_STACK_MAX:
+    f:*_JsonFrame = stack + si
+    (*f).parent    = 0 as *JsonVal
+    (*f).key       = 0 as str
+    (*f).is_object = 0
+    si = si + 1
+
+  // Push root
+  stack_depth:int = 0
+  fr:*_JsonFrame = stack + 0
+  (*fr).parent    = root
+  (*fr).is_object = (c0 == 123)
+  if c0 == 123:
+    (*root).kind = JSON_OBJECT
+    // allocate key buffer
+    kbuf:*char = _json_alloc(128)
+    if kbuf != 0:
+      (*root).keys     = kbuf as str
+      (*root).keys_cap = 128
+  else:
+    (*root).kind = JSON_ARRAY
+  stack_depth = 1
+  i = i + 1  // skip '[' or '{'
+
+  // Main parse loop
+  while stack_depth > 0:
+    i = _json_skip_ws(s, i)
+    if s[i] == 0 as char:
+      break
+
+    cur_frame:*_JsonFrame = stack + (stack_depth - 1)
+    cur:*JsonVal = (*cur_frame).parent
+    is_obj:int = (*cur_frame).is_object
+
+    ch:int = s[i] as int
+
+    if ch == 93 || ch == 125:   // ']' or '}'
+      stack_depth = stack_depth - 1
+      i = i + 1
+      // skip comma
+      i = _json_skip_ws(s, i)
+      if s[i] as int == 44:
+        i = i + 1
+      continue
+
+    // Object: read key first
+    pending_key:str = 0 as str
+    if is_obj != 0 && ch == 34:
+      pos_k:int = 0
+      pending_key = _json_read_string(s, i, &pos_k)
+      i = pos_k
+      i = _json_skip_ws(s, i)
+      if s[i] as int == 58:   // ':'
+        i = i + 1
+      i = _json_skip_ws(s, i)
+      ch = s[i] as int
+
+    // Grow parent's children if needed
+    cnt:int = (*cur).count
+    cap:int = (*cur).cap
+    if cnt >= cap:
+      if _json_grow_children(cur) != 0:
+        break
+    child:*JsonVal = (*cur).children + (*cur).count
+    _json_init_slot(child)
+    (*cur).count = (*cur).count + 1
+
+    // Append key to object's key list
+    if is_obj != 0:
+      _json_append_key(cur, pending_key)
+      if pending_key != 0:
+        free(pending_key as *char)
+        pending_key = 0 as str
+
+    // Parse value
+    if ch == 123:   // '{'
+      (*child).kind = JSON_OBJECT
+      kbuf2:*char = _json_alloc(128)
+      if kbuf2 != 0:
+        (*child).keys     = kbuf2 as str
+        (*child).keys_cap = 128
+      if stack_depth < _JSON_STACK_MAX:
+        nf:*_JsonFrame = stack + stack_depth
+        (*nf).parent    = child
+        (*nf).is_object = 1
+        (*nf).key       = 0 as str
+        stack_depth = stack_depth + 1
+      i = i + 1
+      continue
+
+    else if ch == 91:   // '['
+      (*child).kind = JSON_ARRAY
+      if stack_depth < _JSON_STACK_MAX:
+        nf2:*_JsonFrame = stack + stack_depth
+        (*nf2).parent    = child
+        (*nf2).is_object = 0
+        (*nf2).key       = 0 as str
+        stack_depth = stack_depth + 1
+      i = i + 1
+      continue
+
+    else if ch == 34:   // '"'
+      pos_s:int = 0
+      sv2:str = _json_read_string(s, i, &pos_s)
+      (*child).kind = JSON_STRING
+      (*child).sval = sv2
+      i = pos_s
+
+    else if ch == 116:   // 't' → true
+      (*child).kind = JSON_BOOL
+      (*child).bval = 1
+      i = i + 4
+
+    else if ch == 102:   // 'f' → false
+      (*child).kind = JSON_BOOL
+      (*child).bval = 0
+      i = i + 5
+
+    else if ch == 110:   // 'n' → null
+      (*child).kind = JSON_NULL
+      i = i + 4
+
+    else if ch == 45 || _json_is_digit(ch) != 0:
+      k2:int = 0
+      iv2:int = 0
+      fv2:float = 0.0
+      i = _json_parse_number(s, i, &k2, &iv2, &fv2)
+      (*child).kind = k2
+      (*child).ival = iv2
+      (*child).fval = fv2
+
+    else:
+      _json_set_err(i)
+      break
+
+    // skip optional comma
+    i = _json_skip_ws(s, i)
+    if s[i] as int == 44:
+      i = i + 1
+
+  free(stack)
+  ret root
+
+// ---------------------------------------------------------------------------
+// Accessors
+// ---------------------------------------------------------------------------
+
+fn json_kind(v:*JsonVal) -> int:
+  if v == 0:
+    ret JSON_NULL
+  ret (*v).kind
+
+fn json_is_null(v:*JsonVal) -> int:
+  if v == 0:
+    ret 1
+  ret (*v).kind == JSON_NULL
+
+fn json_bool(v:*JsonVal) -> int:
+  if v == 0:
+    ret 0
+  ret (*v).bval
+
+fn json_int(v:*JsonVal) -> int:
+  if v == 0:
+    ret 0
+  if (*v).kind == JSON_FLOAT:
+    ret (*v).fval as int
+  ret (*v).ival
+
+fn json_float(v:*JsonVal) -> float:
+  if v == 0:
+    ret 0.0
+  if (*v).kind == JSON_INT:
+    ret (*v).ival as float
+  ret (*v).fval
+
+fn json_str(v:*JsonVal) -> str:
+  if v == 0:
+    ret 0 as str
+  ret (*v).sval
+
+fn json_len(v:*JsonVal) -> int:
+  if v == 0:
+    ret 0
+  ret (*v).count
+
+fn json_at(v:*JsonVal, idx:int) -> *JsonVal:
+  if v == 0:
+    ret 0 as *JsonVal
+  if idx < 0 || idx >= (*v).count:
+    ret 0 as *JsonVal
+  ret (*v).children + idx
+
+fn json_get(v:*JsonVal, name:str) -> *JsonVal:
+  if v == 0 || name == 0:
+    ret 0 as *JsonVal
+  cnt:int = (*v).count
+  ks:str = (*v).keys
+  if ks == 0:
+    ret 0 as *JsonVal
+  nlen:int = len(name)
+  ki:int = 0
+  pos:int = 0
+  while ki < cnt:
+    start:int = pos
+    while ks[pos] != 0 as char && ks[pos] as int != 10:
+      pos = pos + 1
+    klen:int = pos - start
+    if ks[pos] as int == 10:
+      pos = pos + 1
+    if klen == nlen:
+      if _json_streqn(ks, start, name, nlen) != 0:
+        ret (*v).children + ki
+    ki = ki + 1
+  ret 0 as *JsonVal
+
+// ---------------------------------------------------------------------------
+// Serializer
+// ---------------------------------------------------------------------------
+
+// Internal: write integer to a dynamic buffer
+fn _json_ser_int(n:int, buf:*char, pos:int, cap:*int) -> int:
+  neg:int = 0
+  v:int = n
+  if v < 0:
+    neg = 1
+    v = 0 - v
+  digits:[char;24]
+  di:int = 0
+  if v == 0:
+    digits[0] = 48 as char
+    di = 1
+  else:
+    while v > 0:
+      digits[di] = (48 + v % 10) as char
+      di = di + 1
+      v = v / 10
+  total:int = di
+  if neg != 0:
+    total = total + 1
+  if neg != 0:
+    unsafe: buf[pos] = 45 as char
+    pos = pos + 1
+  j:int = di - 1
+  while j >= 0:
+    unsafe: buf[pos] = digits[j]
+    pos = pos + 1
+    j = j - 1
+  ret pos
+
+// Internal: write float to a dynamic buffer (6 decimal places)
+fn _json_ser_float(f:float, buf:*char, pos:int) -> int:
+  neg:int = 0
+  v:float = f
+  if v < 0.0:
+    neg = 1
+    v = 0.0 - v
+  whole:int = v as int
+  frac:float = v - (whole as float)
+  frac6:int  = (frac * 1000000.0) as int
+  dummy_cap:int = 0
+  if neg != 0:
+    unsafe: buf[pos] = 45 as char
+    pos = pos + 1
+  pos = _json_ser_int(whole, buf, pos, &dummy_cap)
+  unsafe: buf[pos] = 46 as char   // '.'
+  pos = pos + 1
+  // 6 frac digits
+  frac_digits:[char;8]
+  fi:int = 0
+  fv:int = frac6
+  if fv == 0:
+    i2:int = 0
+    while i2 < 6:
+      frac_digits[i2] = 48 as char
+      i2 = i2 + 1
+    fi = 6
+  else:
+    while fv > 0:
+      frac_digits[fi] = (48 + fv % 10) as char
+      fi = fi + 1
+      fv = fv / 10
+    while fi < 6:
+      frac_digits[fi] = 48 as char
+      fi = fi + 1
+    // reverse
+    lf:int = 0
+    rf:int = fi - 1
+    while lf < rf:
+      tmp:char = frac_digits[lf]
+      frac_digits[lf] = frac_digits[rf]
+      frac_digits[rf] = tmp
+      lf = lf + 1
+      rf = rf - 1
+  // trim trailing zeros
+  end:int = fi
+  while end > 1 && frac_digits[end - 1] as int == 48:
+    end = end - 1
+  i3:int = 0
+  while i3 < end:
+    unsafe: buf[pos] = frac_digits[i3]
+    pos = pos + 1
+    i3 = i3 + 1
+  ret pos
+
+// Forward decl not possible — stringify uses a depth-limited inline recursion
+// via an explicit stack (iterative approach matches the parser).
+
+struct _JsonSer:
+  buf:*char
+  pos:int
+  cap:int
+
+fn _ser_grow(ser:*_JsonSer, need:int) -> int:
+  if (*ser).pos + need < (*ser).cap:
+    ret 0
+  ncap:int = (*ser).cap * 2
+  if ncap < (*ser).pos + need + 64:
+    ncap = (*ser).pos + need + 256
+  nb:*char = (*char)malloc(ncap)
+  if nb == 0:
+    ret 0 - 1
+  runtime.memcpy(nb, (*ser).buf, (*ser).pos)
+  free((*ser).buf)
+  (*ser).buf = nb
+  (*ser).cap = ncap
+  ret 0
+
+fn _ser_char(ser:*_JsonSer, c:char) -> int:
+  if _ser_grow(ser, 2) != 0:
+    ret 0 - 1
+  unsafe: (*ser).buf[(*ser).pos] = c
+  (*ser).pos = (*ser).pos + 1
+  ret 0
+
+fn _ser_str(ser:*_JsonSer, s:str) -> int:
+  if s == 0:
+    ret 0
+  sl:int = len(s)
+  if _ser_grow(ser, sl + 2) != 0:
+    ret 0 - 1
+  i:int = 0
+  while i < sl:
+    unsafe: (*ser).buf[(*ser).pos] = s[i]
+    (*ser).pos = (*ser).pos + 1
+    i = i + 1
+  ret 0
+
+fn _ser_quoted_str(ser:*_JsonSer, s:str) -> int:
+  _ser_char(ser, 34 as char)   // '"'
+  if s != 0:
+    sl:int = len(s)
+    i:int = 0
+    while i < sl:
+      c:int = s[i] as int
+      if c == 34:
+        _ser_char(ser, 92 as char)
+        _ser_char(ser, 34 as char)
+      else if c == 92:
+        _ser_char(ser, 92 as char)
+        _ser_char(ser, 92 as char)
+      else if c == 10:
+        _ser_char(ser, 92 as char)
+        _ser_char(ser, 110 as char)
+      else if c == 9:
+        _ser_char(ser, 92 as char)
+        _ser_char(ser, 116 as char)
+      else if c == 13:
+        _ser_char(ser, 92 as char)
+        _ser_char(ser, 114 as char)
+      else:
+        _ser_char(ser, c as char)
+      i = i + 1
+  _ser_char(ser, 34 as char)   // '"'
+  ret 0
+
+// Iterative serializer using an explicit stack
+struct _SerFrame:
+  val:*JsonVal
+  idx:int        // current child index
+  key_pos:int    // position in the key string
+  emitted_open:int
+
+let _SER_STACK_MAX:int = 128
+
+fn json_stringify(root:*JsonVal) -> str:
+  if root == 0:
+    ret "null"
+  ser:*_JsonSer = (*_JsonSer)malloc(sizeof(_JsonSer))
+  if ser == 0:
+    ret 0 as str
+  init_buf:*char = (*char)malloc(512)
+  if init_buf == 0:
+    free(ser)
+    ret 0 as str
+  (*ser).buf = init_buf
+  (*ser).pos = 0
+  (*ser).cap = 512
+
+  stk:*_SerFrame = (*_SerFrame)malloc(_SER_STACK_MAX * sizeof(_SerFrame))
+  if stk == 0:
+    free((*ser).buf)
+    free(ser)
+    ret 0 as str
+  // init stack
+  si:int = 0
+  while si < _SER_STACK_MAX:
+    f:*_SerFrame = stk + si
+    (*f).val          = 0 as *JsonVal
+    (*f).idx          = 0
+    (*f).key_pos      = 0
+    (*f).emitted_open = 0
+    si = si + 1
+
+  depth:int = 0
+  // push root
+  sf:*_SerFrame = stk + 0
+  (*sf).val = root
+  (*sf).idx = 0
+  (*sf).key_pos = 0
+  (*sf).emitted_open = 0
+  depth = 1
+
+  while depth > 0:
+    top:*_SerFrame = stk + (depth - 1)
+    v:*JsonVal = (*top).val
+    kind:int = (*v).kind
+
+    if kind == JSON_ARRAY || kind == JSON_OBJECT:
+      if (*top).emitted_open == 0:
+        (*top).emitted_open = 1
+        if kind == JSON_ARRAY:
+          _ser_char(ser, 91 as char)   // '['
+        else:
+          _ser_char(ser, 123 as char)  // '{'
+      idx:int = (*top).idx
+      cnt:int = (*v).count
+      if idx >= cnt:
+        // Close
+        if kind == JSON_ARRAY:
+          _ser_char(ser, 93 as char)   // ']'
+        else:
+          _ser_char(ser, 125 as char)  // '}'
+        depth = depth - 1
+        // comma after this value if parent needs it
+        if depth > 0:
+          parent_frame:*_SerFrame = stk + (depth - 1)
+          pv:*JsonVal = (*parent_frame).val
+          pidx:int = (*parent_frame).idx
+          if pidx < (*pv).count:
+            _ser_char(ser, 44 as char)  // ','
+        continue
+      // Emit comma before element (except first)
+      if idx > 0:
+        _ser_char(ser, 44 as char)
+      // For objects: emit key
+      if kind == JSON_OBJECT:
+        ks:str = (*v).keys
+        kp:int = (*top).key_pos
+        key_start:int = kp
+        while ks[kp] != 0 as char && ks[kp] as int != 10:
+          kp = kp + 1
+        // emit key
+        key_len:int = kp - key_start
+        _ser_char(ser, 34 as char)
+        j:int = 0
+        while j < key_len:
+          kc:int = ks[key_start + j] as int
+          if kc == 34:
+            _ser_char(ser, 92 as char)
+            _ser_char(ser, 34 as char)
+          else:
+            _ser_char(ser, kc as char)
+          j = j + 1
+        _ser_char(ser, 34 as char)
+        _ser_char(ser, 58 as char)   // ':'
+        (*top).key_pos = kp + 1
+      // Push child
+      child:*JsonVal = (*v).children + idx
+      (*top).idx = idx + 1
+      child_kind:int = (*child).kind
+      if child_kind == JSON_ARRAY || child_kind == JSON_OBJECT:
+        if depth < _SER_STACK_MAX:
+          nf:*_SerFrame = stk + depth
+          (*nf).val          = child
+          (*nf).idx          = 0
+          (*nf).key_pos      = 0
+          (*nf).emitted_open = 0
+          depth = depth + 1
+        continue
+      // Scalar child
+      if child_kind == JSON_NULL:
+        _ser_str(ser, "null")
+      else if child_kind == JSON_BOOL:
+        if (*child).bval != 0:
+          _ser_str(ser, "true")
+        else:
+          _ser_str(ser, "false")
+      else if child_kind == JSON_INT:
+        dummy:int = 0
+        (*ser).pos = _json_ser_int((*child).ival, (*ser).buf, (*ser).pos, &dummy)
+      else if child_kind == JSON_FLOAT:
+        (*ser).pos = _json_ser_float((*child).fval, (*ser).buf, (*ser).pos)
+      else if child_kind == JSON_STRING:
+        _ser_quoted_str(ser, (*child).sval)
+
+    else:
+      // Scalar root
+      if kind == JSON_NULL:
+        _ser_str(ser, "null")
+      else if kind == JSON_BOOL:
+        if (*v).bval != 0:
+          _ser_str(ser, "true")
+        else:
+          _ser_str(ser, "false")
+      else if kind == JSON_INT:
+        dummy2:int = 0
+        (*ser).pos = _json_ser_int((*v).ival, (*ser).buf, (*ser).pos, &dummy2)
+      else if kind == JSON_FLOAT:
+        (*ser).pos = _json_ser_float((*v).fval, (*ser).buf, (*ser).pos)
+      else if kind == JSON_STRING:
+        _ser_quoted_str(ser, (*v).sval)
+      depth = depth - 1
+
+  // null-terminate
+  _ser_grow(ser, 2)
+  unsafe: (*ser).buf[(*ser).pos] = 0 as char
+
+  result:str = (*ser).buf as str
+  free(stk)
+  free(ser)
+  ret result
+
+// ---------------------------------------------------------------------------
+// Builder API — construct JSON programmatically
+// ---------------------------------------------------------------------------
+
+fn json_null_val() -> *JsonVal:
+  v:*JsonVal = _json_new_val()
+  if v == 0:
+    ret 0 as *JsonVal
+  (*v).kind = JSON_NULL
+  ret v
+
+fn json_bool_val(b:int) -> *JsonVal:
+  v:*JsonVal = _json_new_val()
+  if v == 0:
+    ret 0 as *JsonVal
+  (*v).kind = JSON_BOOL
+  (*v).bval = b != 0
+  ret v
+
+fn json_int_val(n:int) -> *JsonVal:
+  v:*JsonVal = _json_new_val()
+  if v == 0:
+    ret 0 as *JsonVal
+  (*v).kind = JSON_INT
+  (*v).ival = n
+  ret v
+
+fn json_float_val(f:float) -> *JsonVal:
+  v:*JsonVal = _json_new_val()
+  if v == 0:
+    ret 0 as *JsonVal
+  (*v).kind = JSON_FLOAT
+  (*v).fval = f
+  ret v
+
+fn json_str_val(s:str) -> *JsonVal:
+  v:*JsonVal = _json_new_val()
+  if v == 0:
+    ret 0 as *JsonVal
+  (*v).kind = JSON_STRING
+  if s != 0:
+    (*v).sval = runtime.rt_strdup(s) as str
+  ret v
+
+fn json_array() -> *JsonVal:
+  v:*JsonVal = _json_new_val()
+  if v == 0:
+    ret 0 as *JsonVal
+  (*v).kind = JSON_ARRAY
+  ret v
+
+fn json_object() -> *JsonVal:
+  v:*JsonVal = _json_new_val()
+  if v == 0:
+    ret 0 as *JsonVal
+  (*v).kind = JSON_OBJECT
+  kbuf:*char = _json_alloc(64)
+  if kbuf != 0:
+    (*v).keys     = kbuf as str
+    (*v).keys_cap = 64
+  ret v
+
+fn json_array_push(arr:*JsonVal, child:*JsonVal) -> int:
+  if arr == 0 || child == 0:
+    ret 0 - 1
+  cnt:int = (*arr).count
+  cap:int = (*arr).cap
+  if cnt >= cap:
+    if _json_grow_children(arr) != 0:
+      ret 0 - 1
+  dst:*JsonVal = (*arr).children + cnt
+  (*dst).kind     = (*child).kind
+  (*dst).bval     = (*child).bval
+  (*dst).ival     = (*child).ival
+  (*dst).fval     = (*child).fval
+  (*dst).sval     = (*child).sval
+  (*dst).count    = (*child).count
+  (*dst).cap      = (*child).cap
+  (*dst).children = (*child).children
+  (*dst).keys     = (*child).keys
+  (*dst).keys_len = (*child).keys_len
+  (*dst).keys_cap = (*child).keys_cap
+  (*arr).count = cnt + 1
+  // Child is absorbed — zero out original to prevent double-free
+  (*child).sval     = 0 as str
+  (*child).children = 0 as *JsonVal
+  (*child).keys     = 0 as str
+  free(child)
+  ret 0
+
+fn json_object_set(obj:*JsonVal, key:str, child:*JsonVal) -> int:
+  if obj == 0 || key == 0 || child == 0:
+    ret 0 - 1
+  cnt:int = (*obj).count
+  cap:int = (*obj).cap
+  if cnt >= cap:
+    if _json_grow_children(obj) != 0:
+      ret 0 - 1
+  dst:*JsonVal = (*obj).children + cnt
+  (*dst).kind     = (*child).kind
+  (*dst).bval     = (*child).bval
+  (*dst).ival     = (*child).ival
+  (*dst).fval     = (*child).fval
+  (*dst).sval     = (*child).sval
+  (*dst).count    = (*child).count
+  (*dst).cap      = (*child).cap
+  (*dst).children = (*child).children
+  (*dst).keys     = (*child).keys
+  (*dst).keys_len = (*child).keys_len
+  (*dst).keys_cap = (*child).keys_cap
+  (*obj).count = cnt + 1
+  _json_append_key(obj, key)
+  // Child absorbed — zero out
+  (*child).sval     = 0 as str
+  (*child).children = 0 as *JsonVal
+  (*child).keys     = 0 as str
+  free(child)
+  ret 0
+
+// ---------------------------------------------------------------------------
+// Free — depth-bounded recursive tree walk
+// ---------------------------------------------------------------------------
+
+// Internal: free all string/key fields and children of v at given depth.
+// Children are stored as flat arrays — we free each slot's string fields,
+// then free the array block itself, then free v.
+fn _json_free_node(v:*JsonVal, depth:int) -> int:
+  if v == 0:
+    ret 0
+  cnt:int = (*v).count
+  ch:*JsonVal = (*v).children
+  if ch != 0 && cnt > 0 && depth > 0:
+    i:int = 0
+    while i < cnt:
+      slot:*JsonVal = ch + i
+      // Recurse into slot (slot itself is part of the array; don't free slot)
+      _json_free_node_fields(slot, depth - 1)
+      i = i + 1
+  if (*v).sval != 0:
+    free((*v).sval as *char)
+    (*v).sval = 0 as str
+  if (*v).keys != 0:
+    free((*v).keys as *char)
+    (*v).keys = 0 as str
+  if (*v).children != 0:
+    free((*v).children)
+    (*v).children = 0 as *JsonVal
+  ret 0
+
+// Internal: free string fields of a slot (not the slot itself — it's embedded)
+fn _json_free_node_fields(v:*JsonVal, depth:int) -> int:
+  if v == 0:
+    ret 0
+  cnt:int = (*v).count
+  ch:*JsonVal = (*v).children
+  if ch != 0 && cnt > 0 && depth > 0:
+    i:int = 0
+    while i < cnt:
+      slot:*JsonVal = ch + i
+      _json_free_node_fields(slot, depth - 1)
+      i = i + 1
+  if (*v).sval != 0:
+    free((*v).sval as *char)
+    (*v).sval = 0 as str
+  if (*v).keys != 0:
+    free((*v).keys as *char)
+    (*v).keys = 0 as str
+  if (*v).children != 0:
+    free((*v).children)
+    (*v).children = 0 as *JsonVal
+  ret 0
+
+fn json_free(v:*JsonVal) -> int:
+  if v == 0:
+    ret 0
+  _json_free_node_fields(v, 64)
+  free(v)
+  ret 0
+
+// ---------------------------------------------------------------------------
+// API aliases — backward compatibility with examples
+// ---------------------------------------------------------------------------
+
+fn json_object_find(v:*JsonVal, name:str) -> *JsonVal:
+  ret json_get(v, name)
+
+fn json_array_len(v:*JsonVal) -> int:
+  ret json_len(v)
+
+fn json_array_get(v:*JsonVal, idx:int) -> *JsonVal:
+  ret json_at(v, idx)
+
+fn json_get_string(v:*JsonVal) -> str:
+  ret json_str(v)
+
+fn json_get_int(v:*JsonVal) -> int:
+  ret json_int(v)
+
+fn json_get_float(v:*JsonVal) -> float:
+  ret json_float(v)
+
+fn json_get_bool(v:*JsonVal) -> int:
+  ret json_bool(v)
+
+// json_string — create a JSON_STRING node from a literal
+fn json_string(s:str) -> *JsonVal:
+  ret json_str_val(s)
+
+// json_number — create a JSON_INT node from an integer
+fn json_number(n:int) -> *JsonVal:
+  ret json_int_val(n)
+
+// json_bool_node — create a JSON_BOOL node
+fn json_bool_node(b:int) -> *JsonVal:
+  ret json_bool_val(b)

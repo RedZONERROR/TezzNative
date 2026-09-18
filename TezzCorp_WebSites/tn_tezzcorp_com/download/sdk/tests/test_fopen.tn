@@ -1,0 +1,9 @@
+import "std"
+
+fn main() -> int:
+  unsafe:
+    h:*char = fopen("build/test_basic.db", "w+b")
+    say "h as int = ", h as int
+    if h != 0 as *char:
+      fclose(h)
+  ret 0

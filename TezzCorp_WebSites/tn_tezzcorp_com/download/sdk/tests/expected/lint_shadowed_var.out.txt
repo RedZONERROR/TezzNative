@@ -1,0 +1,4 @@
+tests/lint_shadowed_var.tn:4:5: tezzc warning: lint[shadowed-var]: shadowing 'value'
+      value:int = 0
+      ^
+WARN: tests/lint_shadowed_var.tn (1 warnings)

@@ -1,0 +1,234 @@
+// grad module — TezzNative Gradient Tape
+//
+// Gradient accumulator and management for on-device fine-tuning.
+// Designed to work with nn.tn's slab-based NeuralNet.
+//
+// A GradTape is a flat float64 slab that shadows the parameter slab
+// of a NeuralNet. It accumulates gradients across mini-batches and
+// supports zeroing, scaling, and norm computation.
+//
+// Usage:
+//   // Shadow a neural net's parameter space
+//   tape:*float = grad.tape_new(n_params)
+//   grad.zero(tape, n_params)
+//   // ... forward and backward pass accumulate grads ...
+//   grad.scale(tape, n_params, 1.0 / batch_size)  // average
+//   optim.adam_step(params, tape, m1, m2, n_params, lr, step, ...)
+//   grad.zero(tape, n_params)                      // clear for next batch
+
+import "math"
+import "optim"
+
+// ─────────────────────────────────────────────
+// Internal helpers
+// ─────────────────────────────────────────────
+
+fn _gf(p:*float, i:int) -> float:
+  v:float = 0.0
+  unsafe:
+    v = p[i]
+  ret v
+
+fn _gw(p:*float, i:int, v:float) -> int:
+  unsafe:
+    p[i] = v
+  ret 0
+
+// ─────────────────────────────────────────────
+// Gradient Tape Lifecycle
+// ─────────────────────────────────────────────
+
+// Allocate a gradient tape for n parameters (initialized to zero).
+fn tape_new(n:int) -> *float:
+  ret optim.alloc_state(n)
+
+// Free a gradient tape.
+fn tape_free(tape:*float) -> int:
+  ret optim.free_state(tape)
+
+// Zero all gradient entries.
+fn zero(tape:*float, n:int) -> int:
+  ret optim.zero_state(tape, n)
+
+// ─────────────────────────────────────────────
+// Gradient Accumulation
+// ─────────────────────────────────────────────
+
+// Add delta gradient to existing accumulated gradient (tape += grad).
+fn accumulate(tape:*float, grad_in:*float, n:int) -> int:
+  if tape == 0 as *float || grad_in == 0 as *float || n <= 0:
+    ret 0 - 1
+  i:int = 0
+  while i < n:
+    _gw(tape, i, _gf(tape, i) + _gf(grad_in, i))
+    i = i + 1
+  ret 0
+
+// Accumulate and scale simultaneously (tape += scale * grad_in).
+fn accumulate_scaled(tape:*float, grad_in:*float, n:int, scale:float) -> int:
+  if tape == 0 as *float || grad_in == 0 as *float || n <= 0:
+    ret 0 - 1
+  i:int = 0
+  while i < n:
+    _gw(tape, i, _gf(tape, i) + scale * _gf(grad_in, i))
+    i = i + 1
+  ret 0
+
+// ─────────────────────────────────────────────
+// Gradient Scaling
+// ─────────────────────────────────────────────
+
+// Scale all gradient entries by a scalar (used for batch averaging).
+fn scale(tape:*float, n:int, s:float) -> int:
+  if tape == 0 as *float || n <= 0:
+    ret 0 - 1
+  i:int = 0
+  while i < n:
+    _gw(tape, i, _gf(tape, i) * s)
+    i = i + 1
+  ret 0
+
+// ─────────────────────────────────────────────
+// Gradient Clipping (delegates to optim)
+// ─────────────────────────────────────────────
+
+// Clip by global L2 norm — returns the pre-clip norm.
+fn clip_norm(tape:*float, n:int, max_norm:float) -> float:
+  ret optim.grad_clip_norm(tape, n, max_norm)
+
+// Clip element-wise to [-val, val].
+fn clip_value(tape:*float, n:int, val:float) -> int:
+  ret optim.grad_clip_value(tape, n, val)
+
+// ─────────────────────────────────────────────
+// Gradient Statistics
+// ─────────────────────────────────────────────
+
+// Compute L2 norm of gradient tape.
+fn norm(tape:*float, n:int) -> float:
+  ret optim.grad_norm(tape, n)
+
+// Compute mean absolute gradient value.
+fn mean_abs(tape:*float, n:int) -> float:
+  if tape == 0 as *float || n <= 0:
+    ret 0.0
+  total:float = 0.0
+  i:int = 0
+  while i < n:
+    v:float = _gf(tape, i)
+    if v < 0.0:
+      v = 0.0 - v
+    total = total + v
+    i = i + 1
+  ret total / (n as float)
+
+// Compute max absolute gradient value.
+fn max_abs(tape:*float, n:int) -> float:
+  if tape == 0 as *float || n <= 0:
+    ret 0.0
+  mx:float = 0.0
+  i:int = 0
+  while i < n:
+    v:float = _gf(tape, i)
+    if v < 0.0:
+      v = 0.0 - v
+    if v > mx:
+      mx = v
+    i = i + 1
+  ret mx
+
+// Returns 1 if any gradient is NaN or Inf (gradient explosion check).
+fn has_nan_inf(tape:*float, n:int) -> int:
+  if tape == 0 as *float || n <= 0:
+    ret 0
+  i:int = 0
+  while i < n:
+    v:float = _gf(tape, i)
+    // NaN check: v != v
+    if v != v:
+      ret 1
+    // Inf check: extremely large value
+    if v > 1.0e+30 || v < 0.0 - 1.0e+30:
+      ret 1
+    i = i + 1
+  ret 0
+
+// Print gradient stats summary.
+fn print_stats(tape:*float, n:int) -> int:
+  if tape == 0 as *float || n <= 0:
+    ret 0 - 1
+  gn:float = norm(tape, n)
+  ma:float = mean_abs(tape, n)
+  mx:float = max_abs(tape, n)
+  nan:int = has_nan_inf(tape, n)
+  say "[GradTape] n=", n, " norm=", gn, " mean_abs=", ma, " max_abs=", mx, " has_nan=", nan
+  ret 0
+
+// ─────────────────────────────────────────────
+// Mixed-Precision Gradient Scaling (Loss Scaling)
+// ─────────────────────────────────────────────
+// Used to prevent gradient underflow in FP16 training.
+// Scale the loss (and therefore gradients) by a large factor,
+// then unscale before the optimizer step.
+
+struct GradScaler:
+  scale:float
+  growth_factor:float
+  backoff_factor:float
+  growth_interval:int
+  steps_since_inf:int
+
+fn scaler_new(init_scale:float) -> GradScaler:
+  s:GradScaler
+  s.scale = init_scale
+  s.growth_factor = 2.0
+  s.backoff_factor = 0.5
+  s.growth_interval = 2000
+  s.steps_since_inf = 0
+  ret s
+
+fn scaler_unscale(scaler:*GradScaler, tape:*float, n:int) -> int:
+  if scaler == 0 || tape == 0 as *float || n <= 0:
+    ret 0 - 1
+  inv_scale:float = 1.0 / (*scaler).scale
+  ret scale(tape, n, inv_scale)
+
+fn scaler_update(scaler:*GradScaler, tape:*float, n:int) -> int:
+  if scaler == 0 || tape == 0 as *float:
+    ret 0 - 1
+  if has_nan_inf(tape, n) != 0:
+    // Gradient explosion — reduce scale
+    (*scaler).scale = (*scaler).scale * (*scaler).backoff_factor
+    if (*scaler).scale < 1.0:
+      (*scaler).scale = 1.0
+    (*scaler).steps_since_inf = 0
+    ret 1  // signals that step should be skipped
+  (*scaler).steps_since_inf = (*scaler).steps_since_inf + 1
+  if (*scaler).steps_since_inf >= (*scaler).growth_interval:
+    (*scaler).scale = (*scaler).scale * (*scaler).growth_factor
+    (*scaler).steps_since_inf = 0
+  ret 0
+
+// ─────────────────────────────────────────────
+// Gradient Checkpointing helper
+// ─────────────────────────────────────────────
+// Save and restore a gradient snapshot (useful for grad accumulation
+// across multiple micro-batches before a full optimizer step).
+
+fn snapshot_new(n:int) -> *float:
+  ret tape_new(n)
+
+fn snapshot_save(src:*float, snap:*float, n:int) -> int:
+  if src == 0 as *float || snap == 0 as *float || n <= 0:
+    ret 0 - 1
+  i:int = 0
+  while i < n:
+    _gw(snap, i, _gf(src, i))
+    i = i + 1
+  ret 0
+
+fn snapshot_restore(snap:*float, dst:*float, n:int) -> int:
+  ret snapshot_save(snap, dst, n)
+
+fn snapshot_free(snap:*float) -> int:
+  ret tape_free(snap)

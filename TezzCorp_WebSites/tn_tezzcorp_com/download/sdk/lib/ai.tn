@@ -1,0 +1,379 @@
+// ai module — TezzNative Unified On-Device AI Entry Point
+//
+// This is the single top-level import for any TezzNative AI program.
+// It provides:
+//   - Hardware detection and initialization
+//   - Convenience wrappers for the most common AI tasks
+//   - Access to all AI subsystems via a single import
+//
+// Import hierarchy:
+//   ai → device, model, pipeline, nn, llm, npu, simd, tensor
+//       quant, optim, grad, dataloader, metric, stt, tts, tokenizer
+//
+// Quick Start:
+//   import "ai"
+//
+//   fn main() -> int:
+//     ai.init()                          // detect hardware, print report
+//     result:str = ai.generate("model.tnw", "Hello, world!", 64)
+//     say result
+//     ai.shutdown()
+//     ret 0
+
+import "device"
+import "model"
+import "pipeline"
+import "nn"
+import "llm"
+import "npu"
+import "simd"
+import "tztensor"
+import "quant"
+import "optim"
+import "grad"
+import "dataloader"
+import "metric"
+import "stt"
+import "tts"
+import "tokenizer"
+import "math"
+import "io"
+
+// ─────────────────────────────────────────────
+// Version
+// ─────────────────────────────────────────────
+
+let AI_VERSION_MAJOR:int = 1
+let AI_VERSION_MINOR:int = 0
+let AI_VERSION_PATCH:int = 0
+
+fn version() -> int:
+  say "TezzNative On-Device AI Runtime v", AI_VERSION_MAJOR, ".", AI_VERSION_MINOR, ".", AI_VERSION_PATCH
+  ret 0
+
+// ─────────────────────────────────────────────
+// Initialization / Shutdown
+// ─────────────────────────────────────────────
+
+// Initialize the AI runtime:
+//   - Detect CPU tier (SSE2/AVX2/NEON)
+//   - Detect and initialize NPU if available
+//   - Print hardware report
+// Call once at program startup.
+fn init() -> int:
+  device.ai_init()
+  device.hardware_report()
+  ret 0
+
+// Initialize silently (no hardware report printed).
+fn init_quiet() -> int:
+  device.ai_init()
+  ret 0
+
+// Shutdown all AI subsystems and release accelerator resources.
+fn shutdown() -> int:
+  ret device.ai_shutdown()
+
+// ─────────────────────────────────────────────
+// Hardware Queries (convenience pass-throughs)
+// ─────────────────────────────────────────────
+
+fn has_npu() -> int:
+  ret device.npu_available()
+
+fn has_gpu() -> int:
+  ret device.gpu_available()
+
+fn cpu_tier() -> int:
+  ret device.cpu_tier()
+
+fn best_backend_name() -> str:
+  ret device.best_backend_name()
+
+fn recommended_batch_size() -> int:
+  ret device.max_batch_size()
+
+fn recommended_context_len() -> int:
+  ret device.recommended_max_seq_len()
+
+// ─────────────────────────────────────────────
+// Model API (convenience pass-throughs)
+// ─────────────────────────────────────────────
+
+// Open an AI model file (auto-detects format).
+fn open_model(path:str) -> *Model:
+  ret model.open(path)
+
+// Close and free a model.
+fn close_model(m:*Model) -> int:
+  ret model.close(m)
+
+// Print model information card.
+fn model_info(m:*Model) -> int:
+  ret model.info(m)
+
+// Run inference on a model.
+fn infer(m:*Model, input:*float, in_n:int, output:*float, out_n:int) -> int:
+  ret model.infer(m, input, in_n, output, out_n)
+
+// ─────────────────────────────────────────────
+// High-Level Task API
+// ─────────────────────────────────────────────
+
+// Generate text from a model given a string prompt.
+// Uses character-level encoding for simplicity.
+// Returns a newly allocated result string (caller must free).
+fn generate(model_path:str, prompt:str, max_tokens:int) -> str:
+  ret pipeline.run_text(model_path, prompt, max_tokens)
+
+// Transcribe speech from a WAV file.
+// Returns a newly allocated transcript string.
+fn transcribe(model_path:str, wav_path:str) -> str:
+  ret pipeline.run_stt_file(model_path, wav_path)
+
+// Transcribe speech from microphone (duration_ms milliseconds).
+fn transcribe_mic(model_path:str, duration_ms:int) -> str:
+  ret pipeline.run_stt_mic(model_path, duration_ms)
+
+// Synthesize speech from text and play via speaker.
+fn speak(text:str) -> int:
+  ret pipeline.run_tts_speak(text, 0 as str)
+
+// Synthesize speech and save to WAV.
+fn speak_to_file(text:str, wav_path:str) -> int:
+  ret pipeline.run_tts_file(text, wav_path, 0 as str)
+
+// Run classification inference. Returns predicted class index.
+fn classify(model_path:str, features:*float, n_features:int, n_classes:int) -> int:
+  ret pipeline.run_classify(model_path, features, n_features, n_classes)
+
+// ─────────────────────────────────────────────
+// Training API
+// ─────────────────────────────────────────────
+
+// Create a new neural network with custom layer sizes and activations.
+// sizes_slab: int slab with [n_layers+1] entries (input + each layer width)
+// acts_slab:  int slab with [n_layers] activation codes (ACT_*)
+fn new_net(sizes_slab:*float, acts_slab:*float, n_layers:int) -> *float:
+  ret nn.nn_new_custom(sizes_slab, acts_slab, n_layers)
+
+// Create a simple 2-layer MLP.
+fn new_mlp(in_n:int, hidden_n:int, out_n:int) -> *float:
+  ret nn.nn_new(in_n, hidden_n, out_n)
+
+// Free a neural network.
+fn free_net(net:*float) -> int:
+  ret nn.nn_free(net)
+
+// Forward pass.
+fn forward(net:*float, input:*float, output:*float) -> int:
+  ret nn.nn_forward(net, input, output)
+
+// Backward pass + weight update.
+fn backward(net:*float, input:*float, target:*float, lr:float) -> float:
+  ret nn.nn_backward(net, input, target, lr)
+
+// Save a network to disk.
+fn save_net(net:*float, path:str) -> int:
+  ret nn.nn_save(net, path)
+
+// Load a network from disk.
+fn load_net(path:str) -> *float:
+  ret nn.nn_load(path)
+
+// ─────────────────────────────────────────────
+// Quantization API
+// ─────────────────────────────────────────────
+
+// Quantize float64 weights to INT8 (for memory-efficient inference).
+fn quantize_i8(weights:*float, n:int, block:int) -> int:
+  // Allocate INT8 buf and scale buf
+  scales_raw:*char = malloc(quant.n_scales(n, block) * 8)
+  i8_raw:*char = malloc(n)
+  if scales_raw == 0 || i8_raw == 0:
+    if scales_raw != 0: free(scales_raw)
+    if i8_raw != 0: free(i8_raw)
+    ret 0 - 1
+  rc:int = quant.f64_to_i8(weights, i8_raw, scales_raw as *float, n, block)
+  free(scales_raw)
+  free(i8_raw)
+  ret rc
+
+// ─────────────────────────────────────────────
+// Optimizer API
+// ─────────────────────────────────────────────
+
+// Create a gradient tape for n parameters.
+fn new_tape(n:int) -> *float:
+  ret grad.tape_new(n)
+
+// Zero gradients.
+fn zero_grad(tape:*float, n:int) -> int:
+  ret grad.zero(tape, n)
+
+// Clip gradients by L2 norm.
+fn clip_grad(tape:*float, n:int, max_norm:float) -> float:
+  ret grad.clip_norm(tape, n, max_norm)
+
+// Adam optimizer step.
+fn adam_step(params:*float, grads:*float, m1:*float, m2:*float, n:int, lr:float, step:int) -> int:
+  ret optim.adam_default(params, grads, m1, m2, n, lr, step)
+
+// AdamW optimizer step (with weight decay).
+fn adamw_step(params:*float, grads:*float, m1:*float, m2:*float, n:int, lr:float, step:int) -> int:
+  ret optim.adamw_default(params, grads, m1, m2, n, lr, step)
+
+// SGD optimizer step.
+fn sgd_step(params:*float, grads:*float, n:int, lr:float) -> int:
+  ret optim.sgd_simple(params, grads, n, lr)
+
+// ─────────────────────────────────────────────
+// Data Loading API
+// ─────────────────────────────────────────────
+
+// Load a CSV file as a DataLoader.
+fn load_csv(path:str, n_features:int, n_labels:int) -> *DataLoader:
+  ret dataloader.load_csv(path, n_features, n_labels, 1, 44)  // comma separator, with header
+
+// Shuffle a DataLoader.
+fn shuffle(dl:*DataLoader) -> int:
+  ret dataloader.shuffle(dl, 12345)
+
+// Get next batch of training data.
+fn next_batch(dl:*DataLoader, x:*float, y:*float, batch_size:int) -> int:
+  ret dataloader.next_batch(dl, x, y, batch_size)
+
+// Reset DataLoader to start of epoch.
+fn reset_loader(dl:*DataLoader) -> int:
+  ret dataloader.reset(dl)
+
+// ─────────────────────────────────────────────
+// Metrics API
+// ─────────────────────────────────────────────
+
+fn accuracy(preds:*float, targets:*int, n:int, n_classes:int) -> float:
+  ret metric.accuracy(preds, targets, n, n_classes)
+
+fn mse(preds:*float, targets:*float, n:int) -> float:
+  ret metric.mse(preds, targets, n)
+
+fn perplexity(log_probs:*float, n_tokens:int) -> float:
+  ret metric.perplexity(log_probs, n_tokens)
+
+fn f1(preds:*float, targets:*float, n:int) -> float:
+  ret metric.f1_binary(preds, targets, n)
+
+// ─────────────────────────────────────────────
+// Preset Training Loop Helper
+// ─────────────────────────────────────────────
+
+// Train an MLP on pre-loaded data for a given number of epochs.
+// x_train: [n x in_n] input matrix
+// y_train: [n x out_n] label matrix
+// Returns final loss.
+fn train_mlp(net:*float, x_train:*float, y_train:*float, n_samples:int, in_n:int, out_n:int, epochs:int, lr:float, batch_size:int) -> float:
+  if net == 0 as *float || x_train == 0 as *float || y_train == 0 as *float:
+    ret 0.0
+  if n_samples <= 0 || in_n <= 0 || out_n <= 0 || epochs <= 0:
+    ret 0.0
+
+  // Allocate x and y batch buffers
+  x_buf_raw:*char = malloc(batch_size * in_n * 8)
+  y_buf_raw:*char = malloc(batch_size * out_n * 8)
+  if x_buf_raw == 0 || y_buf_raw == 0:
+    if x_buf_raw != 0: free(x_buf_raw)
+    if y_buf_raw != 0: free(y_buf_raw)
+    ret 0.0
+  x_buf:*float = x_buf_raw as *float
+  y_buf:*float = y_buf_raw as *float
+
+  // Create DataLoader
+  // Build combined XY slab
+  nc:int = in_n + out_n
+  slab_raw:*char = malloc(n_samples * nc * 8)
+  if slab_raw == 0:
+    free(x_buf_raw)
+    free(y_buf_raw)
+    ret 0.0
+  slab:*float = slab_raw as *float
+  i:int = 0
+  while i < n_samples:
+    j:int = 0
+    while j < in_n:
+      unsafe:
+        slab[i * nc + j] = x_train[i * in_n + j]
+      j = j + 1
+    j = 0
+    while j < out_n:
+      unsafe:
+        slab[i * nc + in_n + j] = y_train[i * out_n + j]
+      j = j + 1
+    i = i + 1
+  dl:*DataLoader = dataloader.from_slab(slab, n_samples, in_n, out_n)
+
+  // Allocate nn input/output slabs (nn.tn slab format)
+  in_slab_raw:*char = malloc(in_n * 8)
+  out_slab_raw:*char = malloc(out_n * 8)
+  if in_slab_raw == 0 || out_slab_raw == 0:
+    if in_slab_raw != 0: free(in_slab_raw)
+    if out_slab_raw != 0: free(out_slab_raw)
+    dataloader.dl_free(dl)
+    free(slab_raw)
+    free(x_buf_raw)
+    free(y_buf_raw)
+    ret 0.0
+  in_slab:*float = in_slab_raw as *float
+  out_slab:*float = out_slab_raw as *float
+
+  last_loss:float = 0.0
+  ep:int = 0
+  while ep < epochs:
+    dataloader.shuffle(dl, ep + 1)
+    dataloader.reset(dl)
+    epoch_loss:float = 0.0
+    n_batches:int = 0
+    while dataloader.has_next(dl) != 0:
+      actual:int = dataloader.next_batch(dl, x_buf, y_buf, batch_size)
+      if actual <= 0:
+        break
+      // Train each sample in the batch
+      bi:int = 0
+      while bi < actual:
+        // Copy to nn slab format
+        j:int = 0
+        while j < in_n:
+          unsafe:
+            in_slab[j] = x_buf[bi * in_n + j]
+          j = j + 1
+        j = 0
+        while j < out_n:
+          unsafe:
+            out_slab[j] = y_buf[bi * out_n + j]
+          j = j + 1
+        nn.nn_forward(net, in_slab, in_slab)  // set layer outputs
+        loss:float = nn.nn_backward(net, in_slab, out_slab, lr)
+        epoch_loss = epoch_loss + loss
+        n_batches = n_batches + 1
+        bi = bi + 1
+    if n_batches > 0:
+      last_loss = epoch_loss / (n_batches as float)
+    if ep % 100 == 0 || ep == epochs - 1:
+      say "Epoch ", ep, " / ", epochs, " | Loss: ", last_loss
+    ep = ep + 1
+
+  free(in_slab_raw)
+  free(out_slab_raw)
+  free(x_buf_raw)
+  free(y_buf_raw)
+  dataloader.dl_free(dl)
+  free(slab_raw)
+  ret last_loss
+
+// ─────────────────────────────────────────────
+// Activation Constants (re-export from nn)
+// ─────────────────────────────────────────────
+
+let ACT_SIGMOID:int = 0
+let ACT_RELU:int    = 1
+let ACT_TANH:int    = 2
+let ACT_LINEAR:int  = 3

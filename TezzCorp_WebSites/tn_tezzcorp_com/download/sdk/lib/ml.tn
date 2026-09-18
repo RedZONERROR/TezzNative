@@ -1,0 +1,585 @@
+// ml module: unified AI/ML surface for TezzNative
+import "tensor"
+import "autodiff"
+import "optim"
+import "data"
+import "gpu"
+import "npu"
+import "tokenizer"
+import "modelio"
+import "tensor_mt"
+import "tznum"
+
+// Backend constants (mirror tensor module)
+let ML_BACKEND_CPU:int = 0
+let ML_BACKEND_GPU:int = 1
+let ML_BACKEND_NPU:int = 2
+
+// Backend selection (CPU/GPU/NPU)
+fn backend_cpu() -> int:
+  ret tensor.tensor_backend(ML_BACKEND_CPU)
+
+fn backend_gpu() -> int:
+  ret tensor.tensor_backend(ML_BACKEND_GPU)
+
+fn backend_npu() -> int:
+  ret tensor.tensor_backend(ML_BACKEND_NPU)
+
+// Tensor helpers
+fn tensor_new(shape:*int, rank:int, requires_grad:int) -> *Tensor:
+  ret tensor.tensor_new(shape, rank, requires_grad)
+
+fn tensor_new_dtype(shape:*int, rank:int, dtype:int, requires_grad:int) -> *Tensor:
+  ret tensor.tensor_new_dtype(shape, rank, dtype, requires_grad)
+
+fn tensor_view(base:*Tensor, shape:*int, strides:*int, rank:int, offset:int) -> *Tensor:
+  ret tensor.tensor_view(base, shape, strides, rank, offset)
+
+fn tensor_from_slice(p:*float, shape:*int, rank:int, requires_grad:int) -> *Tensor:
+  ret tensor.tensor_from_slice(p, shape, rank, requires_grad)
+
+fn tensor_from_slice_i(p:*int, shape:*int, rank:int, requires_grad:int) -> *Tensor:
+  ret tensor.tensor_from_slice_i(p, shape, rank, requires_grad)
+
+fn tensor_from_slice_b(p:*char, shape:*int, rank:int, requires_grad:int) -> *Tensor:
+  ret tensor.tensor_from_slice_b(p, shape, rank, requires_grad)
+
+fn tensor_free(t:*Tensor) -> int:
+  ret tensor.tensor_free(t)
+
+fn tensor_zero_grad(t:*Tensor) -> int:
+  ret tensor.tensor_zero_grad(t)
+
+fn tensor_grad_get_f(t:*Tensor, idx:int) -> float:
+  ret tensor.tensor_grad_get_f(t, idx)
+
+fn add(a:*Tensor, b:*Tensor) -> *Tensor:
+  ret tensor.tensor_add(a, b)
+
+fn sub(a:*Tensor, b:*Tensor) -> *Tensor:
+  ret tensor.tensor_sub(a, b)
+
+fn mul(a:*Tensor, b:*Tensor) -> *Tensor:
+  ret tensor.tensor_mul(a, b)
+
+fn div(a:*Tensor, b:*Tensor) -> *Tensor:
+  ret tensor.tensor_div(a, b)
+
+fn relu(a:*Tensor) -> *Tensor:
+  ret tensor.tensor_relu(a)
+
+fn sigmoid(a:*Tensor) -> *Tensor:
+  ret tensor.tensor_sigmoid(a)
+
+fn sum(a:*Tensor) -> *Tensor:
+  ret tensor.tensor_sum(a)
+
+fn mean(a:*Tensor) -> *Tensor:
+  ret tensor.tensor_mean(a)
+
+fn matmul(a:*Tensor, b:*Tensor) -> *Tensor:
+  ret tensor.tensor_matmul(a, b)
+
+fn matmul_ex(a:*Tensor, b:*Tensor, trans_a:int, trans_b:int) -> *Tensor:
+  ret tensor.tensor_matmul_ex(a, b, trans_a, trans_b)
+
+fn backward(t:*Tensor) -> int:
+  ret tensor.tensor_backward(t)
+
+// Optimizers
+fn sgd_step(t:*Tensor, lr:float) -> int:
+  ret optim.sgd_step(t, lr)
+
+fn sgd_step_simd(t:*Tensor, lr:float) -> int:
+  ret optim.sgd_step_simd(t, lr)
+
+fn adam_init(len:int, beta1:float, beta2:float, eps:float) -> AdamState:
+  ret optim.adam_init(len, beta1, beta2, eps)
+
+fn adam_free(st:AdamState) -> int:
+  ret optim.adam_free(st)
+
+fn adam_step(t:*Tensor, st:*AdamState, lr:float) -> int:
+  ret optim.adam_step(t, st, lr)
+
+// Autodiff (scalar)
+fn dual(val:float, d:float) -> *Dual:
+  ret autodiff.dual(val, d)
+
+fn dual_add(a:*Dual, b:*Dual) -> *Dual:
+  ret autodiff.add(a, b)
+
+fn dual_mul(a:*Dual, b:*Dual) -> *Dual:
+  ret autodiff.mul(a, b)
+
+fn dual_free(x:*Dual) -> int:
+  ret autodiff.dual_free(x)
+
+fn node(val:float) -> *Node:
+  ret autodiff.node(val)
+
+fn node_add(a:*Node, b:*Node) -> *Node:
+  ret autodiff.node_add(a, b)
+
+fn node_mul(a:*Node, b:*Node) -> *Node:
+  ret autodiff.node_mul(a, b)
+
+fn backward_node(n:*Node, seed:float) -> int:
+  ret autodiff.backward(n, seed)
+
+fn free_node(n:*Node) -> int:
+  ret autodiff.free_node(n)
+
+// Mixed-mode helpers (forward for Dual, reverse for Node)
+fn mixed_add_dual_node(a:*Dual, b:*Node) -> Mixed:
+  ret autodiff.mixed_add_dual_node(a, b)
+
+fn mixed_mul_dual_node(a:*Dual, b:*Node) -> Mixed:
+  ret autodiff.mixed_mul_dual_node(a, b)
+
+fn mixed_add_node(m:*Mixed, b:*Node) -> Mixed:
+  ret autodiff.mixed_add_node(m, b)
+
+fn mixed_mul_node(m:*Mixed, b:*Node) -> Mixed:
+  ret autodiff.mixed_mul_node(m, b)
+
+fn mixed_backward(m:*Mixed, seed:float) -> float:
+  ret autodiff.mixed_backward(m, seed)
+
+fn mixed_from_dual(a:*Dual) -> Mixed:
+  ret autodiff.mixed_from_dual(a)
+
+fn mixed_from_node(n:*Node) -> Mixed:
+  ret autodiff.mixed_from_node(n)
+
+fn mixed_add(a:*Mixed, b:*Mixed) -> Mixed:
+  ret autodiff.mixed_add(a, b)
+
+fn mixed_mul(a:*Mixed, b:*Mixed) -> Mixed:
+  ret autodiff.mixed_mul(a, b)
+
+fn mixed_sub(a:*Mixed, b:*Mixed) -> Mixed:
+  ret autodiff.mixed_sub(a, b)
+
+fn mixed_div(a:*Mixed, b:*Mixed) -> Mixed:
+  ret autodiff.mixed_div(a, b)
+
+fn mixed_relu(a:*Mixed) -> Mixed:
+  ret autodiff.mixed_relu(a)
+
+fn mixed_sigmoid(a:*Mixed) -> Mixed:
+  ret autodiff.mixed_sigmoid(a)
+
+fn mixed_val(m:*Mixed) -> float:
+  ret autodiff.mixed_val(m)
+
+fn mixed_free(m:*Mixed) -> int:
+  ret autodiff.mixed_free(m)
+
+// DataFrame helpers
+fn df_read_tnx(path:str) -> *DataFrame:
+  ret data.df_read_tnx(path)
+
+fn df_write_tnx(df:*DataFrame, path:str) -> int:
+  ret data.df_write_tnx(df, path)
+
+fn df_free(df:*DataFrame) -> int:
+  ret data.df_free(df)
+
+// Tokenizer helpers
+fn tok_new() -> *Tokenizer:
+  ret tokenizer.tok_new()
+
+fn tok_free(t:*Tokenizer) -> int:
+  ret tokenizer.tok_free(t)
+
+fn tok_fit_text(t:*Tokenizer, text:str) -> int:
+  ret tokenizer.tok_fit_text(t, text)
+
+fn tok_fit_file(t:*Tokenizer, path:str) -> int:
+  ret tokenizer.tok_fit_file(t, path)
+
+fn tok_encode(t:*Tokenizer, text:str, out_ids:*int, max_out:int) -> int:
+  ret tokenizer.tok_encode(t, text, out_ids, max_out)
+
+fn tok_decode(t:*Tokenizer, ids:*int, n:int) -> str:
+  ret tokenizer.tok_decode(t, ids, n)
+
+fn tok_save(t:*Tokenizer, path:str) -> int:
+  ret tokenizer.tok_save(t, path)
+
+fn tok_load(path:str) -> *Tokenizer:
+  ret tokenizer.tok_load(path)
+
+fn tok_size(t:*Tokenizer) -> int:
+  ret tokenizer.tok_size(t)
+
+fn tok_unk_id(t:*Tokenizer) -> int:
+  ret tokenizer.tok_unk_id(t)
+
+// Deterministic model/tensor serialization
+fn dense_new(in_dim:int, out_dim:int, name:str) -> *DenseModel:
+  ret modelio.dense_new(in_dim, out_dim, name)
+
+fn dense_free(m:*DenseModel) -> int:
+  ret modelio.dense_free(m)
+
+fn dense_forward(m:*DenseModel, x:*Tensor) -> *Tensor:
+  ret modelio.dense_forward(m, x)
+
+fn dense_save(m:*DenseModel, path:str) -> int:
+  ret modelio.dense_save(m, path)
+
+fn dense_load(path:str) -> *DenseModel:
+  ret modelio.dense_load(path)
+
+fn tensor_save_tnxb(t:*Tensor, path:str) -> int:
+  ret modelio.tensor_save_tnxb(t, path)
+
+fn tensor_load_tnxb(path:str) -> *Tensor:
+  ret modelio.tensor_load_tnxb(path)
+
+// CPU threaded tensor kernels
+fn f32_add_mt(out:*float, a:*float, b:*float, n:int, threads:int) -> int:
+  ret tensor_mt.f32_add(out, a, b, n, threads)
+
+fn f32_mul_mt(out:*float, a:*float, b:*float, n:int, threads:int) -> int:
+  ret tensor_mt.f32_mul(out, a, b, n, threads)
+
+fn f32_axpy_mt(out:*float, a:*float, b:*float, alpha:float, n:int, threads:int) -> int:
+  ret tensor_mt.f32_axpy(out, a, b, alpha, n, threads)
+
+fn f32_dot_mt(a:*float, b:*float, n:int, threads:int) -> float:
+  ret tensor_mt.f32_dot(a, b, n, threads)
+
+fn f32_matmul_mt(out:*float, a:*float, b:*float, m:int, n:int, k:int, threads:int) -> int:
+  ret tensor_mt.f32_matmul(out, a, b, m, n, k, threads)
+
+// tznum neural production lane (raw f32 kernels)
+fn f32_matmul_nn(out:*float, a:*float, b:*float, m:int, n:int, k:int) -> int:
+  ret tznum.f32_matmul(out, a, b, m, n, k)
+
+fn f32_matmul_bias_nn(out:*float, a:*float, b:*float, bias:*float, m:int, n:int, k:int) -> int:
+  ret tznum.f32_matmul_bias(out, a, b, bias, m, n, k)
+
+fn f32_relu_inplace_nn(x:*float, n:int) -> int:
+  ret tznum.f32_relu_inplace(x, n)
+
+fn f32_silu_inplace_nn(x:*float, n:int) -> int:
+  ret tznum.f32_silu_inplace(x, n)
+
+fn f32_gelu_fast_inplace_nn(x:*float, n:int) -> int:
+  ret tznum.f32_gelu_fast_inplace(x, n)
+
+fn llm_rmsnorm_rows_f32_nn(out:*float, x:*float, weight:*float, rows:int, cols:int, eps:float) -> int:
+  ret tznum.llm_rmsnorm_rows_f32(out, x, weight, rows, cols, eps)
+
+fn llm_softmax_rows_f32_inplace_nn(x:*float, rows:int, cols:int) -> int:
+  ret tznum.llm_softmax_rows_f32_inplace(x, rows, cols)
+
+fn llm_argmax_rows_i32_nn(out_ids:*int, logits:*float, rows:int, cols:int) -> int:
+  ret tznum.llm_argmax_rows_i32(out_ids, logits, rows, cols)
+
+fn _clamp_ml_f(x:float, lo:float, hi:float) -> float:
+  if x < lo:
+    ret lo
+  if x > hi:
+    ret hi
+  ret x
+
+fn _exp_ml_fast(x:float) -> float:
+  xc:float = _clamp_ml_f(x, 0.0 - 10.0, 10.0)
+  x2:float = xc * xc
+  x3:float = x2 * xc
+  x4:float = x3 * xc
+  x5:float = x4 * xc
+  ret 1.0 + xc + (0.5 * x2) + ((1.0 / 6.0) * x3) + ((1.0 / 24.0) * x4) + ((1.0 / 120.0) * x5)
+
+fn _log_ml_pos(x:float) -> float:
+  if x <= 0.0:
+    ret 0.0 - 20.0
+  v:float = x
+  k:int = 0
+  while v > 2.0:
+    v = v * 0.5
+    k = k + 1
+  while v < 0.5:
+    v = v * 2.0
+    k = k - 1
+  y:float = (v - 1.0) / (v + 1.0)
+  y2:float = y * y
+  term1:float = y
+  term2:float = term1 * y2
+  term3:float = term2 * y2
+  term4:float = term3 * y2
+  ln_v:float = 2.0 * (term1 + (term2 / 3.0) + (term3 / 5.0) + (term4 / 7.0))
+  ret ln_v + ((k as float) * 0.69314718056)
+
+fn dense_linear_forward_f32(logits:*float, x:*float, w:*float, b:*float, rows:int, in_dim:int, classes:int) -> int:
+  if logits == 0 || x == 0 || w == 0 || b == 0:
+    ret 0 - 1
+  if rows <= 0 || in_dim <= 0 || classes <= 0:
+    ret 0 - 1
+  r:int = 0
+  while r < rows:
+    c:int = 0
+    while c < classes:
+      acc:float = 0.0
+      i:int = 0
+      while i < in_dim:
+        unsafe:
+          acc = acc + (x[(r * in_dim) + i] * w[(i * classes) + c])
+        i = i + 1
+      unsafe:
+        logits[(r * classes) + c] = acc + b[c]
+      c = c + 1
+    r = r + 1
+  ret 0
+
+fn softmax_nll_loss_grad_f32(loss_out:*float, grad_logits:*float, probs:*float, logits:*float, labels:*int, rows:int, classes:int) -> int:
+  if loss_out == 0:
+    ret 0 - 107
+  if grad_logits == 0:
+    ret 0 - 101
+  if probs == 0:
+    ret 0 - 102
+  if logits == 0:
+    ret 0 - 103
+  if labels == 0:
+    ret 0 - 104
+  if rows <= 0:
+    ret 0 - 105
+  if classes <= 0:
+    ret 0 - 106
+  inv_rows:float = 1.0 / (rows as float)
+  loss:float = 0.0
+  r:int = 0
+  while r < rows:
+    base:int = r * classes
+    max_v:float = 0.0
+    unsafe:
+      max_v = logits[base]
+    c0:int = 1
+    while c0 < classes:
+      v0:float = 0.0
+      unsafe:
+        v0 = logits[base + c0]
+      if v0 > max_v:
+        max_v = v0
+      c0 = c0 + 1
+    sum_e:float = 0.0
+    c1:int = 0
+    while c1 < classes:
+      lv:float = 0.0
+      unsafe:
+        lv = logits[base + c1]
+      e:float = _exp_ml_fast(lv - max_v)
+      unsafe:
+        probs[base + c1] = e
+      sum_e = sum_e + e
+      c1 = c1 + 1
+    if sum_e <= 0.0:
+      uniform:float = 1.0 / (classes as float)
+      c2:int = 0
+      while c2 < classes:
+        unsafe:
+          probs[base + c2] = uniform
+        c2 = c2 + 1
+    else:
+      inv_sum:float = 1.0 / sum_e
+      c3:int = 0
+      while c3 < classes:
+        pv:float = 0.0
+        unsafe:
+          pv = probs[base + c3]
+          probs[base + c3] = pv * inv_sum
+        c3 = c3 + 1
+
+    y:int = 0
+    unsafe:
+      y = labels[r]
+    if y < 0 || y >= classes:
+      y = 0
+    p:float = 0.0
+    unsafe:
+      p = probs[base + y]
+    p = _clamp_ml_f(p, 0.000001, 1.0)
+    loss = loss - _log_ml_pos(p)
+    c4:int = 0
+    while c4 < classes:
+      idx:int = base + c4
+      g:float = 0.0
+      unsafe:
+        g = probs[idx]
+      if c4 == y:
+        g = g - 1.0
+      unsafe:
+        grad_logits[idx] = g * inv_rows
+      c4 = c4 + 1
+    r = r + 1
+  unsafe:
+    *loss_out = loss * inv_rows
+  ret 0
+
+fn dense_linear_sgd_update_f32(w:*float, b:*float, x:*float, grad_logits:*float, rows:int, in_dim:int, classes:int, lr:float) -> int:
+  if w == 0:
+    ret 0 - 1
+  if b == 0:
+    ret 0 - 1
+  if x == 0:
+    ret 0 - 1
+  if grad_logits == 0:
+    ret 0 - 1
+  if rows <= 0:
+    ret 0 - 1
+  if in_dim <= 0:
+    ret 0 - 1
+  if classes <= 0:
+    ret 0 - 1
+  r:int = 0
+  while r < rows:
+    c:int = 0
+    while c < classes:
+      unsafe:
+        b[c] = b[c] - (lr * grad_logits[(r * classes) + c])
+      c = c + 1
+    r = r + 1
+  i:int = 0
+  while i < in_dim:
+    c2:int = 0
+    while c2 < classes:
+      acc:float = 0.0
+      r2:int = 0
+      while r2 < rows:
+        unsafe:
+          xv:float = x[(r2 * in_dim) + i]
+          gv:float = grad_logits[(r2 * classes) + c2]
+          acc = acc + (xv * gv)
+        r2 = r2 + 1
+      unsafe:
+        w[(i * classes) + c2] = w[(i * classes) + c2] - (lr * acc)
+      c2 = c2 + 1
+    i = i + 1
+  ret 0
+
+fn dense_linear_input_grad_f32(grad_in:*float, grad_out:*float, w:*float, rows:int, in_dim:int, out_dim:int) -> int:
+  if grad_in == 0:
+    ret 0 - 1
+  if grad_out == 0:
+    ret 0 - 1
+  if w == 0:
+    ret 0 - 1
+  if rows <= 0:
+    ret 0 - 1
+  if in_dim <= 0:
+    ret 0 - 1
+  if out_dim <= 0:
+    ret 0 - 1
+  r:int = 0
+  while r < rows:
+    i:int = 0
+    while i < in_dim:
+      acc:float = 0.0
+      o:int = 0
+      while o < out_dim:
+        unsafe:
+          acc = acc + (grad_out[(r * out_dim) + o] * w[(i * out_dim) + o])
+        o = o + 1
+      unsafe:
+        grad_in[(r * in_dim) + i] = acc
+      i = i + 1
+    r = r + 1
+  ret 0
+
+fn mlp2_forward_f32(hidden:*float, logits:*float, x:*float, w1:*float, b1:*float, w2:*float, b2:*float, rows:int, in_dim:int, hidden_dim:int, classes:int) -> int:
+  if hidden == 0 || logits == 0 || x == 0 || w1 == 0 || b1 == 0 || w2 == 0 || b2 == 0:
+    ret 0 - 1
+  if rows <= 0 || in_dim <= 0 || hidden_dim <= 0 || classes <= 0:
+    ret 0 - 1
+  if dense_linear_forward_f32(hidden, x, w1, b1, rows, in_dim, hidden_dim) != 0:
+    ret 0 - 1
+  hidden_n:int = rows * hidden_dim
+  if hidden_n <= 0:
+    ret 0 - 1
+  if f32_relu_inplace_nn(hidden, hidden_n) != 0:
+    ret 0 - 1
+  if dense_linear_forward_f32(logits, hidden, w2, b2, rows, hidden_dim, classes) != 0:
+    ret 0 - 1
+  ret 0
+
+fn mlp2_train_step_f32(loss_out:*float, hidden:*float, logits:*float, probs:*float, grad_logits:*float, grad_hidden:*float, x:*float, labels:*int, w1:*float, b1:*float, w2:*float, b2:*float, rows:int, in_dim:int, hidden_dim:int, classes:int, lr:float) -> int:
+  if loss_out == 0 || hidden == 0 || logits == 0 || probs == 0 || grad_logits == 0 || grad_hidden == 0 || x == 0 || labels == 0 || w1 == 0 || b1 == 0 || w2 == 0 || b2 == 0:
+    ret 0 - 1
+  if rows <= 0 || in_dim <= 0 || hidden_dim <= 0 || classes <= 0:
+    ret 0 - 1
+  if mlp2_forward_f32(hidden, logits, x, w1, b1, w2, b2, rows, in_dim, hidden_dim, classes) != 0:
+    ret 0 - 1
+  if softmax_nll_loss_grad_f32(loss_out, grad_logits, probs, logits, labels, rows, classes) != 0:
+    ret 0 - 1
+  if dense_linear_input_grad_f32(grad_hidden, grad_logits, w2, rows, hidden_dim, classes) != 0:
+    ret 0 - 1
+  n_hidden:int = rows * hidden_dim
+  if n_hidden <= 0:
+    ret 0 - 1
+  i:int = 0
+  while i < n_hidden:
+    unsafe:
+      if hidden[i] <= 0.0:
+        grad_hidden[i] = 0.0
+    i = i + 1
+  if dense_linear_sgd_update_f32(w2, b2, hidden, grad_logits, rows, hidden_dim, classes, lr) != 0:
+    ret 0 - 1
+  if dense_linear_sgd_update_f32(w1, b1, x, grad_hidden, rows, in_dim, hidden_dim, lr) != 0:
+    ret 0 - 1
+  ret 0
+
+fn classifier_dense_train_step_f32(loss_out:*float, logits:*float, probs:*float, grad_logits:*float, x:*float, labels:*int, w:*float, b:*float, rows:int, in_dim:int, classes:int, lr:float) -> int:
+  if loss_out == 0:
+    ret 0 - 1
+  if dense_linear_forward_f32(logits, x, w, b, rows, in_dim, classes) != 0:
+    ret 0 - 11
+  if softmax_nll_loss_grad_f32(loss_out, grad_logits, probs, logits, labels, rows, classes) != 0:
+    ret 0 - 12
+  if dense_linear_sgd_update_f32(w, b, x, grad_logits, rows, in_dim, classes, lr) != 0:
+    ret 0 - 13
+  ret 0
+
+fn top1_predict_f32(out_ids:*int, logits:*float, rows:int, classes:int) -> int:
+  if out_ids == 0:
+    ret 0 - 1
+  if logits == 0:
+    ret 0 - 1
+  if rows <= 0:
+    ret 0 - 1
+  if classes <= 0:
+    ret 0 - 1
+  r:int = 0
+  while r < rows:
+    base:int = r * classes
+    best_i:int = 0
+    best_v:float = 0.0
+    unsafe:
+      best_v = logits[base]
+    c:int = 1
+    while c < classes:
+      unsafe:
+        if logits[base + c] > best_v:
+          best_v = logits[base + c]
+          best_i = c
+      c = c + 1
+    unsafe:
+      out_ids[r] = best_i
+    r = r + 1
+  ret 0
+
+fn accuracy_i32(pred:*int, labels:*int, n:int) -> float:
+  if pred == 0 || labels == 0 || n <= 0:
+    ret 0.0
+  hit:int = 0
+  i:int = 0
+  while i < n:
+    unsafe:
+      if pred[i] == labels[i]:
+        hit = hit + 1
+    i = i + 1
+  ret (hit as float) / (n as float)

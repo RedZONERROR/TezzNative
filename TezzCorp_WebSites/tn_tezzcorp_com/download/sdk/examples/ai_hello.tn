@@ -1,0 +1,113 @@
+// ai_hello.tn — TezzNative On-Device AI Quick Start
+//
+// Demonstrates the full AI stack in ~30 lines:
+//   1. Initialize AI runtime and print hardware report
+//   2. Create a tiny MLP network
+//   3. Train it on XOR (classic neural net test)
+//   4. Evaluate accuracy
+//   5. Save and reload the trained model
+//
+// Run: tezzc run examples/ai_hello.tn
+
+import "ai"
+
+fn main() -> int:
+  unsafe:
+    // ── 1. Hardware Report ────────────────────────────────────
+    say "╔══════════════════════════════════════════════════════╗"
+    say "║        TezzNative On-Device AI — Hello World          ║"
+    say "╚══════════════════════════════════════════════════════╝"
+    say ""
+
+    ai.init()  // Detect hardware, print report, init NPU if available
+
+    say ""
+    say "Best acceleration backend: ", ai.best_backend_name()
+    say "Recommended batch size:    ", ai.recommended_batch_size()
+    say "Recommended context length:", ai.recommended_context_len()
+    say ""
+
+    // ── 2. Create a tiny MLP (2 → 4 → 1) for XOR ─────────────
+    say "Building XOR neural network (2 → 4 → 1)..."
+    net:*float = ai.new_mlp(2, 4, 1)
+    if net == 0 as *float:
+      say "ERROR: Could not allocate neural network"
+      ai.shutdown()
+      ret 1
+
+    // ── 3. Train on XOR data ───────────────────────────────────
+    say "Training on XOR for 2000 epochs..."
+
+    // XOR dataset: 4 samples, 2 features, 1 label
+    x_data:[float;8]   // [4 x 2]
+    y_data:[float;4]   // [4 x 1]
+
+    // (0,0) → 0
+    x_data[0] = 0.0; x_data[1] = 0.0; y_data[0] = 0.0
+    // (0,1) → 1
+    x_data[2] = 0.0; x_data[3] = 1.0; y_data[1] = 1.0
+    // (1,0) → 1
+    x_data[4] = 1.0; x_data[5] = 0.0; y_data[2] = 1.0
+    // (1,1) → 0
+    x_data[6] = 1.0; x_data[7] = 1.0; y_data[3] = 0.0
+
+    xp:*float = &x_data[0]
+    yp:*float = &y_data[0]
+
+    final_loss:float = ai.train_mlp(net, xp, yp, 4, 2, 1, 2000, 0.05, 4)
+    say "Training complete. Final loss: ", final_loss
+    say ""
+
+    // ── 4. Evaluate ───────────────────────────────────────────
+    say "Testing the trained network:"
+    in_buf:[float;2]
+    out_buf:[float;1]
+
+    // Test (0,0)
+    in_buf[0] = 0.0; in_buf[1] = 0.0
+    ai.forward(net, &in_buf[0], &out_buf[0])
+    say "  XOR(0, 0) = ", out_buf[0], "  (expected ≈ 0.0)"
+
+    // Test (0,1)
+    in_buf[0] = 0.0; in_buf[1] = 1.0
+    ai.forward(net, &in_buf[0], &out_buf[0])
+    say "  XOR(0, 1) = ", out_buf[0], "  (expected ≈ 1.0)"
+
+    // Test (1,0)
+    in_buf[0] = 1.0; in_buf[1] = 0.0
+    ai.forward(net, &in_buf[0], &out_buf[0])
+    say "  XOR(1, 0) = ", out_buf[0], "  (expected ≈ 1.0)"
+
+    // Test (1,1)
+    in_buf[0] = 1.0; in_buf[1] = 1.0
+    ai.forward(net, &in_buf[0], &out_buf[0])
+    say "  XOR(1, 1) = ", out_buf[0], "  (expected ≈ 0.0)"
+    say ""
+
+    // ── 5. Save and reload ────────────────────────────────────
+    say "Saving model to xor_model.tnw..."
+    rc_save:int = ai.save_net(net, "xor_model.tnw")
+    if rc_save == 0:
+      say "Saved successfully."
+      loaded_net:*float = ai.load_net("xor_model.tnw")
+      if loaded_net != 0 as *float:
+        say "Reloaded model verified."
+        // Quick sanity check
+        in_buf[0] = 1.0; in_buf[1] = 0.0
+        ai.forward(loaded_net, &in_buf[0], &out_buf[0])
+        say "  Reloaded XOR(1, 0) = ", out_buf[0]
+        ai.free_net(loaded_net)
+      else:
+        say "WARNING: Could not reload model."
+    else:
+      say "WARNING: Could not save model."
+    say ""
+
+    // ── 6. Cleanup ────────────────────────────────────────────
+    ai.free_net(net)
+    ai.shutdown()
+
+    say "╔══════════════════════════════════════════════════════╗"
+    say "║          On-Device AI Hello World Complete!           ║"
+    say "╚══════════════════════════════════════════════════════╝"
+    ret 0

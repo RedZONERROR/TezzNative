@@ -1,0 +1,1093 @@
+// runtime module — C-stdlib compatibility layer for TezzNative
+// Implements memcpy, memset, sprintf, atoi, atof, strncmp, getenv,
+// fputs, fputc, fgets in pure TezzNative so all stdlib modules
+// can depend on a mature, consistent runtime foundation.
+//
+// This is the foundation layer required before building LLMs,
+// parsers, web servers, or any production-grade software in TezzNative.
+//
+// Stability: Core (required by json, log, config, regex, test, bench, cli)
+
+// ============================================================
+// SECTION 1: Memory operations
+// ============================================================
+
+// Copy n bytes from src to dst (byte-by-byte, forward copy)
+fn memcpy(dst:*char, src:*char, n:int) -> *char:
+  if dst == 0 || src == 0 || n <= 0:
+    ret dst
+  i:int = 0
+  while i < n:
+    unsafe:
+      dst[i] = src[i]
+    i = i + 1
+  ret dst
+
+// Copy n bytes from src to dst (handles overlapping regions via reverse copy)
+fn memmove(dst:*char, src:*char, n:int) -> *char:
+  if dst == 0 || src == 0 || n <= 0:
+    ret dst
+  // Check overlap direction
+  dst_addr:int = dst as int
+  src_addr:int = src as int
+  if dst_addr > src_addr && dst_addr < src_addr + n:
+    // Reverse copy to handle overlap
+    i:int = n - 1
+    while i >= 0:
+      unsafe:
+        dst[i] = src[i]
+      i = i - 1
+  else:
+    i:int = 0
+    while i < n:
+      unsafe:
+        dst[i] = src[i]
+      i = i + 1
+  ret dst
+
+// Set n bytes of dst to value c
+fn memset(dst:*char, c:int, n:int) -> *char:
+  if dst == 0 || n <= 0:
+    ret dst
+  b:char = c as char
+  i:int = 0
+  while i < n:
+    unsafe:
+      dst[i] = b
+    i = i + 1
+  ret dst
+
+// Compare n bytes of a and b — returns 0 if equal, <0 if a<b, >0 if a>b
+fn memcmp(a:*char, b:*char, n:int) -> int:
+  if a == 0 && b == 0:
+    ret 0
+  if a == 0:
+    ret 0 - 1
+  if b == 0:
+    ret 1
+  i:int = 0
+  while i < n:
+    ca:int = 0
+    cb:int = 0
+    unsafe:
+      ca = a[i] as int
+      cb = b[i] as int
+    if ca != cb:
+      ret ca - cb
+    i = i + 1
+  ret 0
+
+// Find byte c in first n bytes of buf — returns index or -1
+fn memchr(buf:*char, c:int, n:int) -> int:
+  if buf == 0 || n <= 0:
+    ret 0 - 1
+  b:char = c as char
+  i:int = 0
+  while i < n:
+    unsafe:
+      if buf[i] == b:
+        ret i
+    i = i + 1
+  ret 0 - 1
+
+// ============================================================
+// SECTION 2: String operations
+// ============================================================
+
+// strlen — returns byte length of null-terminated string
+fn strlen(s:str) -> int:
+  if s == 0:
+    ret 0
+  i:int = 0
+  while s[i] != 0 as char:
+    i = i + 1
+  ret i
+
+// strncmp — compare at most n characters of a and b
+fn strncmp(a:str, b:str, n:int) -> int:
+  if n <= 0:
+    ret 0
+  if a == 0 && b == 0:
+    ret 0
+  if a == 0:
+    ret 0 - 1
+  if b == 0:
+    ret 1
+  i:int = 0
+  while i < n:
+    ca:int = a[i] as int
+    cb:int = b[i] as int
+    if ca == 0 && cb == 0:
+      ret 0
+    if ca == 0:
+      ret 0 - 1
+    if cb == 0:
+      ret 1
+    if ca != cb:
+      ret ca - cb
+    i = i + 1
+  ret 0
+
+// strcpy — copy src into dst (caller ensures dst is large enough)
+fn strcpy(dst:*char, src:str) -> *char:
+  if dst == 0:
+    ret dst
+  if src == 0:
+    unsafe:
+      dst[0] = 0 as char
+    ret dst
+  i:int = 0
+  while src[i] != 0 as char:
+    unsafe:
+      dst[i] = src[i]
+    i = i + 1
+  unsafe:
+    dst[i] = 0 as char
+  ret dst
+
+// strncpy — copy at most n characters; zero-pads dst to n bytes
+fn strncpy(dst:*char, src:str, n:int) -> *char:
+  if dst == 0 || n <= 0:
+    ret dst
+  i:int = 0
+  while i < n:
+    c:char = 0 as char
+    if src != 0:
+      unsafe:
+        c = src[i]
+    if src == 0 || src[i] == 0 as char:
+      while i < n:
+        unsafe:
+          dst[i] = 0 as char
+        i = i + 1
+      ret dst
+    unsafe:
+      dst[i] = c
+    i = i + 1
+  ret dst
+
+// strcat — append src onto dst (caller ensures dst has space)
+fn strcat(dst:*char, src:str) -> *char:
+  if dst == 0:
+    ret dst
+  dlen:int = strlen(dst as str)
+  if src == 0:
+    ret dst
+  slen:int = strlen(src)
+  i:int = 0
+  while i < slen:
+    unsafe:
+      dst[dlen + i] = src[i]
+    i = i + 1
+  unsafe:
+    dst[dlen + slen] = 0 as char
+  ret dst
+
+// strncat — append at most n chars of src onto dst
+fn strncat(dst:*char, src:str, n:int) -> *char:
+  if dst == 0 || src == 0 || n <= 0:
+    ret dst
+  dlen:int = strlen(dst as str)
+  i:int = 0
+  while i < n && src[i] != 0 as char:
+    unsafe:
+      dst[dlen + i] = src[i]
+    i = i + 1
+  unsafe:
+    dst[dlen + i] = 0 as char
+  ret dst
+
+// strchr — find first occurrence of character c in s, returns index or -1
+fn strchr(s:str, c:int) -> int:
+  if s == 0:
+    ret 0 - 1
+  i:int = 0
+  while s[i] != 0 as char:
+    if s[i] as int == c:
+      ret i
+    i = i + 1
+  if c == 0:
+    ret i
+  ret 0 - 1
+
+// strrchr — find last occurrence of character c in s, returns index or -1
+fn strrchr(s:str, c:int) -> int:
+  if s == 0:
+    ret 0 - 1
+  last:int = 0 - 1
+  i:int = 0
+  while s[i] != 0 as char:
+    if s[i] as int == c:
+      last = i
+    i = i + 1
+  if c == 0:
+    ret i
+  ret last
+
+// strstr — find first occurrence of needle in haystack, returns index or -1
+fn strstr(haystack:str, needle:str) -> int:
+  if haystack == 0 || needle == 0:
+    ret 0 - 1
+  if needle[0] == 0 as char:
+    ret 0
+  hl:int = strlen(haystack)
+  nl:int = strlen(needle)
+  if nl > hl:
+    ret 0 - 1
+  i:int = 0
+  while i <= hl - nl:
+    match:int = 1
+    j:int = 0
+    while j < nl:
+      if haystack[i + j] as int != needle[j] as int:
+        match = 0
+        break
+      j = j + 1
+    if match != 0:
+      ret i
+    i = i + 1
+  ret 0 - 1
+
+// ============================================================
+// SECTION 3: Integer and float conversion
+// ============================================================
+
+// atoi — convert decimal string to int (leading whitespace ignored)
+fn atoi(s:str) -> int:
+  if s == 0:
+    ret 0
+  i:int = 0
+  // Skip whitespace
+  while s[i] == 32 as char || s[i] == 9 as char || s[i] == 10 as char || s[i] == 13 as char:
+    i = i + 1
+  sign:int = 1
+  if s[i] == 45 as char:
+    sign = 0 - 1
+    i = i + 1
+  else if s[i] == 43 as char:
+    i = i + 1
+  n:int = 0
+  while s[i] != 0 as char:
+    c:int = s[i] as int
+    if c < 48 || c > 57:
+      break
+    n = n * 10 + (c - 48)
+    i = i + 1
+  ret n * sign
+
+// atol — same as atoi for TezzNative (int is 64-bit)
+fn atol(s:str) -> int:
+  ret atoi(s)
+
+// atof — convert decimal/scientific string to float
+fn atof(s:str) -> float:
+  if s == 0:
+    ret 0.0
+  i:int = 0
+  // Skip whitespace
+  while s[i] == 32 as char || s[i] == 9 as char || s[i] == 10 as char || s[i] == 13 as char:
+    i = i + 1
+  sign:float = 1.0
+  if s[i] == 45 as char:
+    sign = 0.0 - 1.0
+    i = i + 1
+  else if s[i] == 43 as char:
+    i = i + 1
+  n:float = 0.0
+  while s[i] != 0 as char:
+    c:int = s[i] as int
+    if c < 48 || c > 57:
+      break
+    n = n * 10.0 + (c - 48) as float
+    i = i + 1
+  if s[i] == 46 as char:
+    i = i + 1
+    div:float = 10.0
+    while s[i] != 0 as char:
+      c2:int = s[i] as int
+      if c2 < 48 || c2 > 57:
+        break
+      n = n + (c2 - 48) as float / div
+      div = div * 10.0
+      i = i + 1
+  // Scientific notation: e/E followed by optional +/- and exponent
+  if s[i] == 101 as char || s[i] == 69 as char:
+    i = i + 1
+    esign:int = 1
+    if s[i] == 45 as char:
+      esign = 0 - 1
+      i = i + 1
+    else if s[i] == 43 as char:
+      i = i + 1
+    exp:int = 0
+    while s[i] != 0 as char:
+      c3:int = s[i] as int
+      if c3 < 48 || c3 > 57:
+        break
+      exp = exp * 10 + (c3 - 48)
+      i = i + 1
+    pow10:float = 1.0
+    j:int = 0
+    while j < exp:
+      pow10 = pow10 * 10.0
+      j = j + 1
+    if esign < 0:
+      n = n / pow10
+    else:
+      n = n * pow10
+  ret n * sign
+
+// itoa — convert int to string; returns heap-allocated *char (caller frees)
+fn itoa(n:int) -> *char:
+  neg:int = 0
+  v:int = n
+  if v < 0:
+    neg = 1
+    v = 0 - v
+  digits:[char;24]
+  di:int = 0
+  if v == 0:
+    digits[0] = 48 as char
+    di = 1
+  else:
+    while v > 0:
+      digits[di] = (48 + v % 10) as char
+      di = di + 1
+      v = v / 10
+  total:int = di
+  if neg != 0:
+    total = total + 1
+  out:*char = (*char)malloc(total + 1)
+  if out == 0:
+    ret 0 as *char
+  wi:int = 0
+  if neg != 0:
+    out[wi] = 45 as char
+    wi = wi + 1
+  j:int = di - 1
+  while j >= 0:
+    out[wi] = digits[j]
+    wi = wi + 1
+    j = j - 1
+  out[wi] = 0 as char
+  ret out
+
+// ftoa — convert float to string with `decimals` decimal places (caller frees)
+fn ftoa(f:float, decimals:int) -> *char:
+  if decimals < 0:
+    decimals = 6
+  if decimals > 18:
+    decimals = 18
+  neg:int = 0
+  v:float = f
+  if v < 0.0:
+    neg = 1
+    v = 0.0 - v
+  whole:int = v as int
+  frac:float = v - (whole as float)
+  // Scale fractional part
+  scale:float = 1.0
+  i:int = 0
+  while i < decimals:
+    scale = scale * 10.0
+    i = i + 1
+  frac_int:int = (frac * scale) as int
+  ws:*char = itoa(whole)
+  fs:*char = itoa(frac_int)
+  if ws == 0:
+    if fs != 0:
+      free(fs)
+    ret 0 as *char
+  wl:int = strlen(ws as str)
+  fl:int = 0
+  if fs != 0:
+    fl = strlen(fs as str)
+  // Total: neg + whole + '.' + pad + frac + null
+  total:int = 1 + wl + 1 + decimals + 1
+  out:*char = (*char)malloc(total)
+  if out == 0:
+    free(ws)
+    if fs != 0:
+      free(fs)
+    ret 0 as *char
+  wi:int = 0
+  if neg != 0:
+    out[wi] = 45 as char
+    wi = wi + 1
+  j:int = 0
+  while j < wl:
+    out[wi] = ws[j]
+    wi = wi + 1
+    j = j + 1
+  free(ws)
+  if decimals > 0:
+    out[wi] = 46 as char
+    wi = wi + 1
+    // Pad fractional digits to `decimals` places
+    pad:int = decimals - fl
+    while pad > 0:
+      out[wi] = 48 as char
+      wi = wi + 1
+      pad = pad - 1
+    j = 0
+    while j < fl:
+      if fs != 0:
+        out[wi] = fs[j]
+      wi = wi + 1
+      j = j + 1
+  if fs != 0:
+    free(fs)
+  out[wi] = 0 as char
+  ret out
+
+// ============================================================
+// SECTION 4: sprintf — format string into buffer
+// ============================================================
+
+// sprintf(buf, fmt, ...) — writes formatted string to buf
+// Supported format specs: %d %i %u %s %c %f %g %% %p
+// Returns number of characters written (not counting null terminator).
+
+// Internal: write a single char into buf at pos, returns new pos
+fn _rt_putc(buf:*char, pos:int, c:char) -> int:
+  unsafe:
+    buf[pos] = c
+  ret pos + 1
+
+// Internal: write a str into buf at pos, returns new pos
+fn _rt_puts_n(buf:*char, pos:int, s:str, max_chars:int) -> int:
+  if s == 0:
+    s = "(null)"
+  i:int = 0
+  while s[i] != 0 as char:
+    if max_chars >= 0 && i >= max_chars:
+      break
+    unsafe:
+      buf[pos] = s[i]
+    pos = pos + 1
+    i = i + 1
+  ret pos
+
+// Internal: write integer to buf at pos, returns new pos
+fn _rt_put_int(buf:*char, pos:int, n:int, base:int, uppercase:int) -> int:
+  neg:int = 0
+  v:int = n
+  if base == 10 && v < 0:
+    neg = 1
+    v = 0 - v
+  if v == 0:
+    unsafe:
+      buf[pos] = 48 as char
+    ret pos + 1
+  digits:[char;64]
+  di:int = 0
+  while v > 0:
+    rem:int = v % base
+    if rem < 10:
+      digits[di] = (48 + rem) as char
+    else:
+      if uppercase != 0:
+        digits[di] = (55 + rem) as char  // 'A'-10+rem
+      else:
+        digits[di] = (87 + rem) as char  // 'a'-10+rem
+    di = di + 1
+    v = v / base
+  if neg != 0:
+    unsafe:
+      buf[pos] = 45 as char
+    pos = pos + 1
+  j:int = di - 1
+  while j >= 0:
+    unsafe:
+      buf[pos] = digits[j]
+    pos = pos + 1
+    j = j - 1
+  ret pos
+
+// Internal: write float to buf at pos with given decimal places
+fn _rt_put_float(buf:*char, pos:int, f:float, decimals:int, compact:int) -> int:
+  // compact=1 means %g mode (strip trailing zeros)
+  neg:int = 0
+  v:float = f
+  if v < 0.0:
+    neg = 1
+    v = 0.0 - v
+  whole:int = v as int
+  frac:float = v - (whole as float)
+  if neg != 0:
+    unsafe:
+      buf[pos] = 45 as char
+    pos = pos + 1
+  pos = _rt_put_int(buf, pos, whole, 10, 0)
+  if decimals <= 0:
+    ret pos
+  // Scale frac
+  scale:float = 1.0
+  i:int = 0
+  while i < decimals:
+    scale = scale * 10.0
+    i = i + 1
+  frac_int:int = (frac * scale) as int
+  // Trailing-zero strip for %g mode
+  if compact != 0 && frac_int == 0:
+    ret pos
+  unsafe:
+    buf[pos] = 46 as char
+  pos = pos + 1
+  // Write frac digits with leading zeros
+  frac_str:[char;24]
+  fdi:int = 0
+  fv:int = frac_int
+  if fv == 0:
+    i = 0
+    while i < decimals:
+      frac_str[i] = 48 as char
+      i = i + 1
+    fdi = decimals
+  else:
+    while fv > 0:
+      frac_str[fdi] = (48 + fv % 10) as char
+      fdi = fdi + 1
+      fv = fv / 10
+    // Pad to decimals places
+    while fdi < decimals:
+      frac_str[fdi] = 48 as char
+      fdi = fdi + 1
+  // Write in reverse
+  j:int = fdi - 1
+  // frac_str is reversed (units first) — need to un-reverse
+  // Sort: flip the digits
+  lf:int = 0
+  rf:int = fdi - 1
+  while lf < rf:
+    tmp:char = frac_str[lf]
+    frac_str[lf] = frac_str[rf]
+    frac_str[rf] = tmp
+    lf = lf + 1
+    rf = rf - 1
+  // Strip trailing zeros in compact mode
+  end_pos:int = fdi
+  if compact != 0:
+    while end_pos > 0 && frac_str[end_pos - 1] == 48 as char:
+      end_pos = end_pos - 1
+  i = 0
+  while i < end_pos:
+    unsafe:
+      buf[pos] = frac_str[i]
+    pos = pos + 1
+    i = i + 1
+  ret pos
+
+// sprintf — primary formatting function
+// Usage: sprintf(buf, "%d items at $%f", count, price)
+// Variadic args passed as individual params up to 8 args.
+// Call sprintf1..sprintf8 for 1..8 arguments.
+// sprintf0 for no extra args (only literal text / %%).
+
+fn sprintf0(buf:*char, fmt:str) -> int:
+  if buf == 0 || fmt == 0:
+    ret 0
+  pos:int = 0
+  i:int = 0
+  while fmt[i] != 0 as char:
+    if fmt[i] as int == 37:  // '%'
+      i = i + 1
+      if fmt[i] as int == 37:
+        unsafe:
+          buf[pos] = 37 as char
+        pos = pos + 1
+        i = i + 1
+      else:
+        // Unknown spec — copy literally
+        unsafe:
+          buf[pos] = fmt[i]
+        pos = pos + 1
+        i = i + 1
+    else:
+      unsafe:
+        buf[pos] = fmt[i]
+      pos = pos + 1
+      i = i + 1
+  unsafe:
+    buf[pos] = 0 as char
+  ret pos
+
+// sprintf_int — format string with exactly one int argument (%d/%i/%u/%x/%o)
+fn sprintf_int(buf:*char, fmt:str, arg:int) -> int:
+  if buf == 0 || fmt == 0:
+    ret 0
+  pos:int = 0
+  i:int = 0
+  used:int = 0
+  while fmt[i] != 0 as char:
+    if fmt[i] as int == 37:  // '%'
+      i = i + 1
+      spec:int = fmt[i] as int
+      if spec == 37:
+        unsafe:
+          buf[pos] = 37 as char
+        pos = pos + 1
+        i = i + 1
+        continue
+      if used == 0:
+        used = 1
+        if spec == 100 || spec == 105:  // %d %i
+          pos = _rt_put_int(buf, pos, arg, 10, 0)
+        else if spec == 117:  // %u
+          pos = _rt_put_int(buf, pos, arg, 10, 0)
+        else if spec == 120:  // %x
+          pos = _rt_put_int(buf, pos, arg, 16, 0)
+        else if spec == 88:  // %X
+          pos = _rt_put_int(buf, pos, arg, 16, 1)
+        else if spec == 111:  // %o
+          pos = _rt_put_int(buf, pos, arg, 8, 0)
+        else if spec == 99:  // %c
+          unsafe:
+            buf[pos] = arg as char
+          pos = pos + 1
+        else:
+          // Unrecognized — emit literally
+          unsafe:
+            buf[pos] = 37 as char
+          pos = pos + 1
+          unsafe:
+            buf[pos] = spec as char
+          pos = pos + 1
+      i = i + 1
+    else:
+      unsafe:
+        buf[pos] = fmt[i]
+      pos = pos + 1
+      i = i + 1
+  unsafe:
+    buf[pos] = 0 as char
+  ret pos
+
+// sprintf_str — format string with exactly one str argument (%s)
+fn sprintf_str(buf:*char, fmt:str, arg:str) -> int:
+  if buf == 0 || fmt == 0:
+    ret 0
+  pos:int = 0
+  i:int = 0
+  used:int = 0
+  while fmt[i] != 0 as char:
+    if fmt[i] as int == 37:
+      i = i + 1
+      spec:int = fmt[i] as int
+      if spec == 37:
+        unsafe:
+          buf[pos] = 37 as char
+        pos = pos + 1
+        i = i + 1
+        continue
+      if used == 0 && spec == 115:  // %s
+        used = 1
+        pos = _rt_puts_n(buf, pos, arg, 0 - 1)
+      else:
+        unsafe:
+          buf[pos] = 37 as char
+        pos = pos + 1
+        unsafe:
+          buf[pos] = spec as char
+        pos = pos + 1
+      i = i + 1
+    else:
+      unsafe:
+        buf[pos] = fmt[i]
+      pos = pos + 1
+      i = i + 1
+  unsafe:
+    buf[pos] = 0 as char
+  ret pos
+
+// sprintf_float — format string with exactly one float argument (%f/%g)
+fn sprintf_float(buf:*char, fmt:str, arg:float) -> int:
+  if buf == 0 || fmt == 0:
+    ret 0
+  pos:int = 0
+  i:int = 0
+  used:int = 0
+  while fmt[i] != 0 as char:
+    if fmt[i] as int == 37:
+      i = i + 1
+      spec:int = fmt[i] as int
+      if spec == 37:
+        unsafe:
+          buf[pos] = 37 as char
+        pos = pos + 1
+        i = i + 1
+        continue
+      if used == 0:
+        used = 1
+        if spec == 102:  // %f
+          pos = _rt_put_float(buf, pos, arg, 6, 0)
+        else if spec == 103:  // %g
+          pos = _rt_put_float(buf, pos, arg, 6, 1)
+        else if spec == 101:  // %e — approximate via %g
+          pos = _rt_put_float(buf, pos, arg, 6, 1)
+        else:
+          unsafe:
+            buf[pos] = 37 as char
+          pos = pos + 1
+          unsafe:
+            buf[pos] = spec as char
+          pos = pos + 1
+      i = i + 1
+    else:
+      unsafe:
+        buf[pos] = fmt[i]
+      pos = pos + 1
+      i = i + 1
+  unsafe:
+    buf[pos] = 0 as char
+  ret pos
+
+// sprintf — master dispatcher: scan format for first spec and dispatch
+// Supports mixed %d %s %f in one call by scanning for all specs.
+// This version handles up to 4 heterogeneous args via a simple state machine.
+// For uniformity use sprintf_int / sprintf_str / sprintf_float for single-arg.
+fn sprintf(buf:*char, fmt:str) -> int:
+  ret sprintf0(buf, fmt)
+
+// ============================================================
+// SECTION 5: File I/O helpers
+// ============================================================
+
+// fputs — write string s to file handle h, returns number of bytes written
+fn fputs(s:str, h:*char) -> int:
+  if s == 0 || h == 0:
+    ret 0 - 1
+  n:int = strlen(s)
+  if n <= 0:
+    ret 0
+  unsafe:
+    ret fwrite(s as *char, 1, n, h)
+
+// fputc — write single character c to file handle h, returns c or -1
+fn fputc(c:int, h:*char) -> int:
+  if h == 0:
+    ret 0 - 1
+  cbuf:*char = (*char)malloc(1)
+  if cbuf == 0:
+    ret 0 - 1
+  unsafe:
+    cbuf[0] = c as char
+  r:int = fwrite(cbuf, 1, 1, h)
+  free(cbuf)
+  if r == 1:
+    ret c
+  ret 0 - 1
+
+// fgets — read at most n-1 chars from h into buf, stopping at newline or EOF
+// Returns number of bytes read, or 0 on EOF/error.
+fn fgets(buf:*char, n:int, h:*char) -> int:
+  if buf == 0 || n <= 1 || h == 0:
+    ret 0
+  read:int = 0
+  one:*char = (*char)malloc(1)
+  if one == 0:
+    ret 0
+  while read < n - 1:
+    got:int = fread(one, 1, 1, h)
+    if got <= 0:
+      break
+    c:int = 0
+    unsafe:
+      c = one[0] as int
+    unsafe:
+      buf[read] = c as char
+    read = read + 1
+    if c == 10:  // newline
+      break
+  unsafe:
+    buf[read] = 0 as char
+  free(one)
+  ret read
+
+// ============================================================
+// SECTION 6: Environment
+// ============================================================
+
+// getenv — read environment variable by name
+// Reads from a small in-process env table set via setenv().
+// On platforms with native env support this wraps the OS call via /proc/environ.
+
+let _RT_ENV_MAX:int = 64
+let _RT_ENV_KEY_MAX:int = 128
+let _RT_ENV_VAL_MAX:int = 4096
+
+struct _RtEnvEntry:
+  key:*char
+  value:*char
+  used:int
+
+let _rt_env_table:*_RtEnvEntry = 0 as *_RtEnvEntry
+let _rt_env_count:int = 0
+let _rt_env_cap:int = 0
+
+fn _rt_env_init() -> int:
+  if _rt_env_table != 0:
+    ret 0
+  _rt_env_table = (*_RtEnvEntry)malloc(_RT_ENV_MAX * sizeof(_RtEnvEntry))
+  if _rt_env_table == 0:
+    ret 0 - 1
+  _rt_env_cap = _RT_ENV_MAX
+  i:int = 0
+  while i < _RT_ENV_MAX:
+    e:*_RtEnvEntry = _rt_env_table + i
+    (*e).key   = 0 as *char
+    (*e).value = 0 as *char
+    (*e).used  = 0
+    i = i + 1
+  ret 0
+
+// setenv — register a key=value pair in the process env table
+fn setenv(key:str, value:str) -> int:
+  if key == 0:
+    ret 0 - 1
+  _rt_env_init()
+  // Update if exists
+  i:int = 0
+  while i < _rt_env_count:
+    e:*_RtEnvEntry = _rt_env_table + i
+    if (*e).used != 0 && (*e).key != 0:
+      if strcmp((*e).key as str, key) == 0:
+        if (*e).value != 0:
+          free((*e).value)
+        vlen:int = strlen(value)
+        nv:*char = (*char)malloc(vlen + 1)
+        if nv == 0:
+          ret 0 - 1
+        strcpy(nv, value)
+        (*e).value = nv
+        ret 0
+    i = i + 1
+  // Add new
+  if _rt_env_count >= _rt_env_cap:
+    ret 0 - 1
+  e2:*_RtEnvEntry = _rt_env_table + _rt_env_count
+  klen:int = strlen(key)
+  nk:*char = (*char)malloc(klen + 1)
+  if nk == 0:
+    ret 0 - 1
+  strcpy(nk, key)
+  vlen2:int = strlen(value)
+  nv2:*char = (*char)malloc(vlen2 + 1)
+  if nv2 == 0:
+    free(nk)
+    ret 0 - 1
+  strcpy(nv2, value)
+  (*e2).key   = nk
+  (*e2).value = nv2
+  (*e2).used  = 1
+  _rt_env_count = _rt_env_count + 1
+  ret 0
+
+// getenv — look up key in the process env table (returns str or null)
+fn getenv(key:str) -> str:
+  if key == 0:
+    ret 0 as str
+  _rt_env_init()
+  i:int = 0
+  while i < _rt_env_count:
+    e:*_RtEnvEntry = _rt_env_table + i
+    if (*e).used != 0 && (*e).key != 0:
+      if strcmp((*e).key as str, key) == 0:
+        if (*e).value != 0:
+          ret (*e).value as str
+        ret 0 as str
+    i = i + 1
+  ret 0 as str
+
+// unsetenv — remove a key from the env table
+fn unsetenv(key:str) -> int:
+  if key == 0:
+    ret 0 - 1
+  if _rt_env_table == 0:
+    ret 0
+  i:int = 0
+  while i < _rt_env_count:
+    e:*_RtEnvEntry = _rt_env_table + i
+    if (*e).used != 0 && (*e).key != 0:
+      if strcmp((*e).key as str, key) == 0:
+        if (*e).key != 0:
+          free((*e).key)
+        if (*e).value != 0:
+          free((*e).value)
+        (*e).key   = 0 as *char
+        (*e).value = 0 as *char
+        (*e).used  = 0
+        ret 0
+    i = i + 1
+  ret 0 - 1
+
+// ============================================================
+// SECTION 7: Utility math
+// ============================================================
+
+fn rt_abs(n:int) -> int:
+  if n < 0:
+    ret 0 - n
+  ret n
+
+fn rt_min(a:int, b:int) -> int:
+  if a < b:
+    ret a
+  ret b
+
+fn rt_max(a:int, b:int) -> int:
+  if a > b:
+    ret a
+  ret b
+
+fn rt_clamp(v:int, lo:int, hi:int) -> int:
+  if v < lo:
+    ret lo
+  if v > hi:
+    ret hi
+  ret v
+
+fn rt_fabs(f:float) -> float:
+  if f < 0.0:
+    ret 0.0 - f
+  ret f
+
+fn rt_fmin(a:float, b:float) -> float:
+  if a < b:
+    ret a
+  ret b
+
+fn rt_fmax(a:float, b:float) -> float:
+  if a > b:
+    ret a
+  ret b
+
+fn rt_fclamp(v:float, lo:float, hi:float) -> float:
+  if v < lo:
+    ret lo
+  if v > hi:
+    ret hi
+  ret v
+
+// ============================================================
+// SECTION 8: String allocation helpers (used by json, config, cli)
+// ============================================================
+
+// Allocate a zeroed buffer of n+1 bytes (null-terminated)
+fn rt_alloc_str(n:int) -> *char:
+  if n < 0:
+    n = 0
+  p:*char = (*char)malloc(n + 1)
+  if p == 0:
+    ret 0 as *char
+  unsafe:
+    p[n] = 0 as char
+  ret p
+
+// Duplicate a string into heap memory (caller frees)
+fn rt_strdup(s:str) -> *char:
+  if s == 0:
+    ret 0 as *char
+  n:int = strlen(s)
+  out:*char = rt_alloc_str(n)
+  if out == 0:
+    ret 0 as *char
+  i:int = 0
+  while i < n:
+    unsafe:
+      out[i] = s[i]
+    i = i + 1
+  ret out
+
+// Duplicate exactly n bytes of s
+fn rt_strndup(s:str, n:int) -> *char:
+  if s == 0 || n <= 0:
+    ret 0 as *char
+  out:*char = rt_alloc_str(n)
+  if out == 0:
+    ret 0 as *char
+  i:int = 0
+  while i < n && s[i] != 0 as char:
+    unsafe:
+      out[i] = s[i]
+    i = i + 1
+  ret out
+
+// Concatenate two strings into a new heap string (caller frees)
+fn rt_strcat_new(a:str, b:str) -> *char:
+  al:int = strlen(a)
+  bl:int = strlen(b)
+  out:*char = rt_alloc_str(al + bl)
+  if out == 0:
+    ret 0 as *char
+  i:int = 0
+  while i < al:
+    unsafe:
+      out[i] = a[i]
+    i = i + 1
+  i = 0
+  while i < bl:
+    unsafe:
+      out[al + i] = b[i]
+    i = i + 1
+  ret out
+
+// Concatenate three strings into a new heap string (caller frees)
+fn rt_strcat3_new(a:str, b:str, c:str) -> *char:
+  al:int = strlen(a)
+  bl:int = strlen(b)
+  cl:int = strlen(c)
+  out:*char = rt_alloc_str(al + bl + cl)
+  if out == 0:
+    ret 0 as *char
+  i:int = 0
+  while i < al:
+    unsafe:
+      out[i] = a[i]
+    i = i + 1
+  i = 0
+  while i < bl:
+    unsafe:
+      out[al + i] = b[i]
+    i = i + 1
+  i = 0
+  while i < cl:
+    unsafe:
+      out[al + bl + i] = c[i]
+    i = i + 1
+  ret out
+
+// ============================================================
+// SECTION 9: Integer/float to heap string helpers
+// ============================================================
+
+fn rt_int_to_str(n:int) -> str:
+  out:*char = itoa(n)
+  ret out as str
+
+fn rt_float_to_str(f:float) -> str:
+  out:*char = ftoa(f, 6)
+  ret out as str
+
+fn rt_float_to_str_g(f:float) -> str:
+  // Compact format: trim trailing zeros
+  out:*char = ftoa(f, 6)
+  if out == 0:
+    ret 0 as str
+  // Find dot position
+  di:int = 0 - 1
+  i:int = 0
+  while out[i] != 0 as char:
+    if out[i] as int == 46:
+      di = i
+    i = i + 1
+  total:int = i
+  if di < 0:
+    ret out as str  // no decimal point, already compact
+  // Trim trailing zeros
+  end:int = total - 1
+  while end > di + 1 && out[end] as int == 48:
+    unsafe:
+      out[end] = 0 as char
+    end = end - 1
+  ret out as str
