@@ -92,7 +92,10 @@ fn _join2(a:str, b:str) -> str:
     ret a
   na:int = len(a)
   nb:int = len(b)
-  p:*char = malloc(na + nb + 1)
+  out_len:int = na + nb
+  if out_len < na || out_len < nb:
+    ret 0 as str
+  p:*char = malloc(out_len + 1)
   if p == 0:
     ret 0 as str
   unsafe:
@@ -111,7 +114,10 @@ fn _join3(a:str, b:str, c:str) -> str:
   na:int = len(a)
   nb:int = len(b)
   nc:int = len(c)
-  p:*char = malloc(na + nb + nc + 1)
+  out_len:int = na + nb + nc
+  if out_len < na || out_len < nb || out_len < nc:
+    ret 0 as str
+  p:*char = malloc(out_len + 1)
   if p == 0:
     ret 0 as str
   unsafe:
@@ -122,6 +128,14 @@ fn _join3(a:str, b:str, c:str) -> str:
   ret p as str
 
 fn _itoa(v:int) -> str:
+  if v == (0 - 9223372036854775808):
+    p:*char = malloc(21)
+    if p != 0:
+      unsafe:
+        memcpy(p, "-9223372036854775808" as *char, 20)
+        p[20] = 0 as char
+      ret p as str
+    ret 0 as str
   neg:int = 0
   n:int = v
   if n < 0:
