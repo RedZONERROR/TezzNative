@@ -25,16 +25,25 @@ RewriteCond %{HTTP_HOST}    ^tezzcorp\.com$ [NC]
 RewriteRule ^ https://www.tezzcorp.com%{REQUEST_URI} [R=301,L]
 
 # ------------------------------------------------------------
-# 2) Subpath routing: /community/ → community.php
-#    /community, /community/index.php → community.php
+# 2) Named-page clean URL routing (no .php extension)
 # ------------------------------------------------------------
+# /community or /community/ → community.php
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
-RewriteRule ^community/?$        community.php     [L,QSA]
-RewriteRule ^community/index\.php$ community.php   [L,QSA]
+RewriteRule ^community/?$          community.php     [L,QSA]
+RewriteRule ^community/index\.php$ community.php     [L,QSA]
+
+# /support → support.php
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^support/?$            support.php       [L,QSA]
+
+# /download → /download/ (directory index)
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteRule ^download/?$           download/         [L,QSA]
 
 # ------------------------------------------------------------
-# 3) Pretty URLs: strip .php extension
+# 3) Pretty URLs: strip .php extension (single-segment)
 # ------------------------------------------------------------
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteCond %{REQUEST_FILENAME}.php -f
@@ -43,8 +52,22 @@ RewriteRule ^([^/]+)$ $1.php [L,QSA]
 # Also handle /path/ → /path.php for single-segment paths
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteCond %{REQUEST_FILENAME} !-f
-RewriteCond %{DOCUMENT_ROOT}/%{REQUEST_URI}.php -f
+RewriteCond %{DOCUMENT_ROOT}/%1.php -f
 RewriteRule ^([^/]+)/?$ $1.php [L,QSA]
+
+# ------------------------------------------------------------
+# 3b) Pretty URLs: subdirectory .php stripping (e.g. /docs/lsp)
+# ------------------------------------------------------------
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{DOCUMENT_ROOT}/%{REQUEST_URI}.php -f
+RewriteRule ^(.+)$ $1.php [L,QSA]
+
+# Also handle /dir/slug/ → /dir/slug.php
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{DOCUMENT_ROOT}/%1.php -f
+RewriteRule ^(.+)/?$ $1.php [L,QSA]
 
 # ------------------------------------------------------------
 # 4) Security: disable directory listing

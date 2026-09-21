@@ -29,7 +29,7 @@ $active_nav = isset($active_nav) ? $active_nav : 'home';
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
   
   <!-- Stylesheets -->
-  <link rel="stylesheet" href="/assets/app.css?v=2.2.4">
+  <link rel="stylesheet" href="/assets/app.css?v=2.2.5">
   
 </head>
 <body>

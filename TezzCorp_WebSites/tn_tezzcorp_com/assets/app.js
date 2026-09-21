@@ -453,17 +453,91 @@ fn main() -> int:
     sections.forEach(function (s) { obs.observe(s); });
   }
 
+  // ── 10. Library / Package Registry Filter ────────────────────────────────────
+  function initLibFilter() {
+    var searchInput = document.getElementById('pkgSearchInput');
+    var chipBtns    = document.querySelectorAll('.chip-btn');
+    var cards       = document.querySelectorAll('.package-card');
+
+    if (!cards.length) return;
+
+    var activeCat = 'all';
+
+    function filterCards() {
+      var query = searchInput ? searchInput.value.trim().toLowerCase() : '';
+      var visible = 0;
+      cards.forEach(function (card) {
+        var name = (card.getAttribute('data-name') || '').toLowerCase();
+        var cat  = (card.getAttribute('data-cat')  || '').toLowerCase();
+        var desc = (card.querySelector('.pkg-desc')  ? card.querySelector('.pkg-desc').textContent  : '').toLowerCase();
+        var matchCat   = (activeCat === 'all' || cat === activeCat);
+        var matchQuery = (!query || name.indexOf(query) !== -1 || desc.indexOf(query) !== -1 || cat.indexOf(query) !== -1);
+        var show = matchCat && matchQuery;
+        card.style.display = show ? '' : 'none';
+        if (show) visible++;
+      });
+
+      // Show "no results" message if needed
+      var noResult = document.getElementById('pkgNoResult');
+      if (noResult) {
+        noResult.style.display = visible === 0 ? 'block' : 'none';
+      }
+    }
+
+    // Chip button clicks
+    chipBtns.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        chipBtns.forEach(function (b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        activeCat = (btn.getAttribute('data-cat') || 'all').toLowerCase();
+        filterCards();
+      });
+    });
+
+    // Search input
+    if (searchInput) {
+      searchInput.addEventListener('input', filterCards);
+      searchInput.addEventListener('search', filterCards);
+    }
+
+    // Initial render
+    filterCards();
+  }
+
+  // ── 11. Auto-inject Copy Buttons on all <pre><code> blocks ───────────────────
+  function initCodeBlockCopyButtons() {
+    var pres = document.querySelectorAll('pre:not(.has-copy-btn)');
+    pres.forEach(function (pre) {
+      var code = pre.querySelector('code');
+      if (!code) return;
+
+      // Make pre relative for positioning
+      pre.style.position = 'relative';
+      pre.classList.add('has-copy-btn');
+
+      var btn = document.createElement('button');
+      btn.className = 'code-copy-btn copy-btn';
+      btn.setAttribute('title', 'Copy code');
+      btn.setAttribute('aria-label', 'Copy code to clipboard');
+      btn.setAttribute('data-copy', code.textContent || '');
+      btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+      pre.appendChild(btn);
+    });
+  }
+
   // ── Bootstrap ────────────────────────────────────────────────────────────────
   function boot() {
     initTheme();
     initMobileNav();
     initHeaderScroll();
     initCopyButtons();
+    initCodeBlockCopyButtons();
     initPlayground();
     initBenchmarkAnims();
     initCardAnims();
     initSmoothScroll();
     initScrollSpy();
+    initLibFilter();
   }
 
   if (document.readyState === 'loading') {

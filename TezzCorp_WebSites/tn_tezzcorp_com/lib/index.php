@@ -60,6 +60,12 @@ require_once __DIR__ . '/../api/packages.php';
           </div>
         </div>
       <?php endforeach; ?>
+      <!-- No results message (shown by JS when filter returns nothing) -->
+      <div id="pkgNoResult" style="display:none; grid-column: 1/-1; text-align:center; padding: 60px 20px; color: var(--text-tertiary);">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="opacity:0.4; margin-bottom: 16px; display: block; margin-left: auto; margin-right: auto;"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <p style="font-size: 1.05rem; font-weight: 600; margin-bottom: 6px;">No packages found</p>
+        <p style="font-size: 0.9rem;">Try a different search term or category filter.</p>
+      </div>
     </div>
   </div>
 </section>

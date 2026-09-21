@@ -13,24 +13,26 @@
           <span class="footer-brand-name">TezzNative</span>
         </div>
         <p class="footer-bio">
-          Ultra-fast native AI, tensor arithmetic, and systems programming language engineered by <strong>TezzCorp Pvt Ltd.</strong> and created by <strong>Rohit Pathak</strong>. Featuring zero runtime garbage collection pauses, standalone PE/ELF binaries, and first-class async concurrency.
+          Ultra-fast native AI, tensor arithmetic, and systems programming language founded on <strong>18 Oct 2022</strong> by <strong>Rohit Pathak</strong> at <strong>TezzCorp Pvt Ltd.</strong> Featuring zero runtime GC pauses, standalone PE/ELF binaries, first-class async/await concurrency, and native GGUF LLM inference.
         </p>
         <div class="footer-badges">
+          <span class="f-badge">Founded Oct 2022</span>
           <span class="f-badge">Zero-GC Pauses</span>
-          <span class="f-badge">Standalone Executables</span>
           <span class="f-badge">Native LSP v3.17</span>
+          <span class="f-badge">v2.2.1 Production</span>
         </div>
       </div>
 
-      <!-- Col 2: Documentation & Tooling -->
+      <!-- Col 2: Documentation -->
       <div class="footer-links-col">
         <h4 class="footer-heading">Documentation</h4>
         <ul class="footer-links">
           <li><a href="/docs/">Getting Started</a></li>
           <li><a href="/docs/lsp">Language Server (LSP)</a></li>
-          <li><a href="/#playground">Language Tour & Syntax</a></li>
-          <li><a href="/docs/">Standard Library Index</a></li>
-          <li><a href="/docs/">GGUF Model Loading Guide</a></li>
+          <li><a href="/docs/language">Language Reference</a></li>
+          <li><a href="/#playground">Language Tour &amp; Syntax</a></li>
+          <li><a href="/docs/getting-started">Compiler Guide</a></li>
+          <li><a href="/docs/sdk">SDK Reference</a></li>
         </ul>
       </div>
 
@@ -38,32 +40,58 @@
       <div class="footer-links-col">
         <h4 class="footer-heading">Standard Packages</h4>
         <ul class="footer-links">
-          <li><a href="/lib/#tztensor"><code>tztensor</code> (Tensors & Matrix)</a></li>
-          <li><a href="/lib/#tzautodiff"><code>tzautodiff</code> (Autograd Tape)</a></li>
-          <li><a href="/lib/#tzgguf"><code>tzgguf</code> (Q4_0/Q8_0 Engine)</a></li>
+          <li><a href="/lib/#tensor"><code>tensor</code> (Tensors &amp; Matrix)</a></li>
+          <li><a href="/lib/#llm_core"><code>llm_core</code> (LLM Engine)</a></li>
+          <li><a href="/lib/#net"><code>net</code> (Async HTTP)</a></li>
           <li><a href="/lib/#task"><code>task</code> (Async/Await Runtime)</a></li>
-          <li><a href="/lib/#tezzui"><code>tezzui</code> (Native GUI Framework)</a></li>
+          <li><a href="/lib/#tezzui"><code>tezzui</code> (Native GUI)</a></li>
           <li><a href="/lib/">View all 40+ packages &rarr;</a></li>
         </ul>
       </div>
 
-      <!-- Col 4: Tooling & TezzCorp Cloud -->
+      <!-- Col 4: Community & Download -->
       <div class="footer-links-col">
-        <h4 class="footer-heading">Ecosystem & Download</h4>
+        <h4 class="footer-heading">Community &amp; Downloads</h4>
         <ul class="footer-links">
-          <li><a href="/download/TezzNativeInstaller.exe">Native GUI Installer (.exe)</a></li>
-          <li><a href="/download/tezz_lsp.exe">LSP Daemon Binary (.exe)</a></li>
-          <li><a href="/download/">Windows & Linux SDK Archives</a></li>
+          <li><a href="/download/TezzNativeInstaller.exe">GUI Installer (.exe)</a></li>
+          <li><a href="/download/">SDK &amp; All Builds</a></li>
+          <li><a href="/community">Developer Forum</a></li>
+          <li><a href="/support">Support</a></li>
+          <li><a href="https://github.com/TezzCorp/TezzNative" target="_blank" rel="noopener">GitHub Repository</a></li>
           <li><a href="https://tezzcorp.com" target="_blank" rel="noopener">TezzCorp Pvt Ltd.</a></li>
-          <li><a href="/support.php">Developer Community & Support</a></li>
         </ul>
+      </div>
+    </div>
+
+    <!-- Active Core Development Team -->
+    <div style="border-top: 1px solid var(--border-subtle); padding-top: 28px; margin-bottom: 24px;">
+      <h4 style="font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--text-tertiary); margin-bottom: 18px;">Active Core Development Team</h4>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px;">
+        <div class="team-card" style="padding: 16px 18px; gap: 4px;">
+          <div class="team-avatar" style="width: 42px; height: 42px; font-size: 1rem; margin-bottom: 6px;">RP</div>
+          <div class="team-name" style="font-size: 0.98rem;">Rohit Pathak</div>
+          <div class="team-role">Creator &amp; Lead Architect</div>
+          <div class="team-since">Since 18 Oct 2022 &bull; TezzNative v0.1 → v2.2.1</div>
+        </div>
+        <div class="team-card" style="padding: 16px 18px; gap: 4px;">
+          <div class="team-avatar" style="width: 42px; height: 42px; font-size: 1rem; background: linear-gradient(135deg, #0284c7, #0ea5e9); margin-bottom: 6px;">VS</div>
+          <div class="team-name" style="font-size: 0.98rem;">Vikash Sharma</div>
+          <div class="team-role">Core Compiler Engineer</div>
+          <div class="team-since">Since 01 Jan 2025 &bull; IR &amp; Codegen</div>
+        </div>
+        <div class="team-card" style="padding: 16px 18px; gap: 4px;">
+          <div class="team-avatar" style="width: 42px; height: 42px; font-size: 1rem; background: linear-gradient(135deg, #7c3aed, #a855f7); margin-bottom: 6px;">SM</div>
+          <div class="team-name" style="font-size: 0.98rem;">Suman Mandal</div>
+          <div class="team-role">Runtime &amp; SDK Engineer</div>
+          <div class="team-since">Since 21 Sep 2026 &bull; Native Runtime</div>
+        </div>
       </div>
     </div>
 
     <!-- Bottom Copyright & Status -->
     <div class="footer-bottom">
       <div class="footer-copy">
-        &copy; <?= date('Y') ?> <strong>TezzCorp Pvt Ltd.</strong> Created by <strong>Rohit Pathak</strong>. All rights reserved.
+        &copy; <?= date('Y') ?> <strong>TezzCorp Pvt Ltd.</strong> &mdash; TezzNative, founded <strong>18 Oct 2022</strong> by <strong>Rohit Pathak</strong>. All rights reserved.
       </div>
       <div class="footer-status">
         <span class="status-indicator" style="background: #ff9933; box-shadow: 0 0 8px #ff9933;"></span>
@@ -76,6 +104,6 @@
 </div> <!-- .site-wrapper -->
 
 <!-- Scripts -->
-<script src="/assets/app.js?v=2.2.2"></script>
+<script src="/assets/app.js?v=2.2.4"></script>
 </body>
 </html>

@@ -1697,6 +1697,455 @@ html.light .text-gradient {
   box-shadow: 0 0 6px #10b981;
 }
 
+/* ── Code Block Copy Button (auto-injected) ─────────────────────────────────── */
+.code-copy-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--text-tertiary);
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  opacity: 0;
+  z-index: 5;
+}
+
+pre:hover .code-copy-btn,
+pre:focus-within .code-copy-btn {
+  opacity: 1;
+}
+
+.code-copy-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: var(--text-primary);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+html.light .code-copy-btn {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: rgba(0, 0, 0, 0.12);
+  color: #64748b;
+}
+
+html.light .code-copy-btn:hover {
+  background: rgba(0, 0, 0, 0.1);
+  color: #0f172a;
+}
+
+/* ── Text Visibility Fixes (Dark & Light Mode) ──────────────────────────────── */
+
+/* Inline code — always readable */
+:not(pre) > code {
+  background: var(--bg-surface-raised);
+  color: var(--text-accent);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.88em;
+  border: 1px solid var(--border-subtle);
+}
+
+html.light :not(pre) > code {
+  background: #f1f5f9;
+  color: #0284c7;
+  border-color: #e2e8f0;
+}
+
+/* Pre / code blocks */
+pre {
+  background: var(--code-bg, #090d16);
+  border: 1px solid var(--code-border, rgba(255, 255, 255, 0.1));
+  border-radius: var(--radius-md);
+  padding: 20px;
+  overflow-x: auto;
+  position: relative;
+}
+
+pre code {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: #e2e8f0;
+  font-size: 0.88rem;
+  line-height: 1.7;
+}
+
+html.light pre {
+  background: #0f172a;
+  border-color: rgba(0, 0, 0, 0.12);
+}
+
+html.light pre code {
+  color: #e2e8f0;
+}
+
+/* Strong, em, mark — ensure visibility in both modes */
+strong, b {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+em, i {
+  color: var(--text-secondary);
+}
+
+html.light strong, html.light b {
+  color: #0f172a;
+}
+
+html.light em, html.light i {
+  color: #475569;
+}
+
+/* Headings in content areas */
+.section-container h2,
+.section-container h3,
+.section-container h4 {
+  color: var(--text-primary);
+}
+
+html.light .section-container h2,
+html.light .section-container h3,
+html.light .section-container h4 {
+  color: #0f172a;
+}
+
+/* Paragraph text — ensure proper contrast */
+.section-container p {
+  color: var(--text-secondary);
+}
+
+html.light .section-container p {
+  color: #334155;
+}
+
+/* Table visibility */
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+th {
+  background: var(--bg-surface-raised);
+  color: var(--text-primary);
+  font-weight: 700;
+  padding: 10px 14px;
+  text-align: left;
+  border-bottom: 2px solid var(--border-medium);
+}
+
+td {
+  padding: 9px 14px;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+html.light th {
+  background: #f1f5f9;
+  color: #0f172a;
+  border-color: #cbd5e1;
+}
+
+html.light td {
+  color: #334155;
+  border-color: #e2e8f0;
+}
+
+/* ── Library Filter Chips & Search ──────────────────────────────────────────── */
+.registry-search-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--bg-surface-raised);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  padding: 12px 18px;
+  margin-bottom: 22px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.registry-search-bar:focus-within {
+  border-color: var(--border-accent);
+  box-shadow: 0 0 0 3px rgba(255, 153, 51, 0.12);
+}
+
+.search-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 0.95rem;
+}
+
+.search-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+html.light .registry-search-bar {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+html.light .search-input {
+  color: #0f172a;
+}
+
+html.light .search-input::placeholder {
+  color: #94a3b8;
+}
+
+.category-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 28px;
+}
+
+.chip-btn {
+  padding: 7px 16px;
+  border-radius: var(--radius-full);
+  background: var(--bg-surface-raised);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: 0.84rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.chip-btn:hover {
+  border-color: var(--border-accent);
+  color: var(--text-accent);
+  background: rgba(255, 153, 51, 0.08);
+}
+
+.chip-btn.active {
+  background: var(--brand-gradient);
+  color: #ffffff;
+  border-color: transparent;
+  box-shadow: 0 2px 12px rgba(255, 103, 31, 0.35);
+}
+
+html.light .chip-btn {
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+  color: #475569;
+}
+
+html.light .chip-btn:hover {
+  border-color: #0284c7;
+  color: #0284c7;
+  background: rgba(2, 132, 199, 0.08);
+}
+
+html.light .chip-btn.active {
+  background: linear-gradient(135deg, #0284c7, #0ea5e9);
+  color: #fff;
+  border-color: transparent;
+}
+
+/* Package grid */
+.packages-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 20px;
+}
+
+.package-card {
+  background: var(--bg-surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.package-card:hover {
+  transform: translateY(-3px);
+  border-color: var(--border-accent);
+  box-shadow: var(--shadow-md);
+}
+
+html.light .package-card {
+  background: #ffffff;
+  border-color: #e2e8f0;
+}
+
+html.light .package-card:hover {
+  border-color: #0284c7;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+}
+
+.pkg-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.pkg-name {
+  font-family: var(--font-mono);
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+html.light .pkg-name {
+  color: #0f172a;
+}
+
+.pkg-ver {
+  font-size: 0.76rem;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background: rgba(56, 189, 248, 0.12);
+  color: #38bdf8;
+  font-weight: 600;
+  font-family: var(--font-mono);
+}
+
+html.light .pkg-ver {
+  background: rgba(2, 132, 199, 0.1);
+  color: #0284c7;
+}
+
+.pkg-desc {
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+  line-height: 1.55;
+  flex-grow: 1;
+}
+
+html.light .pkg-desc {
+  color: #475569;
+}
+
+.pkg-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+}
+
+html.light .pkg-actions {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+.pkg-cmd {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: #38bdf8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+html.light .pkg-cmd {
+  color: #0284c7;
+}
+
+/* No results state */
+#pkgNoResult {
+  display: none;
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-tertiary);
+  font-size: 1rem;
+}
+
+/* ── Team Section ─────────────────────────────────────────────────────────────── */
+.team-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 24px;
+  margin-top: 40px;
+}
+
+.team-card {
+  background: var(--bg-surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 28px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: transform 0.2s ease, border-color 0.2s ease;
+}
+
+.team-card:hover {
+  transform: translateY(-3px);
+  border-color: var(--border-accent);
+}
+
+html.light .team-card {
+  background: #ffffff;
+  border-color: #e2e8f0;
+}
+
+.team-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--brand-gradient);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: #fff;
+  margin-bottom: 8px;
+  box-shadow: 0 4px 14px rgba(255, 103, 31, 0.35);
+}
+
+.team-name {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+html.light .team-name {
+  color: #0f172a;
+}
+
+.team-role {
+  font-size: 0.84rem;
+  color: var(--text-accent);
+  font-weight: 600;
+}
+
+.team-since {
+  font-size: 0.78rem;
+  color: var(--text-tertiary);
+}
+
+.team-bio {
+  font-size: 0.87rem;
+  color: var(--text-secondary);
+  line-height: 1.55;
+  margin-top: 4px;
+}
+
+html.light .team-bio {
+  color: #475569;
+}
+
 /* =================================================================
    RESPONSIVE MEDIA QUERIES — TezzNative Language Portal
    Breakpoints: 1200 | 1024 | 900 | 768 | 640 | 420
