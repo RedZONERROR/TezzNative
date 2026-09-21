@@ -86,7 +86,10 @@ fn str_cat3(a:str, b:str, c:str) -> str:
   na:int = _str_len(a)
   nb:int = _str_len(b)
   nc:int = _str_len(c)
-  p:*char = _str_alloc(na + nb + nc)
+  out_len:int = na + nb + nc
+  if out_len < na || out_len < nb || out_len < nc:
+    ret 0 as str
+  p:*char = _str_alloc(out_len)
   if p == 0:
     ret 0 as str
   off:int = 0
@@ -365,7 +368,14 @@ fn str_replace(s:str, from2:str, to2:str) -> str:
       i = i + 1
   if count == 0:
     ret str_dup(source)
-  out_len:int = source_len + count * (nrepl - nfrom)
+  diff:int = nrepl - nfrom
+  if diff > 0:
+    max_count:int = (9223372036854775807 - source_len) / diff
+    if count > max_count:
+      ret 0 as str
+  out_len:int = source_len + count * diff
+  if out_len < 0:
+    ret 0 as str
   out:*char = _str_alloc(out_len)
   if out == 0:
     ret 0 as str
@@ -478,6 +488,8 @@ fn int_to_str(n:int) -> str:
     unsafe:
       p[0] = 48 as char
     ret p as str
+  if n == (0 - 9223372036854775808):
+    ret str_dup("-9223372036854775808")
   // Handle sign
   neg:int = 0
   v:int = n

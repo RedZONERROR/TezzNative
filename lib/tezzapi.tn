@@ -166,6 +166,8 @@ fn _api_join3(a:str, b:str, c:str) -> str:
   ret out
 
 fn _api_itoa(v:int) -> str:
+  if v == (0 - 9223372036854775808):
+    ret _api_strdup("-9223372036854775808")
   if v < 0:
     s:str = _api_itoa(0 - v)
     out:str = _api_join2("-", s)
@@ -247,12 +249,21 @@ fn _api_url_decode(s:str) -> str:
       if h1 >= 48 && h1 <= 57: v1 = h1 - 48
       else if h1 >= 65 && h1 <= 70: v1 = h1 - 55
       else if h1 >= 97 && h1 <= 102: v1 = h1 - 87
+      else: v1 = 0 - 1
       if h2 >= 48 && h2 <= 57: v2 = h2 - 48
       else if h2 >= 65 && h2 <= 70: v2 = h2 - 55
       else if h2 >= 97 && h2 <= 102: v2 = h2 - 87
-      out[di] = (v1 * 16 + v2) as char
-      si = si + 3
-      di = di + 1
+      else: v2 = 0 - 1
+      if v1 < 0 || v2 < 0 || (v1 == 0 && v2 == 0):
+        out[di] = 37 as char
+        out[di+1] = h1 as char
+        out[di+2] = h2 as char
+        si = si + 3
+        di = di + 3
+      else:
+        out[di] = (v1 * 16 + v2) as char
+        si = si + 3
+        di = di + 1
     else if c == 43:  // '+' → space
       out[di] = 32 as char
       si = si + 1
@@ -495,7 +506,14 @@ fn api_body_json_field(req:*ApiRequest, key:str) -> str:
           ve:int = vs
           while ve < bn:
             c2:int = (body as *char)[ve] as int
-            if c2 == 34 && (ve == 0 || (body as *char)[ve-1] != 92 as char): break
+            if c2 == 34:
+              escaped:int = 0
+              b:int = ve - 1
+              while b >= vs && (body as *char)[b] == 92 as char:
+                escaped = escaped + 1
+                b = b - 1
+              if escaped % 2 == 0:
+                break
             ve = ve + 1
           ret _api_slice(body, vs, ve)
         else:
