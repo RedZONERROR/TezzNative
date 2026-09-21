@@ -1,4 +1,4 @@
-# lock-meta v1 lines=49 payload=18C0AF12 key=none sig=none
+# lock-meta v1 lines=49 payload=620AC413 key=none sig=none
 actor@0.1.0 38BA8BDB https://tn.tezzcorp.com/download/sdk/lib/actor.tn
 arena@0.1.0 7B42E28B https://tn.tezzcorp.com/download/sdk/lib/arena.tn
 color@0.1.0 10472682 https://tn.tezzcorp.com/download/sdk/lib/color.tn
@@ -14,7 +14,7 @@ io@0.1.0 0669EF63 https://tn.tezzcorp.com/download/sdk/lib/io.tn
 llm@0.1.0 207FE104 https://tn.tezzcorp.com/download/sdk/lib/llm.tn
 llm_core@0.1.0 1B78EE8F https://tn.tezzcorp.com/download/sdk/lib/llm_core.tn
 math@0.1.0 5C1ECAA3 https://tn.tezzcorp.com/download/sdk/lib/math.tn
-mind@0.1.0 358D2847 https://tn.tezzcorp.com/download/sdk/lib/mind.tn
+mind@0.1.0 3BCF532B https://tn.tezzcorp.com/download/sdk/lib/mind.tn
 net@0.1.0 29B2711F https://tn.tezzcorp.com/download/sdk/lib/net.tn
 nn@0.1.0 776C769A https://tn.tezzcorp.com/download/sdk/lib/nn.tn
 npu@0.1.0 3F2A0B96 https://tn.tezzcorp.com/download/sdk/lib/npu.tn

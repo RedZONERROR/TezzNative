@@ -1095,8 +1095,10 @@ fn mind_backward(model:*float, tokens:*int, targets:*int, seq_len:int, grads:*fl
   logits_off:int = final_norm_off + seq_len * dim
 
   // Embeddings
+  embed_w:*float
   unsafe:
-    nn.nn_embed(tokens, act, model + w_off, seq_len, dim)
+    embed_w = model + w_off
+  nn.nn_embed(tokens, act, embed_w, seq_len, dim)
 
   l:int = 0
   while l < layers:
@@ -1227,7 +1229,10 @@ fn mind_backward(model:*float, tokens:*int, targets:*int, seq_len:int, grads:*fl
   while t < seq_len:
     target:int = targets[t]
     // Get logits for this t
-    loss_total = loss_total + nn.nn_cross_entropy(act + logits_off + t * vocab, target, d_logits, vocab)
+    t_logits:*float
+    unsafe:
+      t_logits = act + logits_off + t * vocab
+    loss_total = loss_total + nn.nn_cross_entropy(t_logits, target, d_logits, vocab)
     // Copy computed gradients to d_act slab
     j = 0
     while j < vocab:
