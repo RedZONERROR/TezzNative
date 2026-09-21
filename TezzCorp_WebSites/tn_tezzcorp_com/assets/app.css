@@ -798,12 +798,25 @@ body.sidebar-locked {
   line-height: 1.12;
   letter-spacing: -1.2px;
   margin-bottom: 22px;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  max-width: 100%;
 }
 
 .text-gradient {
   background: linear-gradient(135deg, #ffffff 0%, #e2e8f0 40%, #38bdf8 100%);
   -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+html.light .text-gradient {
+  background: linear-gradient(135deg, #0f172a 0%, #0284c7 50%, #0ea5e9 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
 }
 
 .hero-subtitle {
