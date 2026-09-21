@@ -113,6 +113,7 @@ struct TezzApi:
   // WebSocket upgrade handler: fn(sock, path)->int
   ws_handler:fn(int, str)->int
   running:int
+  max_headers:int
 
 // ─────────────────────────────────────────────────────────────
 // Internal string helpers
@@ -693,7 +694,7 @@ fn _status_text(code:int) -> str:
   if code == 503: ret "Service Unavailable"
   ret "Unknown"
 
-fn _parse_http_request(sock:int, buf:*char, buf_len:int) -> *ApiRequest:
+fn _parse_http_request(sock:int, buf:*char, buf_len:int, max_headers:int) -> *ApiRequest:
   req:*ApiRequest = api_req_new(sock)
   if req == 0: ret 0 as *ApiRequest
   // Parse first line: METHOD path HTTP/1.x
@@ -766,6 +767,11 @@ fn _parse_http_request(sock:int, buf:*char, buf_len:int) -> *ApiRequest:
       memcpy(hval, buf + vs, hval_len)
     hval[hval_len] = 0 as char
     // Add header to request
+    limit:int = max_headers
+    if limit < 1: limit = 100
+    if (*req).header_count >= limit:
+      free(hname); free(hval)
+      break
     if (*req).header_count >= (*req).header_cap:
       nc:int = (*req).header_cap * 2
       if nc < 8: nc = 8
@@ -863,6 +869,7 @@ fn new(port:int) -> *TezzApi:
   (*a).static_prefix = 0 as str
   (*a).ws_handler = 0 as fn(int, str)->int
   (*a).running = 0
+  (*a).max_headers = 100
   ret a
 
 fn free_api(a:*TezzApi) -> int:
@@ -1089,7 +1096,7 @@ fn api_listen(a:*TezzApi) -> int:
       free(buf)
       continue
     // Parse and dispatch HTTP request
-    req:*ApiRequest = _parse_http_request(client, buf, nr)
+    req:*ApiRequest = _parse_http_request(client, buf, nr, (*a).max_headers)
     free(buf)
     if req == 0:
       net.close(client)
@@ -1800,7 +1807,7 @@ fn tnxb_http_call(url:str, op:int, route:str, body:str, timeout_ms:int, max_byte
 
 fn api_serve_or_404(a:*TezzApi, sock:int, req_str:str) -> int:
   if a == 0 || req_str == 0: ret 0 - 1
-  req:*ApiRequest = _parse_http_request(sock, req_str as *char, len(req_str))
+  req:*ApiRequest = _parse_http_request(sock, req_str as *char, len(req_str), (*a).max_headers)
   if req == 0:
     net.http_respond_bad_request(sock)
     ret 0 - 1
@@ -1844,6 +1851,13 @@ fn api_new(max_routes:int) -> *TezzApi:
 
 fn api_free(a:*TezzApi) -> int:
   ret free_api(a)
+
+fn api_set_max_headers(a:*TezzApi, limit:int) -> int:
+  if a == 0: ret 0 - 1
+  (*a).max_headers = limit
+  if (*a).max_headers < 1:
+    (*a).max_headers = 1
+  ret 0
 
 fn api_route(a:*TezzApi, method:str, path:str, handler:*char) -> int:
   if a == 0 || path == 0 || handler == 0: ret 0 - 1
