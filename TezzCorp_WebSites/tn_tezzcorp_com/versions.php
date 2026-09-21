@@ -33,7 +33,6 @@ try {
 }
 
 tn_head('TezzNative Releases', 'TezzNative release registry, CLI report intake, and version history.', 'versions', '/versions/');
-tn_nav('versions');
 tn_page_shell_start('Releases', 'Version registry and CLI validation reports.', 'The release page is database-backed so SDK versions, CLI checks, and platform health reports stay visible.');
 ?>
   <div style="margin-top: 30px;">

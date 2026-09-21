@@ -1,4 +1,4 @@
-# registry-meta v1 lines=49 payload=0B9C6244 key=none sig=none
+# registry-meta v1 lines=49 payload=10DB4AD2 key=none sig=none
 actor@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/actor.tn 38BA8BDB
 arena@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/arena.tn 7B42E28B
 color@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/color.tn 10472682
@@ -15,7 +15,7 @@ llm@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/llm.tn 207FE104
 llm_core@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/llm_core.tn 1B78EE8F
 math@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/math.tn 5C1ECAA3
 mind@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/mind.tn 358D2847
-net@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/net.tn 6F504BA1
+net@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/net.tn 29B2711F
 nn@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/nn.tn 776C769A
 npu@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/npu.tn 3F2A0B96
 os@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/os.tn 27174D8C
@@ -26,7 +26,7 @@ stt@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/stt.tn 787BE717
 sys@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/sys.tn 78E3A6B7
 task@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/task.tn 41478EC5
 tensor@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/tensor.tn 45288E3B
-tezzapi@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/tezzapi.tn 487D5012
+tezzapi@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/tezzapi.tn 2ACB7B1F
 tezzdb@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/tezzdb.tn 07A98226
 tezzdbql@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/tezzdbql.tn 6A7DAA10
 tezzinstall@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/tezzinstall.tn 7EF0717E

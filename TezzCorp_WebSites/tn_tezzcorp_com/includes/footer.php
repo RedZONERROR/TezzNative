@@ -76,8 +76,8 @@
         <div class="team-card" style="padding: 16px 18px; gap: 4px;">
           <div class="team-avatar" style="width: 42px; height: 42px; font-size: 1rem; background: linear-gradient(135deg, #0284c7, #0ea5e9); margin-bottom: 6px;">VS</div>
           <div class="team-name" style="font-size: 0.98rem;">Vikash Sharma</div>
-          <div class="team-role">Core Compiler Engineer</div>
-          <div class="team-since">Since 01 Jan 2025 &bull; IR &amp; Codegen</div>
+          <div class="team-role">UI &amp; UX Designer</div>
+          <div class="team-since">Since 01 Jan 2025</div>
         </div>
         <div class="team-card" style="padding: 16px 18px; gap: 4px;">
           <div class="team-avatar" style="width: 42px; height: 42px; font-size: 1rem; background: linear-gradient(135deg, #7c3aed, #a855f7); margin-bottom: 6px;">SM</div>

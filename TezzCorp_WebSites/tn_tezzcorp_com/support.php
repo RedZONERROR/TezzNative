@@ -24,7 +24,6 @@ if (strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET')) === 'POST') {
 }
 
 tn_head('TezzNative Support', 'Submit TezzNative support requests and compiler error reports into the production support database.', 'support', '/support/');
-tn_nav('support');
 tn_page_shell_start('Support', 'Report problems with enough detail to fix them.', 'Support requests and compiler error reports are stored in the site database so real adoption pain can feed the optimization roadmap.');
 ?>
   <div class="support-container">
@@ -41,8 +40,16 @@ tn_page_shell_start('Support', 'Report problems with enough detail to fix them.'
           <label class="form-label">Email <input type="email" name="email" class="form-input" maxlength="190" required></label>
           <label class="form-label">Title <input name="title" class="form-input" maxlength="160" required></label>
           <label class="form-label">Message <textarea name="message" class="form-input" maxlength="5000" rows="4" required></textarea></label>
-          <label class="form-label">Attachment <input type="file" name="attachment" class="form-input form-file-input"></label>
-          <button class="btn btn-primary" type="submit" style="width: 100%;">Submit Support Request</button>
+          <label class="form-label" style="display:block;margin-bottom:0;">Attachment
+            <label class="custom-file-label" style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1px solid var(--border-subtle);border-radius:var(--radius-sm);background:var(--bg-surface-raised);cursor:pointer;margin-top:4px;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              <span id="supportFileName" style="font-size:.88rem;color:var(--text-tertiary);">Choose file (optional)</span>
+              <input type="file" name="attachment" style="display:none;" onchange="document.getElementById('supportFileName').textContent=this.files[0]?this.files[0].name:'Choose file (optional)'">
+            </label>
+          </label>
+          <div style="margin-top:16px;">
+            <button class="btn btn-primary" type="submit" style="width: 100%;">Submit Support Request</button>
+          </div>
         </form>
       </article>
 
@@ -60,7 +67,9 @@ tn_page_shell_start('Support', 'Report problems with enough detail to fix them.'
           </div>
           <label class="form-label">Command <input name="command_text" class="form-input" placeholder="tezzc build app.tn" maxlength="255" required></label>
           <label class="form-label">Error Output <textarea name="error_text" class="form-input" maxlength="8000" rows="4" required style="font-family: var(--font-mono); font-size: 0.85rem;"></textarea></label>
-          <button class="btn btn-outline" type="submit" style="width: 100%;">Submit Compiler Error</button>
+          <div style="margin-top:16px;">
+            <button class="btn btn-outline" type="submit" style="width: 100%;">Submit Compiler Error</button>
+          </div>
         </form>
       </article>
     </div>

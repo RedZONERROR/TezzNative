@@ -154,7 +154,13 @@ require_once __DIR__ . '/includes/header.php';
 }
 .comm-form { display: flex; flex-direction: column; gap: 14px; }
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-@media (max-width: 540px) { .form-row { grid-template-columns: 1fr; } }
+@media (max-width: 540px) {
+  .form-row { grid-template-columns: 1fr; }
+  .comm-main-grid { padding: 32px 16px; }
+  .comm-card { padding: 24px 16px; overflow: hidden; }
+  .form-input, .form-textarea { max-width: 100%; box-sizing: border-box; }
+  .comm-hero-title { font-size: clamp(1.7rem, 6vw, 2.4rem); }
+}
 .form-field { display: flex; flex-direction: column; gap: 6px; }
 .form-label { font-size: .82rem; font-weight: 600; color: var(--text-secondary); }
 .form-input, .form-textarea {
@@ -385,37 +391,50 @@ require_once __DIR__ . '/includes/header.php';
       <?php endif; ?>
     </article>
 
-    <!-- Active Builders Leaderboard -->
+    <!-- Core Team Section (replaces DB leaderboard) -->
     <article class="comm-card">
-      <h2 class="comm-card-title">🏆 Active Builders</h2>
-      <p class="comm-card-lead">Engineers developing native tools, AI pipelines, and systems software with TezzNative.</p>
+      <h2 class="comm-card-title">🏆 Core Development Team</h2>
+      <p class="comm-card-lead">The engineers building TezzNative — the compiler, runtime, IDE tooling, and this website.</p>
 
-      <?php if (empty($contributors)): ?>
-      <div class="empty-state">
-        <div class="es-icon">👾</div>
-        <p><strong>Be the first builder!</strong><br>Register on the left to claim your spot on the leaderboard.</p>
-      </div>
-      <?php else: ?>
       <ul class="member-list">
-        <?php foreach ($contributors as $i => $m): ?>
+        <!-- Rohit Pathak -->
         <li class="member-item">
-          <div class="member-avatar"><?= htmlspecialchars(mb_substr((string)$m['display_name'], 0, 1)) ?></div>
+          <div class="member-avatar" style="background: linear-gradient(135deg, #ff671f, #ff9933);">RP</div>
           <div class="member-info">
-            <div class="member-name"><?= htmlspecialchars((string)$m['display_name']) ?></div>
-            <div class="member-joined">Joined <?= htmlspecialchars((string)$m['joined']) ?></div>
+            <div class="member-name">Rohit Pathak</div>
+            <div class="member-joined">Since 18 Oct 2022 &bull; Founder</div>
           </div>
-          <span class="member-role role-<?= htmlspecialchars((string)($m['role'] ?? 'developer')) ?>">
-            <?= htmlspecialchars(ucfirst((string)($m['role'] ?? 'developer'))) ?>
-          </span>
+          <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
+            <span class="member-role role-founder">Creator</span>
+            <span class="member-role role-developer" style="font-size:.65rem;">Lead Architect &amp; Compiler</span>
+          </div>
         </li>
-        <?php endforeach; ?>
+        <!-- Vikash Sharma -->
+        <li class="member-item">
+          <div class="member-avatar" style="background: linear-gradient(135deg, #0284c7, #0ea5e9);">VS</div>
+          <div class="member-info">
+            <div class="member-name">Vikash Sharma</div>
+            <div class="member-joined">Since 01 Jan 2025</div>
+          </div>
+          <span class="member-role role-contributor">UI &amp; UX</span>
+        </li>
+        <!-- Suman Mandal -->
+        <li class="member-item">
+          <div class="member-avatar" style="background: linear-gradient(135deg, #7c3aed, #a855f7);">SM</div>
+          <div class="member-info">
+            <div class="member-name">Suman Mandal</div>
+            <div class="member-joined">Since 21 Sep 2026</div>
+          </div>
+          <span class="member-role role-developer">Runtime &amp; SDK</span>
+        </li>
       </ul>
-      <?php if ($memberCount > 9): ?>
-      <p style="text-align:center;margin-top:16px;font-size:.84rem;color:var(--text-tertiary);">
-        + <?= number_format($memberCount - 9) ?> more builders registered
-      </p>
-      <?php endif; ?>
-      <?php endif; ?>
+
+      <div style="margin-top:20px;padding:14px;background:var(--bg-surface-raised);border:1px solid var(--border-subtle);border-radius:var(--radius-sm);">
+        <p style="font-size:.84rem;color:var(--text-secondary);margin:0;line-height:1.6;">
+          <strong style="color:var(--text-primary);">Want to join the team?</strong> TezzNative is open source. Contribute on
+          <a href="https://github.com/TezzCorp/TezzNative" target="_blank" rel="noopener" style="color:var(--text-accent);">GitHub</a> and register below to appear in the community registry.
+        </p>
+      </div>
     </article>
   </div>
 </section>
