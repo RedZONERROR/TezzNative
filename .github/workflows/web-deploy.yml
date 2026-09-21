@@ -1,0 +1,89 @@
+name: Web Portal Deploy
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "TezzCorp_WebSites/tn_tezzcorp_com/**"
+      - "tezz.lock"
+      - "registry.tnx"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Force full deploy"
+        required: false
+        default: "false"
+
+jobs:
+  deploy-web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install rsync + sshpass
+        run: sudo apt-get install -y rsync sshpass
+
+      - name: Write SSH key
+        env:
+          TEZZ_WEB_KEY: ${{ secrets.TEZZ_WEB_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          if [ -n "$TEZZ_WEB_KEY" ]; then
+            echo "$TEZZ_WEB_KEY" > ~/.ssh/deploy_key
+            chmod 600 ~/.ssh/deploy_key
+            echo "SSH key mode: key"
+          else
+            echo "SSH key mode: password"
+          fi
+          echo "StrictHostKeyChecking no" >> ~/.ssh/config
+          echo "ConnectTimeout 30" >> ~/.ssh/config
+
+      - name: Deploy web files via SFTP/rsync
+        env:
+          TEZZ_WEB_HOST: ${{ secrets.TEZZ_WEB_HOST }}
+          TEZZ_WEB_PORT: ${{ secrets.TEZZ_WEB_PORT }}
+          TEZZ_WEB_USER: ${{ secrets.TEZZ_WEB_USER }}
+          TEZZ_WEB_PASS: ${{ secrets.TEZZ_WEB_PASS }}
+          TEZZ_WEB_PATH: ${{ secrets.TEZZ_WEB_PATH }}
+        run: |
+          HOST="${TEZZ_WEB_HOST:-195.35.5.93}"
+          PORT="${TEZZ_WEB_PORT:-65002}"
+          USER="${TEZZ_WEB_USER:-u190073748}"
+          PASS="${TEZZ_WEB_PASS}"
+          REMOTE="${TEZZ_WEB_PATH:-/home/u190073748/domains/tezzcorp.com/tn.tezzcorp.com}"
+
+          if [ -f ~/.ssh/deploy_key ]; then
+            SSH_CMD="ssh -p $PORT -i ~/.ssh/deploy_key"
+          else
+            SSH_CMD="sshpass -p '$PASS' ssh -p $PORT"
+          fi
+
+          echo "Deploying TezzCorp_WebSites/tn_tezzcorp_com → $REMOTE ..."
+          rsync -avz --delete \
+            -e "$SSH_CMD" \
+            --exclude=".env" \
+            --exclude="*.log" \
+            --exclude="storage/" \
+            --exclude="logs/" \
+            TezzCorp_WebSites/tn_tezzcorp_com/ \
+            $USER@$HOST:$REMOTE/
+
+          echo "Deploying tezz.lock and registry.tnx ..."
+          rsync -avz \
+            -e "$SSH_CMD" \
+            tezz.lock registry.tnx \
+            $USER@$HOST:$REMOTE/
+
+          echo "Deploy complete."
+
+      - name: Verify site is up
+        run: |
+          sleep 5
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://tn.tezzcorp.com/ --max-time 15 || echo "000")
+          echo "Homepage HTTP status: $STATUS"
+          if [ "$STATUS" != "200" ] && [ "$STATUS" != "301" ] && [ "$STATUS" != "302" ]; then
+            echo "Warning: site returned $STATUS"
+          fi
