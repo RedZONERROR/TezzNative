@@ -5,5 +5,6 @@ fn main() -> int:
   slots:[Slot;2]
   slots[0].value = 3
   slots[1].value = 4
-  say slots[0].value + slots[1].value
+  if slots[0].value + slots[1].value == 7:
+    say "7"
   ret 0

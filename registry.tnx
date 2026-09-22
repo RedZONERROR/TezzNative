@@ -1,4 +1,4 @@
-# registry-meta v1 lines=49 payload=1D8F5DB3 key=none sig=none
+# registry-meta v1 lines=49 payload=4EF50B86 key=none sig=none
 actor@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/actor.tn 38BA8BDB
 arena@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/arena.tn 7B42E28B
 color@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/color.tn 10472682
@@ -14,7 +14,7 @@ io@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/io.tn 0669EF63
 llm@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/llm.tn 207FE104
 llm_core@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/llm_core.tn 1B78EE8F
 math@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/math.tn 5C1ECAA3
-mind@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/mind.tn 3BCF532B
+mind@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/mind.tn 656858A8
 net@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/net.tn 29B2711F
 nn@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/nn.tn 776C769A
 npu@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/npu.tn 3F2A0B96
@@ -33,13 +33,13 @@ tezzinstall@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/tezzinstall.tn 7EF071
 tezzserve@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/tezzserve.tn 3F77DED4
 tezzsetup@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/tezzsetup.tn 35AB2C87
 tezzui@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/tezzui.tn 23AA9512
-time@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/time.tn 55258BA8
+time@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/time.tn 25334928
 tls@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/tls.tn 4527F9AA
 tnauto@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/tnauto.tn 7459BF02
 tnui@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/tnui.tn 12D9128F
 tnx@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/tnx.tn 4F5F093F
 tokenizer@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/tokenizer.tn 3AEF4023
-trainer@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/trainer.tn 15E73CDF
+trainer@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/trainer.tn 4B4832ED
 tsm@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/tsm.tn 2A702A27
 tts@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/tts.tn 4D87F3D4
 tzgui@0.1.0 https://tn.tezzcorp.com/download/sdk/lib/tzgui.tn 6B953795

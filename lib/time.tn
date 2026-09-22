@@ -168,11 +168,11 @@ fn date_local() -> str:
   if _time_is_date19_at(raw, 0) != 0:
     ret raw
 
-  out:str = _time_date19_from_output("date '+%Y-%m-%d %H:%M:%S'")
+  out:str = _time_date19_from_output("powershell -NoProfile -Command \"Get-Date -Format 'yyyy-MM-dd HH:mm:ss'\"")
   if out != 0:
     ret out
 
-  out = _time_date19_from_output("powershell -NoProfile -Command \"Get-Date -Format 'yyyy-MM-dd HH:mm:ss'\"")
+  out = _time_date19_from_output("date '+%Y-%m-%d %H:%M:%S'")
   if out != 0:
     ret out
 

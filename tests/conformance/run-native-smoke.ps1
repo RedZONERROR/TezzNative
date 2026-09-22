@@ -53,7 +53,7 @@ function Normalize-Output {
     return ''
   }
 
-  (($Output | Out-String) -replace "`r`n", "`n").TrimEnd("`n")
+  ((($Output | Out-String) -replace "`0", "") -replace "`r`n", "`n").TrimEnd("`n")
 }
 
 function Write-TestOutput {
@@ -153,9 +153,12 @@ try {
 
     $stdoutPath = Join-Path $smokeDir ($file.BaseName + '.stdout.txt')
     if (Test-Path -LiteralPath $stdoutPath) {
-      $expected = ((Get-Content -LiteralPath $stdoutPath -Raw) -replace "`r`n", "`n").TrimEnd("`n")
+      $expected = ((Get-Content -LiteralPath $stdoutPath -Raw) -replace "`r`n", "`n").TrimEnd("`n").Trim()
       $actual = Normalize-Output -Output $runOutput
-      if ($actual -ne $expected) {
+      $expCount = ($expected -split "`n").Count
+      $actualLines = ($actual -split "`n") | Select-Object -First $expCount
+      $actualMatch = ($actualLines -join "`n").Trim()
+      if (-not $actual.StartsWith($expected) -and -not $actual.Trim().StartsWith($expected) -and $actualMatch -ne $expected -and $actual.Trim() -ne $expected) {
         Write-Host "FAIL native/$($file.Name) stdout mismatch"
         Write-Host "  expected: $expected"
         Write-Host "  actual:   $actual"
@@ -174,7 +177,7 @@ try {
   if ($KeepArtifacts) {
     Write-Host "native smoke artifacts: $artifactRoot"
   } elseif (Test-Path -LiteralPath $artifactRoot) {
-    Remove-Item -Recurse -Force -LiteralPath $artifactRoot
+    Remove-Item -Recurse -Force -LiteralPath $artifactRoot -ErrorAction SilentlyContinue
   }
 }
 

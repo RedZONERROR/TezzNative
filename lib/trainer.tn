@@ -8,8 +8,10 @@ import "str"
 import "nn"
 import "mind"
 
-extern fn nn_adam_step(w:*float, m:*float, v:*float, g:*float, n:int, lr:float, b1:float, b2:float, eps:float, wd:float, step:int) -> int
-extern fn nn_grad_clip(grads:*float, n:int, max_norm:float) -> int
+fn nn_adam_step(w:*float, m:*float, v:*float, g:*float, n:int, lr:float, b1:float, b2:float, eps:float, wd:float, step:int) -> int:
+  ret 0 - 1
+fn nn_grad_clip(grads:*float, n:int, max_norm:float) -> int:
+  ret 0 - 1
 
 // Slab accessors (convenience)
 fn _tf(s:*float, i:int) -> float:

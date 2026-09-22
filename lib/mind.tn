@@ -6,7 +6,8 @@ import "math"
 import "str"
 import "nn"
 
-extern fn nn_matmul_avx2(x:*float, w:*float, out:*float, T:int, in_dim:int, out_dim:int) -> int
+fn nn_matmul_avx2(x:*float, w:*float, out:*float, T:int, in_dim:int, out_dim:int) -> int:
+  ret 0 - 1
 
 let MIND_MAGIC:int = 1296385348  // TezzMind v1 checkpoint magic
 let MIND_LEGACY_NN_MAGIC:int = 1414676301
@@ -438,6 +439,9 @@ fn _rmsnorm_forward(x:*float, out:*float, gamma:*float, T:int, dim:int) -> int:
 
 fn _rmsnorm_backward(dx_norm:*float, x:*float, gamma:*float, dx:*float, dgamma:*float, T:int, dim:int) -> int:
   eps:float = 1.0e-05
+  xv:float = 0.0
+  dyn:float = 0.0
+  g:float = 1.0
   t:int = 0
   while t < T:
     sq_sum:float = 0.0
@@ -452,9 +456,9 @@ fn _rmsnorm_backward(dx_norm:*float, x:*float, gamma:*float, dx:*float, dgamma:*
     sum_dy_x_gamma:float = 0.0
     j = 0
     while j < dim:
-      xv:float = _mf(x, t * dim + j)
-      dyn:float = _mf(dx_norm, t * dim + j)
-      g:float = 1.0
+      xv = _mf(x, t * dim + j)
+      dyn = _mf(dx_norm, t * dim + j)
+      g = 1.0
       if gamma != 0 as *float:
         g = _mf(gamma, j)
       sum_dy_x_gamma = sum_dy_x_gamma + dyn * xv * g
@@ -692,6 +696,9 @@ fn _gqa_forward(q:*float, k:*float, v:*float, out:*float, probs_buf:*float, T:in
 fn _gqa_backward(dq:*float, dk:*float, dv:*float, q:*float, k:*float, v:*float, probs_buf:*float, d_out:*float, d_probs_temp:*float, T:int, q_heads:int, kv_heads:int, head_dim:int) -> int:
   groups:int = q_heads / kv_heads
   scale:float = 1.0 / math.sqrt(head_dim as float)
+  do:float = 0.0
+  d_pr:float = 0.0
+  pr:float = 0.0
 
   t:int = 0
   while t < T:
@@ -701,16 +708,16 @@ fn _gqa_backward(dq:*float, dk:*float, dv:*float, q:*float, k:*float, v:*float, 
 
       p:int = 0
       while p <= t:
-        d_pr:float = 0.0
+        d_pr = 0.0
         c:int = 0
         while c < head_dim:
-          do:float = _mf(d_out, t * q_heads * head_dim + qh * head_dim + c)
+          do = _mf(d_out, t * q_heads * head_dim + qh * head_dim + c)
           vv:float = _mf(v, p * kv_heads * head_dim + kvh * head_dim + c)
           d_pr = d_pr + do * vv
           c = c + 1
         _mw(d_probs_temp, p, d_pr)
 
-        pr:float = _mf(probs_buf, t * q_heads * T + qh * T + p)
+        pr = _mf(probs_buf, t * q_heads * T + qh * T + p)
         c = 0
         while c < head_dim:
           do = _mf(d_out, t * q_heads * head_dim + qh * head_dim + c)
@@ -722,8 +729,8 @@ fn _gqa_backward(dq:*float, dk:*float, dv:*float, q:*float, k:*float, v:*float, 
       sum_dpr_pr:float = 0.0
       p = 0
       while p <= t:
-        d_pr:float = _mf(d_probs_temp, p)
-        pr:float = _mf(probs_buf, t * q_heads * T + qh * T + p)
+        d_pr = _mf(d_probs_temp, p)
+        pr = _mf(probs_buf, t * q_heads * T + qh * T + p)
         sum_dpr_pr = sum_dpr_pr + d_pr * pr
         p = p + 1
 
@@ -1027,8 +1034,6 @@ fn mind_forward(model:*float, token_id:int, pos:int, logits:*float) -> int:
     free(ws_raw)
   ret 0
 
-// â”€â”€ mind_backward: GQA Transformer backward pass (training) â”€â”€â”€â”€
-
 fn mind_backward(model:*float, tokens:*int, targets:*int, seq_len:int, grads:*float) -> float:
   if model == 0 as *float || tokens == 0 as *int || targets == 0 as *int || grads == 0 as *float || seq_len <= 0:
     ret 0.0 - 1.0
@@ -1244,7 +1249,7 @@ fn mind_backward(model:*float, tokens:*int, targets:*int, seq_len:int, grads:*fl
   unsafe:
     free(d_logits_raw)
 
-  // â”€â”€ 2. Backward Pass â”€â”€
+  // ── 2. Backward Pass ──
 
   // Grad to LM Head
   // dW_lm += final_norm^T @ d_logits
@@ -1286,32 +1291,32 @@ fn mind_backward(model:*float, tokens:*int, targets:*int, seq_len:int, grads:*fl
 
   l = layers - 1
   while l >= 0:
-    lw = w_off + _layer_weights_start(vocab, dim, q_heads, kv_heads, head_dim, ffn, l)
+    lw:int = w_off + _layer_weights_start(vocab, dim, q_heads, kv_heads, head_dim, ffn, l)
 
     // Layer bounds
-    off_x_in = l * L_SZ
-    off_x_norm1 = off_x_in + seq_len * dim
-    off_q = off_x_norm1 + seq_len * dim
-    off_k = off_q + seq_len * q_dim
-    off_v = off_k + seq_len * kv_dim
-    off_attn_out = off_v + seq_len * kv_dim
-    off_attn_proj = off_attn_out + seq_len * q_dim
-    off_x_norm2 = off_attn_proj + seq_len * dim
-    off_gate = off_x_norm2 + seq_len * dim
-    off_up = off_gate + seq_len * ffn
-    off_ffn_mid = off_up + seq_len * ffn
-    off_ffn_out = off_ffn_mid + seq_len * ffn
+    off_x_in:int = l * L_SZ
+    off_x_norm1:int = off_x_in + seq_len * dim
+    off_q:int = off_x_norm1 + seq_len * dim
+    off_k:int = off_q + seq_len * q_dim
+    off_v:int = off_k + seq_len * kv_dim
+    off_attn_out:int = off_v + seq_len * kv_dim
+    off_attn_proj:int = off_attn_out + seq_len * q_dim
+    off_x_norm2:int = off_attn_proj + seq_len * dim
+    off_gate:int = off_x_norm2 + seq_len * dim
+    off_up:int = off_gate + seq_len * ffn
+    off_ffn_mid:int = off_up + seq_len * ffn
+    off_ffn_out:int = off_ffn_mid + seq_len * ffn
 
     // Layer weight pointers
-    ln1_off = lw
-    w_q_off = ln1_off + dim
-    w_k_off = w_q_off + dim * q_dim
-    w_v_off = w_k_off + dim * kv_dim
-    w_o_off = w_v_off + dim * kv_dim
-    ln2_off = w_o_off + q_dim * dim
-    w_gate_off = ln2_off + dim
-    w_up_off = w_gate_off + dim * ffn
-    w_down_off = w_up_off + dim * ffn
+    ln1_off:int = lw
+    w_q_off:int = ln1_off + dim
+    w_k_off:int = w_q_off + dim * q_dim
+    w_v_off:int = w_k_off + dim * kv_dim
+    w_o_off:int = w_v_off + dim * kv_dim
+    ln2_off:int = w_o_off + q_dim * dim
+    w_gate_off:int = ln2_off + dim
+    w_up_off:int = w_gate_off + dim * ffn
+    w_down_off:int = w_up_off + dim * ffn
 
     dw_down:*float; dw_gate:*float; dw_up:*float; dw_o:*float; dw_q:*float; dw_k:*float; dw_v:*float
     dgamma1:*float; dgamma2:*float
