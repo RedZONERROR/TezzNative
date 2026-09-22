@@ -227,19 +227,12 @@ fn starts_with_at(s:str, off:int, pre:str) -> int:
     ret 0
   if off < 0:
     ret 0
-  sn:int = len(s)
-  pn:int = len(pre)
-  if off > sn:
-    ret 0
-  if (off + pn) > sn:
-    ret 0
-  seg:str = substr_dup(s, off, off + pn)
-  ok:int = 0
-  if seg != 0:
-    if strcmp(seg, pre) == 0:
-      ok = 1
-  free(seg)
-  ret ok
+  i:int = 0
+  while pre[i] != 0:
+    if s[off + i] == 0 || s[off + i] != pre[i]:
+      ret 0
+    i = i + 1
+  ret 1
 
 fn substr_dup(s:str, a:int, b:int) -> str:
   if s == 0:
@@ -359,18 +352,14 @@ fn crc32_bytes(buf:*char, n:int) -> int:
 fn crc32_str(s:str) -> int:
   if s == 0:
     ret 0
-  s2:str = str_join2("", s)
-  if s2 == 0:
-    ret 0
-  n:int = len(s2)
+  n:int = len(s)
   h:int = 5381
   i:int = 0
   while i < n:
-    b:int = s2[i] as int
+    b:int = s[i] as int
     b = b & 255
     h = ((h << 5) + h + b) & 2147483647
     i = i + 1
-  free(s2)
   ret h
 
 fn hex8(x:int) -> str:
@@ -8388,13 +8377,20 @@ fn lock_find_crc(lock:str, dep_name:str, dep_ver:str) -> str:
   tok:str = str_join3(dep_name, "@", dep_ver)
   tsp:str = str_join2(tok, " ")
   free(tok)
+  tl:int = len(tsp)
   lp:int = 0
   lcs:int = 0
   crc:str = 0 as str
-  tl:int = len(tsp)
-  found:int = 0
   while lock[lp] != 0:
-    if found == 0 && starts_with_at(lock, lp, tsp) != 0:
+    while lock[lp] == 32 || lock[lp] == 9:
+      lp = lp + 1
+    if lock[lp] == 35:
+      while lock[lp] != 0 && lock[lp] != 10:
+        lp = lp + 1
+      if lock[lp] == 10:
+        lp = lp + 1
+      continue
+    if starts_with_at(lock, lp, tsp) != 0:
       lp = lp + tl
       while lock[lp] == 32 || lock[lp] == 9:
         lp = lp + 1
@@ -8403,8 +8399,11 @@ fn lock_find_crc(lock:str, dep_name:str, dep_ver:str) -> str:
         lp = lp + 1
       if lp > lcs:
         crc = substr_dup(lock, lcs, lp)
-      found = 1
-    lp = lp + 1
+      break
+    while lock[lp] != 0 && lock[lp] != 10:
+      lp = lp + 1
+    if lock[lp] == 10:
+      lp = lp + 1
   free(tsp)
   ret crc
 
