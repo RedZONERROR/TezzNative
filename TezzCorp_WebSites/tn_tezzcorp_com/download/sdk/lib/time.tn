@@ -168,22 +168,11 @@ fn date_local() -> str:
   if _time_is_date19_at(raw, 0) != 0:
     ret raw
 
-  os:str = os_name()
-  is_win:int = 0
-  if os != 0:
-    unsafe:
-      if (os as *char)[0] == 119 as char: // 'w'
-        if (os as *char)[1] == 105 as char: // 'i'
-          if (os as *char)[2] == 110 as char: // 'n'
-            is_win = 1
+  out:str = _time_date19_from_output("powershell -NoProfile -Command \"Get-Date -Format 'yyyy-MM-dd HH:mm:ss'\"")
+  if out != 0:
+    ret out
 
-  if is_win != 0:
-    out:str = _time_date19_from_output("powershell -NoProfile -Command \"Get-Date -Format 'yyyy-MM-dd HH:mm:ss'\"")
-    if out != 0:
-      ret out
-    ret date_utc()
-
-  out:str = _time_date19_from_output("date '+%Y-%m-%d %H:%M:%S'")
+  out = _time_date19_from_output("date '+%Y-%m-%d %H:%M:%S'")
   if out != 0:
     ret out
 

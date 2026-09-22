@@ -166,17 +166,17 @@ fn llm_forward_step(model:*float, token_id:int, t:int, logits:*float) -> int:
   // Temporary workspaces
   x_raw:*char
   unsafe:
-    x_raw = malloc(embed_dim * 8 * 13) // plenty of room for intermediate vectors
+    x_raw = malloc(embed_dim * 8 * 8) // plenty of room for intermediate vectors
   x:*float; ln_out:*float; q:*float; k:*float; v:*float; attn_out:*float; h1:*float; h2:*float
   unsafe:
     x        = x_raw as *float
     ln_out   = (x_raw + embed_dim * 8) as *float
     q        = (x_raw + embed_dim * 8 * 2) as *float
-    k        = (x_raw + embed_dim * 8 * 5) as *float
-    v        = (x_raw + embed_dim * 8 * 6) as *float
-    attn_out = (x_raw + embed_dim * 8 * 7) as *float
-    h1       = (x_raw + embed_dim * 8 * 8) as *float
-    h2       = (x_raw + embed_dim * 8 * 12) as *float
+    k        = (x_raw + embed_dim * 8 * 3) as *float
+    v        = (x_raw + embed_dim * 8 * 4) as *float
+    attn_out = (x_raw + embed_dim * 8 * 5) as *float
+    h1       = (x_raw + embed_dim * 8 * 6) as *float
+    h2       = (x_raw + embed_dim * 8 * 7) as *float
   
   // 1. Embedding lookup
   // w_embed: [vocab_size, embed_dim] at start of w_off
@@ -211,11 +211,11 @@ fn llm_forward_step(model:*float, token_id:int, t:int, logits:*float) -> int:
     
     // LayerNorm 1
     // Pass model + offsets to match layernorm expectations
-    nn.nn_layernorm(x, ln_out, (model as *char + ln1g_ptr * 8) as *float, (model as *char + ln1b_ptr * 8) as *float, 1, embed_dim)
+    nn.nn_layernorm(x, ln_out, model + ln1g_ptr, model + ln1b_ptr, 1, embed_dim)
     
     // Project QKV
     // w_qkv is mapped as a single combined weight [embed_dim, 3 * embed_dim]
-    _llm_matmul(ln_out, q, (model as *char + wqkv_ptr * 8) as *float, 1, embed_dim, 3 * embed_dim)
+    _llm_matmul(ln_out, q, model + wqkv_ptr, 1, embed_dim, 3 * embed_dim)
     
     // Split Q, K, V
     j:int = 0
@@ -267,7 +267,7 @@ fn llm_forward_step(model:*float, token_id:int, t:int, logits:*float) -> int:
       free(v_full_raw)
     
     // Project Attention Out
-    _llm_matmul(attn_out, ln_out, (model as *char + wproj_ptr * 8) as *float, 1, embed_dim, embed_dim)
+    _llm_matmul(attn_out, ln_out, model + wproj_ptr, 1, embed_dim, embed_dim)
     
     // Residual 1
     j = 0
@@ -276,10 +276,10 @@ fn llm_forward_step(model:*float, token_id:int, t:int, logits:*float) -> int:
       j = j + 1
     
     // LayerNorm 2
-    nn.nn_layernorm(x, ln_out, (model as *char + ln2g_ptr * 8) as *float, (model as *char + ln2b_ptr * 8) as *float, 1, embed_dim)
+    nn.nn_layernorm(x, ln_out, model + ln2g_ptr, model + ln2b_ptr, 1, embed_dim)
     
     // MLP/FFN
-    _llm_matmul(ln_out, h1, (model as *char + wff1_ptr * 8) as *float, 1, embed_dim, 4 * embed_dim)
+    _llm_matmul(ln_out, h1, model + wff1_ptr, 1, embed_dim, 4 * embed_dim)
     
     // ReLU activation on FFN hidden
     j = 0
@@ -289,7 +289,7 @@ fn llm_forward_step(model:*float, token_id:int, t:int, logits:*float) -> int:
       _llm_w(h1, j, hv)
       j = j + 1
     
-    _llm_matmul(h1, h2, (model as *char + wff2_ptr * 8) as *float, 1, 4 * embed_dim, embed_dim)
+    _llm_matmul(h1, h2, model + wff2_ptr, 1, 4 * embed_dim, embed_dim)
     
     // Residual 2
     j = 0
@@ -306,8 +306,8 @@ fn llm_forward_step(model:*float, token_id:int, t:int, logits:*float) -> int:
   ln2_final_b:int = ln2_final_g + embed_dim
   whead_ptr:int = ln2_final_b + embed_dim
   
-  nn.nn_layernorm(x, ln_out, (model as *char + ln2_final_g * 8) as *float, (model as *char + ln2_final_b * 8) as *float, 1, embed_dim)
-  _llm_matmul(ln_out, logits, (model as *char + whead_ptr * 8) as *float, 1, embed_dim, vocab_size)
+  nn.nn_layernorm(x, ln_out, model + ln2_final_g, model + ln2_final_b, 1, embed_dim)
+  _llm_matmul(ln_out, logits, model + whead_ptr, 1, embed_dim, vocab_size)
   
   unsafe:
     free(x_raw)
@@ -496,33 +496,3 @@ fn llm_sample(logits:*float, vocab_sz:int, temp:float, top_k:int, top_p:float) -
     free(vals_raw)
   
   ret sel_id
-
-fn llm_format_chat(system:str, user_msg:str) -> str:
-  s_len:int = 0
-  if system != 0 as str:
-    s_len = len(system)
-  u_len:int = 0
-  if user_msg != 0 as str:
-    u_len = len(user_msg)
-  
-  total:int = s_len + u_len + 80
-  buf:*char = malloc(total + 1) as *char
-  if buf == 0 as *char:
-    ret 0 as str
-  
-  pos:int = 0
-  unsafe:
-    memcpy(buf + pos, "<|im_start|>system\n" as *char, 19)
-    pos = pos + 19
-    if s_len > 0:
-      memcpy(buf + pos, system as *char, s_len)
-      pos = pos + s_len
-    memcpy(buf + pos, "<|im_end|>\n<|im_start|>user\n" as *char, 28)
-    pos = pos + 28
-    if u_len > 0:
-      memcpy(buf + pos, user_msg as *char, u_len)
-      pos = pos + u_len
-    memcpy(buf + pos, "<|im_end|>\n<|im_start|>assistant\n" as *char, 33)
-    pos = pos + 33
-    buf[pos] = 0 as char
-  ret buf as str

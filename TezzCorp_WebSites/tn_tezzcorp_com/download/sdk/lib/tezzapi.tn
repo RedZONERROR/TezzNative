@@ -113,6 +113,7 @@ struct TezzApi:
   // WebSocket upgrade handler: fn(sock, path)->int
   ws_handler:fn(int, str)->int
   running:int
+  max_headers:int
 
 // ─────────────────────────────────────────────────────────────
 // Internal string helpers
@@ -166,6 +167,8 @@ fn _api_join3(a:str, b:str, c:str) -> str:
   ret out
 
 fn _api_itoa(v:int) -> str:
+  if v == (0 - 9223372036854775808):
+    ret _api_strdup("-9223372036854775808")
   if v < 0:
     s:str = _api_itoa(0 - v)
     out:str = _api_join2("-", s)
@@ -247,12 +250,21 @@ fn _api_url_decode(s:str) -> str:
       if h1 >= 48 && h1 <= 57: v1 = h1 - 48
       else if h1 >= 65 && h1 <= 70: v1 = h1 - 55
       else if h1 >= 97 && h1 <= 102: v1 = h1 - 87
+      else: v1 = 0 - 1
       if h2 >= 48 && h2 <= 57: v2 = h2 - 48
       else if h2 >= 65 && h2 <= 70: v2 = h2 - 55
       else if h2 >= 97 && h2 <= 102: v2 = h2 - 87
-      out[di] = (v1 * 16 + v2) as char
-      si = si + 3
-      di = di + 1
+      else: v2 = 0 - 1
+      if v1 < 0 || v2 < 0 || (v1 == 0 && v2 == 0):
+        out[di] = 37 as char
+        out[di+1] = h1 as char
+        out[di+2] = h2 as char
+        si = si + 3
+        di = di + 3
+      else:
+        out[di] = (v1 * 16 + v2) as char
+        si = si + 3
+        di = di + 1
     else if c == 43:  // '+' → space
       out[di] = 32 as char
       si = si + 1
@@ -495,7 +507,14 @@ fn api_body_json_field(req:*ApiRequest, key:str) -> str:
           ve:int = vs
           while ve < bn:
             c2:int = (body as *char)[ve] as int
-            if c2 == 34 && (ve == 0 || (body as *char)[ve-1] != 92 as char): break
+            if c2 == 34:
+              escaped:int = 0
+              b:int = ve - 1
+              while b >= vs && (body as *char)[b] == 92 as char:
+                escaped = escaped + 1
+                b = b - 1
+              if escaped % 2 == 0:
+                break
             ve = ve + 1
           ret _api_slice(body, vs, ve)
         else:
@@ -675,7 +694,7 @@ fn _status_text(code:int) -> str:
   if code == 503: ret "Service Unavailable"
   ret "Unknown"
 
-fn _parse_http_request(sock:int, buf:*char, buf_len:int) -> *ApiRequest:
+fn _parse_http_request(sock:int, buf:*char, buf_len:int, max_headers:int) -> *ApiRequest:
   req:*ApiRequest = api_req_new(sock)
   if req == 0: ret 0 as *ApiRequest
   // Parse first line: METHOD path HTTP/1.x
@@ -748,6 +767,11 @@ fn _parse_http_request(sock:int, buf:*char, buf_len:int) -> *ApiRequest:
       memcpy(hval, buf + vs, hval_len)
     hval[hval_len] = 0 as char
     // Add header to request
+    limit:int = max_headers
+    if limit < 1: limit = 100
+    if (*req).header_count >= limit:
+      free(hname); free(hval)
+      break
     if (*req).header_count >= (*req).header_cap:
       nc:int = (*req).header_cap * 2
       if nc < 8: nc = 8
@@ -845,6 +869,7 @@ fn new(port:int) -> *TezzApi:
   (*a).static_prefix = 0 as str
   (*a).ws_handler = 0 as fn(int, str)->int
   (*a).running = 0
+  (*a).max_headers = 100
   ret a
 
 fn free_api(a:*TezzApi) -> int:
@@ -1071,7 +1096,7 @@ fn api_listen(a:*TezzApi) -> int:
       free(buf)
       continue
     // Parse and dispatch HTTP request
-    req:*ApiRequest = _parse_http_request(client, buf, nr)
+    req:*ApiRequest = _parse_http_request(client, buf, nr, (*a).max_headers)
     free(buf)
     if req == 0:
       net.close(client)
@@ -1782,7 +1807,7 @@ fn tnxb_http_call(url:str, op:int, route:str, body:str, timeout_ms:int, max_byte
 
 fn api_serve_or_404(a:*TezzApi, sock:int, req_str:str) -> int:
   if a == 0 || req_str == 0: ret 0 - 1
-  req:*ApiRequest = _parse_http_request(sock, req_str as *char, len(req_str))
+  req:*ApiRequest = _parse_http_request(sock, req_str as *char, len(req_str), (*a).max_headers)
   if req == 0:
     net.http_respond_bad_request(sock)
     ret 0 - 1
@@ -1826,6 +1851,13 @@ fn api_new(max_routes:int) -> *TezzApi:
 
 fn api_free(a:*TezzApi) -> int:
   ret free_api(a)
+
+fn api_set_max_headers(a:*TezzApi, limit:int) -> int:
+  if a == 0: ret 0 - 1
+  (*a).max_headers = limit
+  if (*a).max_headers < 1:
+    (*a).max_headers = 1
+  ret 0
 
 fn api_route(a:*TezzApi, method:str, path:str, handler:*char) -> int:
   if a == 0 || path == 0 || handler == 0: ret 0 - 1

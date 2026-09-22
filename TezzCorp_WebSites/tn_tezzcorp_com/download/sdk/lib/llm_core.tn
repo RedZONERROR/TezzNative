@@ -6,9 +6,6 @@
 import "math"
 
 extern fn tezz_ai_matmul_f64(out:*float, a:*float, b:*float, m:int, n:int, k:int) -> int
-extern fn tezz_ai_matmul_f32(out:*float, a:*float, b:*float, m:int, n:int, k:int) -> int
-extern fn tezz_ai_matmul_f16_f32(out:*float, a:*u16, b:*u16, m:int, n:int, k:int) -> int
-extern fn tezz_ai_matmul_bf16_f32(out:*float, a:*u16, b:*u16, m:int, n:int, k:int) -> int
 extern fn tezz_ai_matmul_i8_f64(out:*float, a:*float, b:*i8, scales:*float, m:int, n:int, k:int) -> int
 extern fn tezz_ai_rmsnorm_rows_f64(out:*float, x:*float, weight:*float, rows:int, cols:int, eps:float) -> int
 extern fn tezz_ai_softmax_rows_f64(out:*float, x:*float, rows:int, cols:int) -> int
@@ -156,8 +153,8 @@ fn _pow2(exp:int) -> float:
     i = i + 1
   ret out
 
-fn f16_to_f32_bits(h:u16) -> float:
-  bits:int = h as int
+fn f16_to_f32_bits(h:int) -> float:
+  bits:int = h & 65535
   sign:int = (bits >> 15) & 1
   exp:int = (bits >> 10) & 31
   mant:int = bits & 1023
@@ -173,8 +170,8 @@ fn f16_to_f32_bits(h:u16) -> float:
     out = 0.0 - out
   ret out
 
-fn bf16_to_f32_bits(h:u16) -> float:
-  bits:int = h as int
+fn bf16_to_f32_bits(h:int) -> float:
+  bits:int = h & 65535
   sign:int = (bits >> 15) & 1
   exp:int = (bits >> 7) & 255
   mant:int = bits & 127
@@ -227,13 +224,6 @@ fn matmul_f32_scalar(out:*float, a:*float, b:*float, m:int, n:int, k:int) -> int
   ret matmul_f64_scalar(out, a, b, m, n, k)
 
 fn matmul_f32(out:*float, a:*float, b:*float, m:int, n:int, k:int) -> int:
-  if out == 0 as *float || a == 0 as *float || b == 0 as *float:
-    ret 0 - 1
-  if _valid_matmul(m, n, k) == 0:
-    ret 0 - 1
-  rc:int = tezz_ai_matmul_f32(out, a, b, m, n, k)
-  if rc == 0:
-    ret 0
   ret matmul_f32_scalar(out, a, b, m, n, k)
 
 fn matmul_f16_f32_scalar(out:*float, a:*u16, b:*u16, m:int, n:int, k:int) -> int:
@@ -263,13 +253,6 @@ fn matmul_f16_f32_scalar(out:*float, a:*u16, b:*u16, m:int, n:int, k:int) -> int
   ret 0
 
 fn matmul_f16_f32(out:*float, a:*u16, b:*u16, m:int, n:int, k:int) -> int:
-  if out == 0 as *float || a == 0 as *u16 || b == 0 as *u16:
-    ret 0 - 1
-  if _valid_matmul(m, n, k) == 0:
-    ret 0 - 1
-  rc:int = tezz_ai_matmul_f16_f32(out, a, b, m, n, k)
-  if rc == 0:
-    ret 0
   ret matmul_f16_f32_scalar(out, a, b, m, n, k)
 
 fn matmul_bf16_f32_scalar(out:*float, a:*u16, b:*u16, m:int, n:int, k:int) -> int:
@@ -299,13 +282,6 @@ fn matmul_bf16_f32_scalar(out:*float, a:*u16, b:*u16, m:int, n:int, k:int) -> in
   ret 0
 
 fn matmul_bf16_f32(out:*float, a:*u16, b:*u16, m:int, n:int, k:int) -> int:
-  if out == 0 as *float || a == 0 as *u16 || b == 0 as *u16:
-    ret 0 - 1
-  if _valid_matmul(m, n, k) == 0:
-    ret 0 - 1
-  rc:int = tezz_ai_matmul_bf16_f32(out, a, b, m, n, k)
-  if rc == 0:
-    ret 0
   ret matmul_bf16_f32_scalar(out, a, b, m, n, k)
 
 fn matmul_i8_f64_scalar(out:*float, a:*float, b:*i8, scales:*float, m:int, n:int, k:int) -> int:

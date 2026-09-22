@@ -279,11 +279,15 @@ fn _page_load(db:*TezzDb, page_id:int) -> *DbPage:
   data:*char = malloc(DB_PAGE_SIZE)
   if data == 0: ret _db_null_page()
   off:int = page_id * DB_PAGE_SIZE
+  say "DEBUG: _page_load page_id=", page_id, " off=", off
+  say "DEBUG: db.h in _page_load = ", (*db).h as int
   fs_rc:int = fseek((*db).h, off, 0)
+  say "DEBUG: fseek rc=", fs_rc
   if fs_rc != 0:
     free(data)
     ret _db_null_page()
   n:int = fread(data, 1, DB_PAGE_SIZE, (*db).h)
+  say "DEBUG: fread read=", n
   if n != DB_PAGE_SIZE:
     // New/unwritten page — zero it
     i:int = n
@@ -691,9 +695,11 @@ fn open(path:str) -> *TezzDb:
   if path == 0: ret _db_null_db()
   // Ensure parent directory
   dir:str = io.path_dir(path)
-  if dir != 0 && len(dir) > 0 && io.dir_exists(dir) == 0:
+  if dir != 0 && io.dir_exists(dir) == 0:
     io.dir_make(dir)
-  if dir != 0: free(dir)
+    free(dir)
+  else:
+    if dir != 0: free(dir)
   is_new:int = 42
   h:*char = fopen(path, "r+b")
   if h == 0 as *char:
@@ -705,6 +711,7 @@ fn open(path:str) -> *TezzDb:
     fseek(h, 0, 0)
     if sz > 0:
       is_new = 0
+  say "DEBUG: open is_new=", is_new
   if h == 0 as *char: ret _db_null_db()
   db:*TezzDb = (*TezzDb)malloc(sizeof(TezzDb))
   if db == 0:
@@ -714,7 +721,9 @@ fn open(path:str) -> *TezzDb:
   (*db).path = _db_strdup(path)
   wal_path:str = _db_join2(path, ".wal")
   (*db).wal_path = wal_path
+  say "DEBUG: h as int = ", h as int
   (*db).h = h
+  say "DEBUG: (*db).h as int = ", (*db).h as int
   (*db).wal_h = 0 as *char
   (*db).page_count = 0
   (*db).tables = 0 as *DbTableMeta
@@ -732,11 +741,15 @@ fn open(path:str) -> *TezzDb:
   (*db).cache_cap = cache_cap
   (*db).cache_count = 0
   if is_new != 0:
+    say "DEBUG: initializing new database"
     // Initialize new database
     (*db).page_count = 2  // page 0 = header, page 1 = table meta
     r1:int = _db_write_header(db)
+    say "DEBUG: write_header rc=", r1
     r2:int = _db_save_tables(db)
+    say "DEBUG: save_tables rc=", r2
     r3:int = _db_flush_all(db)
+    say "DEBUG: flush_all rc=", r3
   else:
     // Replay WAL and load existing data
     _wal_replay(db)
@@ -1758,3 +1771,6 @@ fn db_cursor_next(cur_h:*char) -> str:
 fn db_cursor_close(cur_h:*char) -> int:
   if cur_h == 0 as *char: ret TEZZDB_ERR
   ret cursor_close(cur_h as *DbCursor)
+
+
+

@@ -135,6 +135,8 @@ extern fn mouse_read_packet() -> int
 extern fn mouse_dx() -> int
 extern fn mouse_dy() -> int
 extern fn mouse_buttons() -> int
+extern fn mouse_x() -> int
+extern fn mouse_y() -> int
 extern fn ps2_force_mouse_path(profile:int) -> int
 extern fn apic_available() -> int
 extern fn apic_init() -> int

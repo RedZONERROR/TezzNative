@@ -92,7 +92,10 @@ fn _join2(a:str, b:str) -> str:
     ret a
   na:int = len(a)
   nb:int = len(b)
-  p:*char = malloc(na + nb + 1)
+  out_len:int = na + nb
+  if out_len < na || out_len < nb:
+    ret 0 as str
+  p:*char = malloc(out_len + 1)
   if p == 0:
     ret 0 as str
   unsafe:
@@ -111,7 +114,10 @@ fn _join3(a:str, b:str, c:str) -> str:
   na:int = len(a)
   nb:int = len(b)
   nc:int = len(c)
-  p:*char = malloc(na + nb + nc + 1)
+  out_len:int = na + nb + nc
+  if out_len < na || out_len < nb || out_len < nc:
+    ret 0 as str
+  p:*char = malloc(out_len + 1)
   if p == 0:
     ret 0 as str
   unsafe:
@@ -122,6 +128,14 @@ fn _join3(a:str, b:str, c:str) -> str:
   ret p as str
 
 fn _itoa(v:int) -> str:
+  if v == (0 - 9223372036854775808):
+    p:*char = malloc(21)
+    if p != 0:
+      unsafe:
+        memcpy(p, "-9223372036854775808" as *char, 20)
+        p[20] = 0 as char
+      ret p as str
+    ret 0 as str
   neg:int = 0
   n:int = v
   if n < 0:
@@ -209,8 +223,6 @@ fn last_error() -> int:
 
 // Create socket from explicit family/type/protocol.
 fn socket(fam:int, typ:int, proto:int) -> int:
-  if net_init() != 0:
-    ret NET_ERR
   ret net_socket(fam, typ, proto)
 
 // Close socket descriptor.
@@ -293,12 +305,10 @@ fn is_https_url(url:str) -> int:
 
 // Convenience: TCP socket.
 fn tcp_socket() -> int:
-  ret socket(af_inet(), sock_stream(), ipproto_tcp())
+  ret net_socket(af_inet(), sock_stream(), ipproto_tcp())
 
 // Connect TCP socket and return descriptor.
 fn tcp_connect(host:str, port:int) -> int:
-  if port <= 0 || port >= 65536:
-    ret NET_ERR
   s:int = tcp_socket()
   if s < 0:
     ret NET_ERR
@@ -318,8 +328,6 @@ fn tcp_connect_timeout(host:str, port:int, timeout_ms:int) -> int:
 
 // Start TCP listener.
 fn tcp_listen(host:str, port:int, backlog:int) -> int:
-  if port <= 0 || port >= 65536:
-    ret NET_ERR
   s:int = tcp_socket()
   if s < 0:
     ret NET_ERR
@@ -895,13 +903,9 @@ fn _http_chunked_complete_index(msg:str, total:int, body_start:int) -> int:
 // HTTP server helpers.
 
 fn http_server_listen(host:str, port:int, backlog:int) -> int:
-  if port <= 0 || port >= 65536:
-    ret NET_ERR
   b:int = backlog
   if b <= 0:
     b = 64
-  if b > 4096:
-    b = 4096
   ret tcp_listen(host, port, b)
 
 fn http_server_accept(listener:int, timeout_ms:int) -> int:
@@ -1011,7 +1015,7 @@ fn http_read_response(sock:int, max_bytes:int) -> str:
   ret out as str
 
 fn http_method(req:str) -> str:
-  if req == 0 || req[0] == 0 as char:
+  if req == 0:
     ret 0 as str
   i:int = 0
   while req[i] != 0 as char && req[i] != 32 as char && req[i] != 9 as char && req[i] != 13 as char && req[i] != 10 as char:
@@ -1019,7 +1023,7 @@ fn http_method(req:str) -> str:
   ret _substr_dup(req, 0, i)
 
 fn http_path(req:str) -> str:
-  if req == 0 || req[0] == 0 as char:
+  if req == 0:
     ret 0 as str
   i:int = 0
   while req[i] != 0 as char && req[i] != 32 as char && req[i] != 9 as char && req[i] != 13 as char && req[i] != 10 as char:
@@ -1032,7 +1036,7 @@ fn http_path(req:str) -> str:
   ret _substr_dup(req, start, i)
 
 fn http_version(req:str) -> str:
-  if req == 0 || req[0] == 0 as char:
+  if req == 0:
     ret 0 as str
   i:int = 0
   while req[i] != 0 as char && req[i] != 32 as char && req[i] != 9 as char && req[i] != 13 as char && req[i] != 10 as char:
@@ -1123,9 +1127,8 @@ fn http_get_header(req:str, name:str) -> str:
           ve = ve - 1
         else:
           break
-      value:str = _substr_dup(req, vs, ve)
       free(key)
-      ret value
+      ret _substr_dup(req, vs, ve)
     if key != 0:
       free(key)
   ret 0 as str
@@ -1189,15 +1192,13 @@ fn http_write_response_ex(sock:int, status:int, content_type:str, body:str, extr
   payload:str = body
   if payload == 0:
     payload = ""
-
-  stxt:str = http_status_text(status)
-  body_len:int = len(payload)
-
   code_s:str = _itoa(status)
-  clen_s:str = _itoa(body_len)
+  stxt:str = http_status_text(status)
+  clen_s:str = _itoa(len(payload))
+
   l1:str = _join3("HTTP/1.1 ", code_s, " ")
   l2:str = _join2(l1, stxt)
-  l3:str = _join2(l2, "\r\nServer: TezzNative/2.0\r\nConnection: close\r\nContent-Type: ")
+  l3:str = _join2(l2, "\r\nServer: TezzNative/1.0\r\nConnection: close\r\nContent-Type: ")
   l4:str = _join2(l3, ctype)
   l5:str = _join2(l4, "\r\nContent-Length: ")
   l6:str = _join2(l5, clen_s)
@@ -1230,42 +1231,6 @@ fn http_write_response_ex(sock:int, status:int, content_type:str, body:str, extr
 
 fn http_write_response(sock:int, status:int, content_type:str, body:str) -> int:
   ret http_write_response_ex(sock, status, content_type, body, "")
-
-fn http_write_response_bytes(sock:int, status:int, content_type:str, body:*char, body_len:int) -> int:
-  if sock < 0 || body_len < 0:
-    ret NET_ERR
-  ctype:str = content_type
-  if ctype == 0 || ctype[0] == 0 as char:
-    ctype = "application/octet-stream"
-
-  stxt:str = http_status_text(status)
-  code_s:str = _itoa(status)
-  clen_s:str = _itoa(body_len)
-  l1:str = _join3("HTTP/1.1 ", code_s, " ")
-  l2:str = _join2(l1, stxt)
-  l3:str = _join2(l2, "\r\nServer: TezzNative/2.0\r\nConnection: close\r\nContent-Type: ")
-  l4:str = _join2(l3, ctype)
-  l5:str = _join2(l4, "\r\nContent-Length: ")
-  hdr:str = _join2(l5, clen_s)
-  final_hdr:str = _join2(hdr, "\r\n\r\n")
-  hw:int = tcp_send_all(sock, final_hdr as *char, len(final_hdr))
-  bw:int = 0
-  if hw >= 0 && body != 0 && body_len > 0:
-    bw = tcp_send_all(sock, body, body_len)
-
-  free(code_s)
-  free(clen_s)
-  free(l1)
-  free(l2)
-  free(l3)
-  free(l4)
-  free(l5)
-  free(hdr)
-  free(final_hdr)
-
-  if hw < 0 || (body != 0 && body_len > 0 && bw < 0):
-    ret NET_ERR
-  ret NET_OK
 
 fn http_respond_text(sock:int, status:int, text:str) -> int:
   ret http_write_response(sock, status, "text/plain; charset=utf-8", text)

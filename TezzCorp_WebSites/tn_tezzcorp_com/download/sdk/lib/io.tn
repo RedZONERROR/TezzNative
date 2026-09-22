@@ -15,16 +15,9 @@
 // Seek constants
 // ─────────────────────────────────────────────────────────────
 
-import "str"
-
 let SEEK_SET:int = 0
 let SEEK_CUR:int = 1
 let SEEK_END:int = 2
-
-fn len(s:str) -> int:
-  if s == 0 as str:
-    ret 0
-  ret str.str_len(s)
 
 // Default BigFile chunk size: 4 MB — good for most pipelines
 let IO_CHUNK_DEFAULT:int = 4194304
@@ -1007,8 +1000,6 @@ fn file_rename(old:str, new_path:str) -> int:
 fn cwd() -> str:
   ret get_cwd()
 
-extern fn mkdir(path:str) -> int
-
 fn dir_make(path:str) -> int:
   if path == 0:
     ret 0 - 1
@@ -1019,50 +1010,10 @@ fn dir_remove(path:str) -> int:
     ret 0 - 1
   ret rmdir(path)
 
-fn _filter_dots(raw:str) -> str:
-  if raw == 0:
-    ret 0 as str
-  ln:int = len(raw)
-  if ln <= 0:
-    ret raw
-
-  out:str = _str_dup("")
-  start:int = 0
-  idx:int = 0
-  while idx <= ln:
-    at_end:int = 0
-    ch:int = 0
-    if idx == ln:
-      at_end = 1
-    else:
-      unsafe:
-        ch = (raw as *char)[idx] as int
-    if at_end != 0 || ch == 10:
-      if idx > start:
-        name:str = _str_slice(raw, start, idx)
-        if name != 0:
-          is_dot:int = 0
-          unsafe:
-            if (name as *char)[0] == 46 as char:
-              if len(name) == 1:
-                is_dot = 1
-              else:
-                if len(name) == 2 && (name as *char)[1] == 46 as char:
-                  is_dot = 1
-          if is_dot == 0:
-            out = _str_append_line(out, name)
-          free(name)
-      start = idx + 1
-    idx = idx + 1
-  free(raw)
-  ret out
-
 fn dir_list(p:str) -> str:
   if p == 0:
     ret 0 as str
-  raw:str = list_dir(p)
-  filtered:str = _filter_dots(raw)
-  ret filtered
+  ret list_dir(p)
 
 fn dir_list_rec(p:str) -> str:
   if p == 0:

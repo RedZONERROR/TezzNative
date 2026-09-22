@@ -23,6 +23,8 @@ import "io"
 import "math"
 import "nn"
 
+extern fn system(cmd:str) -> int
+extern fn tts_speak_text(text:str) -> int
 extern fn tts_play_pcm(pcm:*int, len:int, rate:int) -> int
 
 // ─────────────────────────────────────────────────────────────
@@ -75,12 +77,11 @@ struct TtsEngine:
 fn _tts_strdup(s:str) -> str:
   if s == 0: ret 0 as str
   n:int = len(s)
-  p:*char = 0 as *char
+  p:*char = malloc(n + 1)
+  if p == 0: ret 0 as str
   unsafe:
-    p = malloc(n + 1)
-    if p == 0: ret 0 as str
     memcpy(p, s as *char, n)
-    p[n] = 0 as char
+  p[n] = 0 as char
   ret p as str
 
 fn _tts_join2(a:str, b:str) -> str:
@@ -88,13 +89,12 @@ fn _tts_join2(a:str, b:str) -> str:
   if b == 0: ret _tts_strdup(a)
   na:int = len(a)
   nb:int = len(b)
-  p:*char = 0 as *char
+  p:*char = malloc(na + nb + 1)
+  if p == 0: ret 0 as str
   unsafe:
-    p = malloc(na + nb + 1)
-    if p == 0: ret 0 as str
     memcpy(p, a as *char, na)
     memcpy(p + na, b as *char, nb)
-    p[na+nb] = 0 as char
+  p[na+nb] = 0 as char
   ret p as str
 
 fn _tts_itoa_words(n:int) -> str:
@@ -102,8 +102,7 @@ fn _tts_itoa_words(n:int) -> str:
   if n < 0:
     pos:str = _tts_itoa_words(0 - n)
     out:str = _tts_join2("negative ", pos)
-    unsafe:
-      free(pos as *char)
+    free(pos)
     ret out
   if n == 0: ret _tts_strdup("zero")
   ones:[str;20]
@@ -124,8 +123,7 @@ fn _tts_itoa_words(n:int) -> str:
     if r == 0: ret _tts_strdup(t)
     out:str = _tts_join2(t, " ")
     out2:str = _tts_join2(out, ones[r])
-    unsafe:
-      free(out as *char)
+    free(out)
     ret out2
   if n < 1000:
     h:str = ones[n / 100]
@@ -135,34 +133,25 @@ fn _tts_itoa_words(n:int) -> str:
     rstr:str = _tts_itoa_words(rem)
     out:str = _tts_join2(hstr, " ")
     out2:str = _tts_join2(out, rstr)
-    unsafe:
-      free(hstr as *char)
-      free(rstr as *char)
-      free(out as *char)
+    free(hstr); free(rstr); free(out)
     ret out2
   if n < 1000000:
     t:str = _tts_itoa_words(n / 1000)
     ts:str = _tts_join2(t, " thousand")
-    unsafe:
-      free(t as *char)
+    free(t)
     rem:int = n % 1000
     if rem == 0: ret ts
     rstr:str = _tts_itoa_words(rem)
     out:str = _tts_join2(ts, " ")
     out2:str = _tts_join2(out, rstr)
-    unsafe:
-      free(ts as *char)
-      free(rstr as *char)
-      free(out as *char)
+    free(ts); free(rstr); free(out)
     ret out2
   ret _tts_strdup("many")
 
 fn _tts_normalize(text:str) -> str:
   if text == 0: ret 0 as str
   n:int = len(text)
-  out:*char = 0 as *char
-  unsafe:
-    out = malloc(n * 4 + 16)
+  out:*char = malloc(n * 4 + 16)  // expansion room for number words
   if out == 0: ret 0 as str
   oi:int = 0
   i:int = 0
@@ -185,8 +174,7 @@ fn _tts_normalize(text:str) -> str:
             oi = oi + 1
           memcpy(out + oi, words as *char, wlen)
         oi = oi + wlen
-      unsafe:
-        free(words as *char)
+      free(words)
       continue
     // Common abbreviations
     if c == 77 && i + 2 < n:  // 'M'
@@ -199,25 +187,23 @@ fn _tts_normalize(text:str) -> str:
         continue
     // Convert punctuation to pauses
     if c == 46 || c == 33 || c == 63:  // '. ! ?'
-      unsafe:
-        out[oi] = 46 as char  // period for pause
-        out[oi+1] = 32 as char  // space
-      oi = oi + 2
+      out[oi] = 46 as char  // period for pause
+      oi = oi + 1
+      out[oi] = 32 as char  // space
+      oi = oi + 1
       i = i + 1
       continue
     if c == 44:  // ','
-      unsafe:
-        out[oi] = 44 as char
-        out[oi+1] = 32 as char
-      oi = oi + 2
+      out[oi] = 44 as char
+      oi = oi + 1
+      out[oi] = 32 as char
+      oi = oi + 1
       i = i + 1
       continue
-    unsafe:
-      out[oi] = c as char
+    out[oi] = c as char
     oi = oi + 1
     i = i + 1
-  unsafe:
-    out[oi] = 0 as char
+  out[oi] = 0 as char
   ret out as str
 
 // ─────────────────────────────────────────────────────────────
@@ -271,44 +257,44 @@ struct Formants:
   f3:int   // Hz
   duration_ms:int
 
-fn _tts_phoneme_formants(ph:str, out:*Formants) -> int:
-  if out == 0: ret TTS_ERR
-  (*out).f1 = 800
-  (*out).f2 = 1200
-  (*out).f3 = 2400
-  (*out).duration_ms = 80
-  if ph == 0: ret TTS_OK
+fn _tts_phoneme_formants(ph:str) -> Formants:
+  out:Formants
+  out.f1 = 800
+  out.f2 = 1200
+  out.f3 = 2400
+  out.duration_ms = 80
+  if ph == 0: ret out
   p0:int = (ph as *char)[0] as int
   p1:int = (ph as *char)[1] as int
   // Vowels
   if p0 == 97 && p1 == 101:  // "ae" (a)
-    (*out).f1 = 800; (*out).f2 = 1770; (*out).f3 = 2580; (*out).duration_ms = 120
+    out.f1 = 800; out.f2 = 1770; out.f3 = 2580; out.duration_ms = 120
   else if p0 == 101 && p1 == 104:  // "eh" (e)
-    (*out).f1 = 600; (*out).f2 = 1970; (*out).f3 = 2600; (*out).duration_ms = 100
+    out.f1 = 600; out.f2 = 1970; out.f3 = 2600; out.duration_ms = 100
   else if p0 == 105 && p1 == 104:  // "ih" (i)
-    (*out).f1 = 400; (*out).f2 = 2000; (*out).f3 = 2550; (*out).duration_ms = 90
+    out.f1 = 400; out.f2 = 2000; out.f3 = 2550; out.duration_ms = 90
   else if p0 == 111 && p1 == 104:  // "oh" (o)
-    (*out).f1 = 550; (*out).f2 = 1000; (*out).f3 = 2650; (*out).duration_ms = 120
+    out.f1 = 550; out.f2 = 1000; out.f3 = 2650; out.duration_ms = 120
   else if p0 == 117 && p1 == 104:  // "uh" (u)
-    (*out).f1 = 520; (*out).f2 = 1190; (*out).f3 = 2390; (*out).duration_ms = 100
+    out.f1 = 520; out.f2 = 1190; out.f3 = 2390; out.duration_ms = 100
   // Consonants (noise-based, shorter duration)
   else if p0 == 115:  // s
-    (*out).f1 = 0; (*out).f2 = 0; (*out).f3 = 0; (*out).duration_ms = 70
+    out.f1 = 0; out.f2 = 0; out.f3 = 0; out.duration_ms = 70
   else if p0 == 102:  // f
-    (*out).f1 = 0; (*out).f2 = 0; (*out).f3 = 0; (*out).duration_ms = 60
+    out.f1 = 0; out.f2 = 0; out.f3 = 0; out.duration_ms = 60
   else if p0 == 109:  // m
-    (*out).f1 = 300; (*out).f2 = 1000; (*out).f3 = 2200; (*out).duration_ms = 80
+    out.f1 = 300; out.f2 = 1000; out.f3 = 2200; out.duration_ms = 80
   else if p0 == 110:  // n
-    (*out).f1 = 300; (*out).f2 = 1700; (*out).f3 = 2500; (*out).duration_ms = 70
+    out.f1 = 300; out.f2 = 1700; out.f3 = 2500; out.duration_ms = 70
   else if p0 == 108:  // l
-    (*out).f1 = 360; (*out).f2 = 1050; (*out).f3 = 2700; (*out).duration_ms = 60
+    out.f1 = 360; out.f2 = 1050; out.f3 = 2700; out.duration_ms = 60
   else if p0 == 114:  // r
-    (*out).f1 = 300; (*out).f2 = 900;  (*out).f3 = 2200; (*out).duration_ms = 70
+    out.f1 = 300; out.f2 = 900;  out.f3 = 2200; out.duration_ms = 70
   // Pause
   else if p0 == 46:
-    (*out).f1 = 0; (*out).f2 = 0; (*out).f3 = 0; (*out).duration_ms = 150
-    if p1 == 46 && (ph as *char)[2] == 46 as char: (*out).duration_ms = 300
-  ret TTS_OK
+    out.f1 = 0; out.f2 = 0; out.f3 = 0; out.duration_ms = 150
+    if p1 == 46 && (ph as *char)[2] == 46 as char: out.duration_ms = 300
+  ret out
 
 fn _tts_gen_samples(eng:*TtsEngine, f1:int, f2:int, f3:int, dur_ms:int, pitch:float) -> int:
   // Generate PCM samples for one phoneme
@@ -320,14 +306,14 @@ fn _tts_gen_samples(eng:*TtsEngine, f1:int, f2:int, f3:int, dur_ms:int, pitch:fl
   needed:int = (*eng).pcm_len + n_samples + 4
   if needed > (*eng).pcm_cap:
     nc:int = needed * 2
-    unsafe:
-      nb:*int = malloc(sizeof(int) * nc) as *int
-      if nb == 0: ret TTS_ERR
-      if (*eng).pcm_buf != 0:
+    nb:*int = (*int)malloc(sizeof(int) * nc)
+    if nb == 0: ret TTS_ERR
+    if (*eng).pcm_buf != 0:
+      unsafe:
         memcpy(nb as *char, (*eng).pcm_buf as *char, sizeof(int) * (*eng).pcm_len)
-        free((*eng).pcm_buf as *char)
-      (*eng).pcm_buf = nb
-      (*eng).pcm_cap = nc
+      free((*eng).pcm_buf as *char)
+    (*eng).pcm_buf = nb
+    (*eng).pcm_cap = nc
   // Synthesize via additive synthesis
   pi2:float = 6.283185307
   i:int = 0
@@ -355,8 +341,7 @@ fn _tts_gen_samples(eng:*TtsEngine, f1:int, f2:int, f3:int, dur_ms:int, pitch:fl
     val:float = sample * env * (*eng).voices[(*eng).current_voice].energy * 28000.0
     if val > 32767.0: val = 32767.0
     if val < 0.0 - 32767.0: val = 0.0 - 32767.0
-    unsafe:
-      (*eng).pcm_buf[(*eng).pcm_len + i] = val as int
+    (*eng).pcm_buf[(*eng).pcm_len + i] = val as int
     i = i + 1
   (*eng).pcm_len = (*eng).pcm_len + n_samples
   ret TTS_OK
@@ -370,15 +355,13 @@ fn _tts_synthesize(eng:*TtsEngine, text:str) -> int:
   n:int = len(norm)
   pitch:float = (*eng).voices[(*eng).current_voice].pitch
   i:int = 0
-  fmts:Formants
   while i < n:
     c:int = (norm as *char)[i] as int
     ph:str = _tts_letter_to_phoneme(c)
-    _tts_phoneme_formants(ph, &fmts)
+    fmts:Formants = _tts_phoneme_formants(ph)
     _tts_gen_samples(eng, fmts.f1, fmts.f2, fmts.f3, fmts.duration_ms, pitch)
     i = i + 1
-  unsafe:
-    free(norm as *char)
+  free(norm)
   ret TTS_OK
 
 // ─────────────────────────────────────────────────────────────
@@ -434,58 +417,56 @@ fn _tts_write_wav(path:str, pcm:*int, n_samples:int, sample_rate:int) -> int:
 // ─────────────────────────────────────────────────────────────
 
 fn tts_new() -> *TtsEngine:
-  unsafe:
-    eng:*TtsEngine = malloc(sizeof(TtsEngine)) as *TtsEngine
-    if eng == 0: ret 0 as *TtsEngine
-    // Create default voices
-    vc:int = 3
-    (*eng).voices = malloc(sizeof(TtsVoice) * vc) as *TtsVoice
-    if (*eng).voices == 0:
-      free(eng as *char)
-      ret 0 as *TtsEngine
-    // Voice 0: neutral
-    (*eng).voices[0].name = "neutral"
-    (*eng).voices[0].rate = 1.0
-    (*eng).voices[0].pitch = 1.0
-    (*eng).voices[0].energy = 1.0
-    (*eng).voices[0].gender = 0
-    // Voice 1: male
-    (*eng).voices[1].name = "en-male"
-    (*eng).voices[1].rate = 0.9
-    (*eng).voices[1].pitch = 0.8
-    (*eng).voices[1].energy = 1.1
-    (*eng).voices[1].gender = 1
-    // Voice 2: female
-    (*eng).voices[2].name = "en-female"
-    (*eng).voices[2].rate = 1.1
-    (*eng).voices[2].pitch = 1.3
-    (*eng).voices[2].energy = 0.9
-    (*eng).voices[2].gender = 2
-    (*eng).voice_count = vc
-    (*eng).current_voice = 0
-    (*eng).sample_rate = TTS_SAMPLE_RATE
-    (*eng).pcm_buf = malloc(sizeof(int) * 65536) as *int
-    if (*eng).pcm_buf == 0:
-      free((*eng).voices as *char)
-      free(eng as *char)
-      ret 0 as *TtsEngine
-    (*eng).pcm_cap = 65536
-    (*eng).pcm_len = 0
-    (*eng).model_loaded = 0
-    (*eng).model_weights = 0 as *char
-    (*eng).model_size = 0
-    (*eng).use_neural = 0
-    (*eng).out_path = 0 as str
-    ret eng
+  eng:*TtsEngine = (*TtsEngine)malloc(sizeof(TtsEngine))
+  if eng == 0: ret 0 as *TtsEngine
+  // Create default voices
+  vc:int = 3
+  (*eng).voices = (*TtsVoice)malloc(sizeof(TtsVoice) * vc)
+  if (*eng).voices == 0:
+    free(eng)
+    ret 0 as *TtsEngine
+  // Voice 0: neutral
+  (*eng).voices[0].name = "neutral"
+  (*eng).voices[0].rate = 1.0
+  (*eng).voices[0].pitch = 1.0
+  (*eng).voices[0].energy = 1.0
+  (*eng).voices[0].gender = 0
+  // Voice 1: male
+  (*eng).voices[1].name = "en-male"
+  (*eng).voices[1].rate = 0.9
+  (*eng).voices[1].pitch = 0.8
+  (*eng).voices[1].energy = 1.1
+  (*eng).voices[1].gender = 1
+  // Voice 2: female
+  (*eng).voices[2].name = "en-female"
+  (*eng).voices[2].rate = 1.1
+  (*eng).voices[2].pitch = 1.3
+  (*eng).voices[2].energy = 0.9
+  (*eng).voices[2].gender = 2
+  (*eng).voice_count = vc
+  (*eng).current_voice = 0
+  (*eng).sample_rate = TTS_SAMPLE_RATE
+  (*eng).pcm_buf = (*int)malloc(sizeof(int) * 65536)
+  if (*eng).pcm_buf == 0:
+    free((*eng).voices as *char)
+    free(eng)
+    ret 0 as *TtsEngine
+  (*eng).pcm_cap = 65536
+  (*eng).pcm_len = 0
+  (*eng).model_loaded = 0
+  (*eng).model_weights = 0 as *char
+  (*eng).model_size = 0
+  (*eng).use_neural = 0
+  (*eng).out_path = 0 as str
+  ret eng
 
 fn tts_free(eng:*TtsEngine) -> int:
   if eng == 0: ret TTS_ERR
-  unsafe:
-    if (*eng).voices != 0: free((*eng).voices as *char)
-    if (*eng).pcm_buf != 0: free((*eng).pcm_buf as *char)
-    if (*eng).model_weights != 0: free((*eng).model_weights)
-    if (*eng).out_path != 0: free((*eng).out_path as *char)
-    free(eng as *char)
+  if (*eng).voices != 0: free((*eng).voices as *char)
+  if (*eng).pcm_buf != 0: free((*eng).pcm_buf as *char)
+  if (*eng).model_weights != 0: free((*eng).model_weights)
+  if (*eng).out_path != 0: free((*eng).out_path)
+  free(eng)
   ret TTS_OK
 
 fn tts_set_voice(eng:*TtsEngine, name:str) -> int:
@@ -515,9 +496,7 @@ fn tts_set_energy(eng:*TtsEngine, energy:float) -> int:
 
 fn tts_set_output_file(eng:*TtsEngine, path:str) -> int:
   if eng == 0: ret TTS_ERR
-  if (*eng).out_path != 0:
-    unsafe:
-      free((*eng).out_path as *char)
+  if (*eng).out_path != 0: free((*eng).out_path)
   (*eng).out_path = _tts_strdup(path)
   ret TTS_OK
 
@@ -528,13 +507,47 @@ fn tts_speak_to_file(eng:*TtsEngine, path:str, text:str) -> int:
   ret _tts_write_wav(path, (*eng).pcm_buf, (*eng).pcm_len, (*eng).sample_rate)
 
 fn tts_speak(eng:*TtsEngine, text:str) -> int:
-  if eng == 0 || text == 0: ret TTS_ERR
-  if (*eng).out_path != 0:
+  if text == 0: ret TTS_ERR
+  if eng != 0 && (*eng).out_path != 0:
     ret tts_speak_to_file(eng, (*eng).out_path, text)
+  // First try direct high-quality OS native voice synthesis (SAPI / WinMM)
+  res:int = tts_speak_text(text)
+  if res == 0: ret TTS_OK
+  if eng == 0: ret TTS_ERR
   r:int = _tts_synthesize(eng, text)
   if r != TTS_OK: ret r
   // Play via OS audio API
   ret tts_play_pcm((*eng).pcm_buf, (*eng).pcm_len, (*eng).sample_rate)
+
+fn _tts_strlen(s:str) -> int:
+  if s == 0: ret 0
+  p:*char = s as *char
+  len:int = 0
+  while p[len] != 0 as char:
+    len = len + 1
+  ret len
+
+fn _tts_concat3(a:str, b:str, c:str) -> str:
+  la:int = _tts_strlen(a)
+  lb:int = _tts_strlen(b)
+  lc:int = _tts_strlen(c)
+  buf:*char = malloc(la + lb + lc + 1)
+  if buf == 0: ret 0 as str
+  memcpy(buf, a, la)
+  memcpy(buf + la, b, lb)
+  memcpy(buf + la + lb, c, lc)
+  buf[la + lb + lc] = 0 as char
+  ret buf as str
+
+fn tts_say(text:str) -> int:
+  if text == 0: ret TTS_ERR
+  pre:str = "powershell.exe -NoProfile -NonInteractive -Command \"Add-Type -AssemblyName System.Speech; (New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak('"
+  post:str = "')\""
+  cmd:str = _tts_concat3(pre, text, post)
+  if cmd == 0: ret TTS_ERR
+  r:int = system(cmd)
+  free(cmd as *char)
+  ret r
 
 fn tts_speak_wait(eng:*TtsEngine, text:str) -> int:
   // Synchronous speak — synthesize then play and wait

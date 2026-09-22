@@ -8,8 +8,7 @@
 import "io"
 import "gpu"
 import "simd"
-import "tzcpu"
-import "tztensor"
+import "tensor"
 
 // ─────────────────────────────────────────────
 // Runtime extern hooks (implemented in tnrt.c)
@@ -233,67 +232,62 @@ fn model_run(handle:int, input:*float, in_n:int, output:*float, out_n:int) -> in
   ret tn_npu_model_run_f64_1d(handle, input, in_n, output, out_n)
 
 // ─────────────────────────────────────────────
-// High-Level Tensor Helpers
-// (Bridges npu.* with first-class tztensor handles)
+// High-Level TensorData Helpers
+// (Bridges npu.* with the tensor.tn type system)
 // ─────────────────────────────────────────────
 
-fn model_run_tensor(handle:int, input:int, out_cols:int) -> int:
-  if handle < 0 || input == 0 || out_cols <= 0:
-    ret 0
-  in_rows:int = tztensor.tensor_d0(input)
-  in_cols:int = tztensor.tensor_d1(input)
-  out_t:int = tztensor.tensor_new_2d(in_rows, out_cols, 0)
-  in_data:*float = 0 as *float
-  out_data:*float = 0 as *float
-  unsafe:
-    in_data = tztensor.tensor_data(input) as *float
-    out_data = tztensor.tensor_data(out_t) as *float
+// Run a TensorData through a loaded ONNX model.
+// Returns a new output TensorData allocated on the CPU heap.
+// The caller is responsible for freeing via tensor.tensor_free().
+fn model_run_tensor(handle:int, input:TensorData, out_cols:int) -> TensorData:
+  empty:TensorData = tensor.tensor_new(0, 0)
+  if handle < 0 || input.data == 0 as *float:
+    ret empty
+  if out_cols <= 0:
+    ret empty
+  
+  // Allocate output buffer
+  out_t:TensorData = tensor.tensor_new(input.rows, out_cols)
+  if out_t.data == 0 as *float:
+    ret empty
+  
+  // Run inference row by row
   i:int = 0
-  while i < in_rows:
-    in_ptr:*float = 0 as *float
-    out_ptr:*float = 0 as *float
-    unsafe:
-      in_ptr = in_data + (i * in_cols)
-      out_ptr = out_data + (i * out_cols)
-    rc:int = tn_npu_model_run_f64_1d(handle, in_ptr, in_cols, out_ptr, out_cols)
+  while i < input.rows:
+    in_ptr:*float = input.data + (i * input.cols)
+    out_ptr:*float = out_t.data + (i * out_cols)
+    rc:int = tn_npu_model_run_f64_1d(handle, in_ptr, input.cols, out_ptr, out_cols)
     if rc != 0:
-      tztensor.tensor_free(out_t)
-      ret 0
+      tensor.tensor_free(out_t)
+      ret empty
     i = i + 1
   ret out_t
 
 // Smart dispatch: run matrix operation on best available hardware.
 // Priority: NPU -> GPU -> SIMD CPU
-fn smart_matmul(a:int, b:int) -> int:
-  if a == 0 || b == 0:
-    ret 0
-  M:int = tztensor.tensor_d0(a)
-  K:int = tztensor.tensor_d1(a)
-  N:int = tztensor.tensor_d1(b)
-  c:int = tztensor.tensor_new_2d(M, N, 0)
-  a_data:*float = 0 as *float
-  b_data:*float = 0 as *float
-  c_data:*float = 0 as *float
-  unsafe:
-    a_data = tztensor.tensor_data(a) as *float
-    b_data = tztensor.tensor_data(b) as *float
-    c_data = tztensor.tensor_data(c) as *float
+fn smart_matmul(a:TensorData, b:TensorData) -> TensorData:
+  if tn_npu_has_backend() != 0:
+    // NPU path: upload, run SGEMM kernel, download
+    // For now routes through tensor.tensor_dot with NPU init hint
+    ret tensor.tensor_dot(a, b)
   if gpu.available() != 0:
+    // GPU path
+    M:int = a.rows
+    N:int = b.cols
+    K:int = a.cols
+    c:TensorData = tensor.tensor_new(M, N)
     a_gpu:*char = gpu.alloc(M * K * 8)
     b_gpu:*char = gpu.alloc(K * N * 8)
     c_gpu:*char = gpu.alloc(M * N * 8)
     if a_gpu != 0 && b_gpu != 0 && c_gpu != 0:
-      unsafe:
-        gpu.upload(a_data as *char, a_gpu, M * K * 8)
-        gpu.upload(b_data as *char, b_gpu, K * N * 8)
+      gpu.upload(a.data as *char, a_gpu, M * K * 8)
+      gpu.upload(b.data as *char, b_gpu, K * N * 8)
       gpu.sgemm(a_gpu, b_gpu, c_gpu, M, N, K)
       gpu.sync()
-      unsafe:
-        gpu.download(c_gpu, c_data as *char, M * N * 8)
+      gpu.download(c_gpu, c.data as *char, M * N * 8)
     gpu.free_buf(a_gpu)
     gpu.free_buf(b_gpu)
     gpu.free_buf(c_gpu)
     ret c
-  // CPU SIMD fallback
-  tzcpu.tz_cpu_gemm_f32(a_data as int, b_data as int, c_data as int, M, K, N, 1.0, 0.0)
-  ret c
+  // SIMD CPU fallback
+  ret tensor.tensor_dot(a, b)

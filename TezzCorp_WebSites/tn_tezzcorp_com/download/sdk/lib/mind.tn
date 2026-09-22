@@ -439,10 +439,10 @@ fn _rmsnorm_forward(x:*float, out:*float, gamma:*float, T:int, dim:int) -> int:
 
 fn _rmsnorm_backward(dx_norm:*float, x:*float, gamma:*float, dx:*float, dgamma:*float, T:int, dim:int) -> int:
   eps:float = 1.0e-05
-  t:int = 0
   xv:float = 0.0
   dyn:float = 0.0
-  g:float = 0.0
+  g:float = 1.0
+  t:int = 0
   while t < T:
     sq_sum:float = 0.0
     j:int = 0
@@ -697,16 +697,8 @@ fn _gqa_backward(dq:*float, dk:*float, dv:*float, q:*float, k:*float, v:*float, 
   groups:int = q_heads / kv_heads
   scale:float = 1.0 / math.sqrt(head_dim as float)
   do:float = 0.0
-  vv:float = 0.0
-  pr:float = 0.0
   d_pr:float = 0.0
-  idx:int = 0
-  sum_dpr_pr:float = 0.0
-  d_sc:float = 0.0
-  qv:float = 0.0
-  kv:float = 0.0
-  q_idx:int = 0
-  k_idx:int = 0
+  pr:float = 0.0
 
   t:int = 0
   while t < T:
@@ -720,7 +712,7 @@ fn _gqa_backward(dq:*float, dk:*float, dv:*float, q:*float, k:*float, v:*float, 
         c:int = 0
         while c < head_dim:
           do = _mf(d_out, t * q_heads * head_dim + qh * head_dim + c)
-          vv = _mf(v, p * kv_heads * head_dim + kvh * head_dim + c)
+          vv:float = _mf(v, p * kv_heads * head_dim + kvh * head_dim + c)
           d_pr = d_pr + do * vv
           c = c + 1
         _mw(d_probs_temp, p, d_pr)
@@ -729,12 +721,12 @@ fn _gqa_backward(dq:*float, dk:*float, dv:*float, q:*float, k:*float, v:*float, 
         c = 0
         while c < head_dim:
           do = _mf(d_out, t * q_heads * head_dim + qh * head_dim + c)
-          idx = p * kv_heads * head_dim + kvh * head_dim + c
+          idx:int = p * kv_heads * head_dim + kvh * head_dim + c
           _mw(dv, idx, _mf(dv, idx) + pr * do)
           c = c + 1
         p = p + 1
 
-      sum_dpr_pr = 0.0
+      sum_dpr_pr:float = 0.0
       p = 0
       while p <= t:
         d_pr = _mf(d_probs_temp, p)
@@ -746,15 +738,15 @@ fn _gqa_backward(dq:*float, dk:*float, dv:*float, q:*float, k:*float, v:*float, 
       while p <= t:
         d_pr = _mf(d_probs_temp, p)
         pr = _mf(probs_buf, t * q_heads * T + qh * T + p)
-        d_sc = pr * (d_pr - sum_dpr_pr)
+        d_sc:float = pr * (d_pr - sum_dpr_pr)
 
         c = 0
         while c < head_dim:
-          qv = _mf(q, t * q_heads * head_dim + qh * head_dim + c)
-          kv = _mf(k, p * kv_heads * head_dim + kvh * head_dim + c)
+          qv:float = _mf(q, t * q_heads * head_dim + qh * head_dim + c)
+          kv:float = _mf(k, p * kv_heads * head_dim + kvh * head_dim + c)
 
-          q_idx = t * q_heads * head_dim + qh * head_dim + c
-          k_idx = p * kv_heads * head_dim + kvh * head_dim + c
+          q_idx:int = t * q_heads * head_dim + qh * head_dim + c
+          k_idx:int = p * kv_heads * head_dim + kvh * head_dim + c
 
           _mw(dq, q_idx, _mf(dq, q_idx) + d_sc * kv * scale)
           _mw(dk, k_idx, _mf(dk, k_idx) + d_sc * qv * scale)
@@ -1042,8 +1034,6 @@ fn mind_forward(model:*float, token_id:int, pos:int, logits:*float) -> int:
     free(ws_raw)
   ret 0
 
-// â”€â”€ mind_backward: GQA Transformer backward pass (training) â”€â”€â”€â”€
-
 fn mind_backward(model:*float, tokens:*int, targets:*int, seq_len:int, grads:*float) -> float:
   if model == 0 as *float || tokens == 0 as *int || targets == 0 as *int || grads == 0 as *float || seq_len <= 0:
     ret 0.0 - 1.0
@@ -1060,16 +1050,6 @@ fn mind_backward(model:*float, tokens:*int, targets:*int, seq_len:int, grads:*fl
 
   q_dim:int  = q_heads  * head_dim
   kv_dim:int = kv_heads * head_dim
-
-  ln1_off:int = 0
-  w_q_off:int = 0
-  w_k_off:int = 0
-  w_v_off:int = 0
-  w_o_off:int = 0
-  ln2_off:int = 0
-  w_gate_off:int = 0
-  w_up_off:int = 0
-  w_down_off:int = 0
 
   // Zero the output grads slab
   i:int = 0
@@ -1120,8 +1100,10 @@ fn mind_backward(model:*float, tokens:*int, targets:*int, seq_len:int, grads:*fl
   logits_off:int = final_norm_off + seq_len * dim
 
   // Embeddings
+  embed_w:*float
   unsafe:
-    nn.nn_embed(tokens, act, model + w_off, seq_len, dim)
+    embed_w = model + w_off
+  nn.nn_embed(tokens, act, embed_w, seq_len, dim)
 
   l:int = 0
   while l < layers:
@@ -1151,7 +1133,7 @@ fn mind_backward(model:*float, tokens:*int, targets:*int, seq_len:int, grads:*fl
         j = j + 1
 
     // RMSNorm 1
-    ln1_off = lw
+    ln1_off:int = lw
     ln1_w:*float
     unsafe:
       ln1_w = (model as *char + ln1_off * 8) as *float
@@ -1159,10 +1141,10 @@ fn mind_backward(model:*float, tokens:*int, targets:*int, seq_len:int, grads:*fl
     lw = lw + dim
 
     // Projections Q, K, V
-    w_q_off = lw; lw = lw + dim * q_dim
-    w_k_off = lw; lw = lw + dim * kv_dim
-    w_v_off = lw; lw = lw + dim * kv_dim
-    w_o_off = lw; lw = lw + q_dim * dim
+    w_q_off:int = lw; lw = lw + dim * q_dim
+    w_k_off:int = lw; lw = lw + dim * kv_dim
+    w_v_off:int = lw; lw = lw + dim * kv_dim
+    w_o_off:int = lw; lw = lw + q_dim * dim
 
     w_q:*float; w_k:*float; w_v:*float
     unsafe:
@@ -1187,7 +1169,7 @@ fn mind_backward(model:*float, tokens:*int, targets:*int, seq_len:int, grads:*fl
     _matmul_forward(act + off_attn_out, w_o, act + off_attn_proj, seq_len, q_dim, dim)
 
     // RMSNorm 2
-    ln2_off = lw
+    ln2_off:int = lw
     ln2_w:*float
     unsafe:
       ln2_w = (model as *char + ln2_off * 8) as *float
@@ -1199,9 +1181,9 @@ fn mind_backward(model:*float, tokens:*int, targets:*int, seq_len:int, grads:*fl
     lw = lw + dim
 
     // SwiGLU FFN
-    w_gate_off = lw; lw = lw + dim * ffn
-    w_up_off = lw; lw = lw + dim * ffn
-    w_down_off = lw; lw = lw + ffn * dim
+    w_gate_off:int = lw; lw = lw + dim * ffn
+    w_up_off:int = lw; lw = lw + dim * ffn
+    w_down_off:int = lw; lw = lw + ffn * dim
 
     w_gate_p:*float; w_up_p:*float; w_down_p:*float
     unsafe:
@@ -1252,7 +1234,10 @@ fn mind_backward(model:*float, tokens:*int, targets:*int, seq_len:int, grads:*fl
   while t < seq_len:
     target:int = targets[t]
     // Get logits for this t
-    loss_total = loss_total + nn.nn_cross_entropy(act + logits_off + t * vocab, target, d_logits, vocab)
+    t_logits:*float
+    unsafe:
+      t_logits = act + logits_off + t * vocab
+    loss_total = loss_total + nn.nn_cross_entropy(t_logits, target, d_logits, vocab)
     // Copy computed gradients to d_act slab
     j = 0
     while j < vocab:
@@ -1264,7 +1249,7 @@ fn mind_backward(model:*float, tokens:*int, targets:*int, seq_len:int, grads:*fl
   unsafe:
     free(d_logits_raw)
 
-  // â”€â”€ 2. Backward Pass â”€â”€
+  // ── 2. Backward Pass ──
 
   // Grad to LM Head
   // dW_lm += final_norm^T @ d_logits
@@ -1306,32 +1291,32 @@ fn mind_backward(model:*float, tokens:*int, targets:*int, seq_len:int, grads:*fl
 
   l = layers - 1
   while l >= 0:
-    lw = w_off + _layer_weights_start(vocab, dim, q_heads, kv_heads, head_dim, ffn, l)
+    lw:int = w_off + _layer_weights_start(vocab, dim, q_heads, kv_heads, head_dim, ffn, l)
 
     // Layer bounds
-    off_x_in = l * L_SZ
-    off_x_norm1 = off_x_in + seq_len * dim
-    off_q = off_x_norm1 + seq_len * dim
-    off_k = off_q + seq_len * q_dim
-    off_v = off_k + seq_len * kv_dim
-    off_attn_out = off_v + seq_len * kv_dim
-    off_attn_proj = off_attn_out + seq_len * q_dim
-    off_x_norm2 = off_attn_proj + seq_len * dim
-    off_gate = off_x_norm2 + seq_len * dim
-    off_up = off_gate + seq_len * ffn
-    off_ffn_mid = off_up + seq_len * ffn
-    off_ffn_out = off_ffn_mid + seq_len * ffn
+    off_x_in:int = l * L_SZ
+    off_x_norm1:int = off_x_in + seq_len * dim
+    off_q:int = off_x_norm1 + seq_len * dim
+    off_k:int = off_q + seq_len * q_dim
+    off_v:int = off_k + seq_len * kv_dim
+    off_attn_out:int = off_v + seq_len * kv_dim
+    off_attn_proj:int = off_attn_out + seq_len * q_dim
+    off_x_norm2:int = off_attn_proj + seq_len * dim
+    off_gate:int = off_x_norm2 + seq_len * dim
+    off_up:int = off_gate + seq_len * ffn
+    off_ffn_mid:int = off_up + seq_len * ffn
+    off_ffn_out:int = off_ffn_mid + seq_len * ffn
 
     // Layer weight pointers
-    ln1_off = lw
-    w_q_off = ln1_off + dim
-    w_k_off = w_q_off + dim * q_dim
-    w_v_off = w_k_off + dim * kv_dim
-    w_o_off = w_v_off + dim * kv_dim
-    ln2_off = w_o_off + q_dim * dim
-    w_gate_off = ln2_off + dim
-    w_up_off = w_gate_off + dim * ffn
-    w_down_off = w_up_off + dim * ffn
+    ln1_off:int = lw
+    w_q_off:int = ln1_off + dim
+    w_k_off:int = w_q_off + dim * q_dim
+    w_v_off:int = w_k_off + dim * kv_dim
+    w_o_off:int = w_v_off + dim * kv_dim
+    ln2_off:int = w_o_off + q_dim * dim
+    w_gate_off:int = ln2_off + dim
+    w_up_off:int = w_gate_off + dim * ffn
+    w_down_off:int = w_up_off + dim * ffn
 
     dw_down:*float; dw_gate:*float; dw_up:*float; dw_o:*float; dw_q:*float; dw_k:*float; dw_v:*float
     dgamma1:*float; dgamma2:*float
