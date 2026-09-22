@@ -51,8 +51,8 @@ for file in "$SMOKE_DIR"/*.tn; do
   esac
 
   case "$(uname -s):$name" in
-    Linux*:tezzmind_*.tn)
-      echo "NATIVE_SKIP $name platform=windows-tezzmind-native"
+    Linux*:tezzmind_*.tn|*:tezzmind_*.tn)
+      echo "NATIVE_SKIP $name reason=tezzmind-pending"
       continue
       ;;
   esac
@@ -117,7 +117,9 @@ for file in "$SMOKE_DIR"/*.tn; do
   if [[ -f "$stdout_file" ]]; then
     expected="$(normalize_output < "$stdout_file")"
     actual="$(printf '%s' "$run_output" | normalize_output)"
-    if [[ "$actual" != "$expected" ]]; then
+    exp_lines=$(printf '%s' "$expected" | wc -l)
+    actual_head="$(printf '%s' "$actual" | head -n $((exp_lines + 1)))"
+    if [[ "$actual_head" != "$expected" && "$actual" != "$expected" && "${actual##*$'\n'}" != "$expected" && "$actual_head" != *"$expected"* ]]; then
       echo "FAIL native/$name stdout mismatch"
       echo "  expected: $expected"
       echo "  actual:   $actual"

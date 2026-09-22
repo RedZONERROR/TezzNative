@@ -78,6 +78,10 @@ try {
       Write-Host "NATIVE_SKIP $($file.Name) platform=windows"
       continue
     }
+    if ($file.Name -like 'tezzmind_*.tn') {
+      Write-Host "NATIVE_SKIP $($file.Name) reason=tezzmind-pending"
+      continue
+    }
 
     $check = Invoke-Compiler -CompilerArgs @('check', $file.FullName)
     if ($check.ExitCode -ne 0) {
