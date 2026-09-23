@@ -845,8 +845,7 @@ fn release_write_manifest(out_path:str, require_sign:int, quiet:int, sign_key_ov
   release_append_artifact(&payload, &line_n, "web/tn_site/public/assets/site.js")
   release_append_artifact(&payload, &line_n, "web/tn_site/public/download/install.sh")
   release_append_artifact(&payload, &line_n, "web/tn_site/public/download/install.ps1")
-  release_append_artifact(&payload, &line_n, "web/tn_site/public/download/install_gui.ps1")
-  release_append_artifact(&payload, &line_n, "web/tn_site/public/download/install_gui.cmd")
+  release_append_artifact(&payload, &line_n, "web/tn_site/public/download/install.cmd")
   release_append_artifact(&payload, &line_n, "web/tn_site/public/frameworks/index.php")
   release_append_artifact(&payload, &line_n, "web/tn_site/public/frameworks/tezzapi.php")
   release_append_artifact(&payload, &line_n, "web/tn_site/public/frameworks/tezzserve.php")
@@ -1147,6 +1146,8 @@ fn print_usage() -> int:
   say "  install <name@ver> [url] [checksum]   (alias: get)"
   say "  add <name@ver> [url] [checksum]       (dependency install)"
   say "  remove <name>                         (remove dependency)"
+  say "  sync                                  (auto-resolve & install missing imports)"
+  say "  resolve-meta                          (resolve all SHAs, keys, and release manifests)"
   say "  update [--check|--install|--reinstall|--uninstall]"
   say "  get <name@ver> [url] [checksum]"
   say "  lock"
@@ -1282,7 +1283,13 @@ fn ends_with_tn(p:str) -> int:
   ret 0
 
 fn parse_name_ver(nv:str, out_name:*char, out_ver:*char) -> int:
-  ret parse_namever_token(nv, out_name, out_ver)
+  if nv == 0 || out_name == 0 || out_ver == 0:
+    ret 0
+  if str_has_char(nv, 64) != 0:
+    ret parse_namever_token(nv, out_name, out_ver)
+  copy_into_buf(out_name, nv, 128)
+  copy_into_buf(out_ver, "0.1.0", 64)
+  ret 1
 
 fn str_has_char(s:str, ch:int) -> int:
   if s == 0:
@@ -1419,44 +1426,21 @@ fn update_tezz_mod(dep_name:str, dep_ver:str) -> int:
 fn line_is_dep(line:str, name:str, ver:str) -> int:
   if line == 0 || name == 0 || ver == 0:
     ret 0
-  line2:str = str_join2("", line)
-  name2:str = str_join2("", name)
-  ver2:str = str_join2("", ver)
-  if line2 == 0 || name2 == 0 || ver2 == 0:
-    if line2 != 0:
-      free(line2)
-    if name2 != 0:
-      free(name2)
-    if ver2 != 0:
-      free(ver2)
-    ret 0
   i:int = 0
-  while name2[i] != 0:
-    if line2[i] != name2[i]:
-      free(line2)
-      free(name2)
-      free(ver2)
+  while name[i] != 0:
+    if line[i] != name[i]:
       ret 0
     i = i + 1
-  if line2[i] != 64:
-    free(line2)
-    free(name2)
-    free(ver2)
+  if (line[i] as int) != 64:
     ret 0
   i = i + 1
   j:int = 0
-  while ver2[j] != 0:
-    if line2[i + j] != ver2[j]:
-      free(line2)
-      free(name2)
-      free(ver2)
+  while ver[j] != 0:
+    if line[i + j] != ver[j]:
       ret 0
     j = j + 1
-  c:int = line2[i + j] as int
-  free(line2)
-  free(name2)
-  free(ver2)
-  if c == 0 || c == 32 || c == 9:
+  c:int = line[i + j] as int
+  if c == 0 || c == 32 || c == 9 || c == 13:
     ret 1
   ret 0
 
@@ -1831,7 +1815,7 @@ fn cmd_get() -> int:
             tok:[char;192]
             tj:int = 0
             tk:int = 0
-            while st0[tk] != 0 && st0[tk] != 32 && st0[tk] != 9:
+            while st0[tk] != 0 && st0[tk] != 32 && st0[tk] != 9 && st0[tk] != 13:
               if tj < 191:
                 tok[tj] = st0[tk]
                 tj = tj + 1
@@ -1868,25 +1852,27 @@ fn cmd_get() -> int:
       c:int = reg[i] as int
       if c == 0 || c == 10:
         reg[i] = 0 as char
+        if i > 0 && (reg[i - 1] as int) == 13:
+          reg[i - 1] = 0 as char
         if start[0] != 0 && (start[0] as int) != 35:
           if line_is_dep(start, namebuf, verbuf) != 0:
             // parse fields: name@ver url checksum
             j:int = 0
-            while start[j] != 0 && start[j] != 32 && start[j] != 9:
+            while start[j] != 0 && start[j] != 32 && start[j] != 9 && start[j] != 13:
               j = j + 1
-            while start[j] == 32 || start[j] == 9:
+            while start[j] == 32 || start[j] == 9 || start[j] == 13:
               j = j + 1
             k:int = 0
-            while start[j] != 0 && start[j] != 32 && start[j] != 9:
+            while start[j] != 0 && start[j] != 32 && start[j] != 9 && start[j] != 13:
               if k < 511:
                 urlbuf[k] = start[j]
                 k = k + 1
               j = j + 1
             urlbuf[k] = 0 as char
-            while start[j] == 32 || start[j] == 9:
+            while start[j] == 32 || start[j] == 9 || start[j] == 13:
               j = j + 1
             k = 0
-            while start[j] != 0 && start[j] != 32 && start[j] != 9:
+            while start[j] != 0 && start[j] != 32 && start[j] != 9 && start[j] != 13:
               if k < 127:
                 ckbuf[k] = start[j]
                 k = k + 1
@@ -8630,6 +8616,54 @@ fn cmd_publish() -> int:
   say "publish: registry metadata ready"
   ret 0
 
+fn cmd_resolve_meta() -> int:
+  sdk:str = sdk_root_arg()
+  script:str = "tools/resolve_hashes.py"
+  script_owned:int = 0
+  if sdk != 0 && sdk[0] != 0:
+    script2:str = path_join(sdk, "tools/resolve_hashes.py")
+    if path_exists(script2) != 0:
+      script = script2
+      script_owned = 1
+    else:
+      free(script2)
+  cmd:str = str_join2("python ", script)
+  say "resolving verification hashes and registry metadata..."
+  rc:int = proc_run(cmd)
+  free(cmd)
+  if script_owned != 0:
+    free(script)
+  if rc != 0:
+    say "resolve-meta failed"
+    ret rc
+  say "resolve-meta: all SHAs, keys, and release manifests verified."
+  ret 0
+
+fn cmd_sync() -> int:
+  sdk:str = sdk_root_arg()
+  script:str = "tools/tezz_lib.py"
+  script_owned:int = 0
+  if sdk != 0 && sdk[0] != 0:
+    script2:str = path_join(sdk, "tools/tezz_lib.py")
+    if path_exists(script2) != 0:
+      script = script2
+      script_owned = 1
+    else:
+      free(script2)
+  cmd_sync_str:str = str_join2("python ", script)
+  cmd_full:str = str_join2(cmd_sync_str, " sync")
+  say "syncing project libraries from imported source..."
+  rc:int = proc_run(cmd_full)
+  free(cmd_sync_str)
+  free(cmd_full)
+  if script_owned != 0:
+    free(script)
+  if rc != 0:
+    say "sync failed"
+    ret rc
+  say "sync complete."
+  ret 0
+
 fn cmd_verify() -> int:
   strict:int = 0
   ai:int = 1
@@ -10484,6 +10518,10 @@ fn main() -> int:
     ret cmd_lint()
   if streq(cmd, "release"):
     ret cmd_release()
+  if streq(cmd, "resolve-meta") || streq(cmd, "resolve-sha") || streq(cmd, "sync-meta"):
+    ret cmd_resolve_meta()
+  if streq(cmd, "sync"):
+    ret cmd_sync()
 
   print_usage()
   ret 0

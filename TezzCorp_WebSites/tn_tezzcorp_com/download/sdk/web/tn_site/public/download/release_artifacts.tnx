@@ -57,8 +57,6 @@ web/tn_site/public/assets/site.css 3532 5D670827
 web/tn_site/public/assets/site.js 227 29B5224A
 web/tn_site/public/download/install.sh 2632 173AC1FA
 web/tn_site/public/download/install.ps1 3662 5DD021E7
-web/tn_site/public/download/install_gui.ps1 164 1AA4EF3B
-web/tn_site/public/download/install_gui.cmd 129 69DD3096
 web/tn_site/public/frameworks/index.php 94 3616C8AD
 web/tn_site/public/frameworks/tezzapi.php 112 79F994C1
 web/tn_site/public/frameworks/tezzserve.php 114 09FB42AC

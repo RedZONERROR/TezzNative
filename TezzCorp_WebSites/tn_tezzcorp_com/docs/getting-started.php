@@ -27,11 +27,9 @@ tn_page_shell_start('Getting Started with TezzNative', 'Install SDK, Configure I
       </div>
 
       <div style="background: var(--code-bg); border: 1px solid var(--border-medium); border-radius: var(--radius-md); padding: 18px;">
-        <h4 style="color: var(--brand-saffron); margin-bottom: 8px;">Windows Native GUI Installer</h4>
-        <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px;">Visual setup wizard with directory picker &amp; PATH setup.</p>
-        <a href="/download/TezzNativeInstaller.exe" class="btn btn-primary btn-sm" style="margin-top: 4px;">
-          Download TezzNativeInstaller.exe
-        </a>
+        <h4 style="color: var(--brand-saffron); margin-bottom: 8px;">Windows Command Prompt (cmd.exe)</h4>
+        <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px;">Fast automated cmd setup for terminal shells.</p>
+        <pre><code style="font-family: var(--font-mono); font-size: 0.85rem; color: #10b981;">curl -fsSL https://tn.tezzcorp.com/install.cmd -o install.cmd &amp;&amp; install.cmd</code></pre>
       </div>
 
       <div style="background: var(--code-bg); border: 1px solid var(--border-medium); border-radius: var(--radius-md); padding: 18px; grid-column: 1 / -1;">

@@ -500,9 +500,9 @@ require_once __DIR__ . '/includes/header.php';
     <h2 style="font-size:clamp(1.6rem,3vw,2.2rem);font-weight:900;margin-bottom:14px;">Ready to Build Something Native?</h2>
     <p style="color:var(--text-secondary);margin-bottom:28px;">Download TezzNative v2.2.1 and start compiling zero-overhead standalone AI and systems applications today.</p>
     <div style="display:flex;justify-content:center;gap:14px;flex-wrap:wrap;">
-      <a href="/download/TezzNativeInstaller.exe" class="btn btn-primary btn-lg">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        Download Installer (.exe)
+      <a href="/download/" class="btn btn-primary btn-lg">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+        Install TezzNative
       </a>
       <a href="/docs/" class="btn btn-secondary btn-lg">Read the Docs</a>
     </div>

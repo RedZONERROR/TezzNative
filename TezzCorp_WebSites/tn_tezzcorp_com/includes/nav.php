@@ -115,11 +115,10 @@ function tn_nav(string $active = 'home'): void {
       </button>
 
       <!-- Primary Action CTA (Desktop only - hidden on mobile) -->
-      <a href="/download/TezzNativeInstaller.exe" class="btn btn-primary btn-sm btn-install-desktop">
+      <a href="/download/" class="btn btn-primary btn-sm btn-install-desktop">
         <svg class="btn-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-          <polyline points="7 10 12 15 17 10"></polyline>
-          <line x1="12" y1="15" x2="12" y2="3"></line>
+          <polyline points="4 17 10 11 4 5"></polyline>
+          <line x1="12" y1="19" x2="20" y2="19"></line>
         </svg>
         <span>Install Tezz</span>
       </a>
@@ -205,13 +204,12 @@ function tn_nav(string $active = 'home'): void {
     <div class="sidebar-cta-box">
       <div class="sidebar-cta-title">Install TezzNative v2.2.1</div>
       <p class="sidebar-cta-desc">Standalone C speed, native tensors & async runtime on your machine.</p>
-      <a href="/download/TezzNativeInstaller.exe" class="btn btn-primary sidebar-btn-install">
+      <a href="/download/" class="btn btn-primary sidebar-btn-install">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-          <polyline points="7 10 12 15 17 10"></polyline>
-          <line x1="12" y1="15" x2="12" y2="3"></line>
+          <polyline points="4 17 10 11 4 5"></polyline>
+          <line x1="12" y1="19" x2="20" y2="19"></line>
         </svg>
-        <span>Install TezzNative (.exe)</span>
+        <span>Install TezzNative (CLI)</span>
       </a>
       <div class="sidebar-cta-links">
         <a href="/download/tezznative-sdk-linux.tar.gz" class="sidebar-sub-link">Linux SDK (.tar.gz) &rarr;</a>

@@ -29,13 +29,12 @@ require_once __DIR__ . '/includes/nav.php';
 
       <!-- Hero Action Buttons -->
       <div class="hero-cta-group">
-        <a href="/download/TezzNativeInstaller.exe" class="btn btn-primary btn-lg" id="btnDownloadHero">
+        <a href="/download/" class="btn btn-primary btn-lg" id="btnDownloadHero">
           <svg class="btn-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-            <polyline points="7 10 12 15 17 10"></polyline>
-            <line x1="12" y1="15" x2="12" y2="3"></line>
+            <polyline points="4 17 10 11 4 5"></polyline>
+            <line x1="12" y1="19" x2="20" y2="19"></line>
           </svg>
-          <span>Download Installer (.exe)</span>
+          <span>Install TezzNative</span>
         </a>
 
         <a href="/docs/lsp" class="btn btn-secondary btn-lg">
@@ -90,9 +89,9 @@ require_once __DIR__ . '/includes/nav.php';
           <div style="width: 30px;"></div>
         </div>
         <div class="terminal-body">
-          <div class="terminal-comment"># 1. Download &amp; Run GUI Installer in one command:</div>
+          <div class="terminal-comment"># 1. Install via Windows PowerShell in one command:</div>
           <div class="terminal-cmd">
-            <code>iwr https://tn.tezzcorp.com/download/TezzNativeInstaller.exe -OutFile setup.exe; .\setup.exe</code>
+            <code>irm https://tn.tezzcorp.com/install.ps1 | iex</code>
             <button class="copy-btn" title="Copy command" aria-label="Copy Command">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
             </button>
@@ -106,9 +105,9 @@ require_once __DIR__ . '/includes/nav.php';
             </button>
           </div>
 
-          <div class="terminal-comment"># 3. Add AI and async standard libraries:</div>
+          <div class="terminal-comment"># 3. Add project libraries or auto-sync from imports:</div>
           <div class="terminal-cmd">
-            <code>tezz mod add tztensor tzautodiff task net</code>
+            <code>tezz add mind &amp;&amp; tezz sync</code>
             <button class="copy-btn" title="Copy command" aria-label="Copy Command">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
             </button>
@@ -532,9 +531,9 @@ require_once __DIR__ . '/includes/nav.php';
       Join developers creating high-throughput AI backends, native desktop GUIs, and zero-overhead systems software.
     </p>
     <div style="display: flex; justify-content: center; gap: 16px; flex-wrap: wrap;">
-      <a href="/download/TezzNativeInstaller.exe" class="btn btn-primary btn-lg">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-        <span>Download Installer (.exe)</span>
+      <a href="/download/" class="btn btn-primary btn-lg">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+        <span>Install TezzNative</span>
       </a>
       <a href="/docs/" class="btn btn-secondary btn-lg">
         <span>Read the Documentation</span>

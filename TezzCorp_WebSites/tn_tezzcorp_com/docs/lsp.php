@@ -110,7 +110,7 @@ lspconfig.tezz_lsp.setup({})</code></pre>
       <h3 style="font-size: 1.2rem; margin-bottom: 12px; color: #38bdf8;">3. Visual Studio Code &amp; Cursor AI</h3>
       <p style="color: var(--text-secondary); margin-bottom: 14px; font-size: 0.9rem;">Install the official <code>tezznative-vscode</code> extension package:</p>
       <pre class="feature-code-snippet" style="font-size: 0.86rem;"><code>code --install-extension tezznative-language-2.2.vsix
-# Or launch the TezzNativeInstaller.exe GUI which automatically installs into VS Code and Cursor!</code></pre>
+# Extension bindings are also automatically configured by the CLI installer!</code></pre>
     </div>
   </div>
 </section>

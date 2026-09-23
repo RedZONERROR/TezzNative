@@ -53,7 +53,8 @@
       <div class="footer-links-col">
         <h4 class="footer-heading">Community &amp; Downloads</h4>
         <ul class="footer-links">
-          <li><a href="/download/TezzNativeInstaller.exe">GUI Installer (.exe)</a></li>
+          <li><a href="/download/install.ps1">PowerShell Installer (.ps1)</a></li>
+          <li><a href="/download/install.sh">Bash Installer (.sh)</a></li>
           <li><a href="/download/">SDK &amp; All Builds</a></li>
           <li><a href="/community">Developer Forum</a></li>
           <li><a href="/support">Support</a></li>

@@ -42,6 +42,8 @@ benchmarks/results/**
 !tools/
 !tools/tezz.tn
 !tools/tezz_lsp.tn
+!tools/resolve_hashes.py
+!tools/tezz_lib.py
 !tools/release/
 !tools/release/**
 
@@ -50,6 +52,9 @@ benchmarks/results/**
 !LICENSE.txt
 !SECURITY.md
 !version.json
+!install.ps1
+!install.sh
+!install.cmd
 !tezz
 !tezz.cmd
 !tezz.ps1
