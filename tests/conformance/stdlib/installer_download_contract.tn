@@ -9,7 +9,7 @@ fn main() -> int:
   if tezzinstall.install_is_self_contained(&cfg) != 1:
     ret 1
 
-  tezzinstall.install_set_download(&cfg, "https://tn.tezzcorp.com/download/sdk/tezznative-sdk.zip", "build/sdk.zip")
+  tezzinstall.install_set_download(&cfg, "https://tezznative.org/download/sdk/tezznative-sdk.zip", "build/sdk.zip")
   tezzinstall.install_set_download_max_bytes(&cfg, 1048576)
   if tezzinstall.install_requires_download(&cfg) != 1:
     ret 2

@@ -5,8 +5,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$BaseUrl = if ($env:TEZZ_INSTALL_BASE) { $env:TEZZ_INSTALL_BASE } else { "https://tn.tezzcorp.com/download" }
-$PortalUrl = if ($env:TEZZ_PORTAL_BASE) { $env:TEZZ_PORTAL_BASE.TrimEnd("/") } else { "https://tn.tezzcorp.com" }
+$BaseUrl = if ($env:TEZZ_INSTALL_BASE) { $env:TEZZ_INSTALL_BASE } else { "https://tezznative.org/download" }
+$PortalUrl = if ($env:TEZZ_PORTAL_BASE) { $env:TEZZ_PORTAL_BASE.TrimEnd("/") } else { "https://tezznative.org" }
 $InstallScope = if ($env:TEZZ_INSTALL_SCOPE) { $env:TEZZ_INSTALL_SCOPE.ToLowerInvariant() } else { "user" }
 if ($InstallScope -ne "user" -and $InstallScope -ne "system") { $InstallScope = "user" }
 
@@ -144,14 +144,32 @@ function Normalize-SdkLayout {
   }
 
   $preferred = Join-Path $binDir "tezzc-windows-x64.exe"
-  $fromBuild = Join-Path $SdkDir "build\\tezzc.exe"
+  $fromBin = Join-Path $binDir "tezzc.exe"
+  $fromBuild = Join-Path (Join-Path $SdkDir "build") "tezzc.exe"
   $fromRoot = Join-Path $SdkDir "tezzc.exe"
 
   if (-not (Test-Path $preferred)) {
-    if (Test-Path $fromBuild) {
+    if (Test-Path $fromBin) {
+      Copy-Item -Force $fromBin $preferred
+    } elseif (Test-Path $fromBuild) {
       Copy-Item -Force $fromBuild $preferred
     } elseif (Test-Path $fromRoot) {
       Copy-Item -Force $fromRoot $preferred
+    }
+  }
+  if (-not (Test-Path $fromBin) -and (Test-Path $preferred)) {
+    Copy-Item -Force $preferred $fromBin
+  }
+
+  # Ensure root launchers and bin launchers are synchronized
+  foreach ($launcher in @("tezz.cmd", "tezz.ps1", "tezz")) {
+    $rootLauncher = Join-Path $SdkDir $launcher
+    $binLauncher = Join-Path $binDir $launcher
+    if (-not (Test-Path $rootLauncher) -and (Test-Path $binLauncher)) {
+      Copy-Item -Force $binLauncher $rootLauncher
+    }
+    if (-not (Test-Path $binLauncher) -and (Test-Path $rootLauncher)) {
+      Copy-Item -Force $rootLauncher $binLauncher
     }
   }
 }
@@ -161,11 +179,10 @@ function Assert-SdkIntegrity {
     (Join-Path $SdkDir "tezz.cmd"),
     (Join-Path $SdkDir "tezz.ps1"),
     (Join-Path $SdkDir "tezz.mod"),
-    (Join-Path $SdkDir "tools\\tezz.tn"),
-    (Join-Path $SdkDir "tools\\probes\\tls_connect_ex_probe.tn"),
-    (Join-Path $SdkDir "lib\\std.tn"),
-    (Join-Path $SdkDir "lib\\io.tn"),
-    (Join-Path $SdkDir "bin\\tezzc-windows-x64.exe")
+    (Join-Path (Join-Path $SdkDir "tools") "tezz.tn"),
+    (Join-Path (Join-Path $SdkDir "lib") "std.tn"),
+    (Join-Path (Join-Path $SdkDir "lib") "io.tn"),
+    (Join-Path (Join-Path $SdkDir "bin") "tezzc-windows-x64.exe")
   )
   $missing = @()
   foreach ($item in $required) {
@@ -182,7 +199,7 @@ function Install-Shims {
     New-Item -ItemType Directory -Force -Path $binDir | Out-Null
   }
 
-  $tezzcExe = Join-Path $SdkDir "bin\\tezzc-windows-x64.exe"
+  $tezzcExe = Join-Path (Join-Path $SdkDir "bin") "tezzc-windows-x64.exe"
 
   $cmdShimPath = Join-Path $binDir "tezz.cmd"
   $psShimPath = Join-Path $binDir "tezz.ps1"
@@ -291,8 +308,8 @@ function Install-Payload {
     Set-ItemProperty -Path $uninstallKey -Name "InstallLocation" -Value $InstallDir
     Set-ItemProperty -Path $uninstallKey -Name "DisplayIcon" -Value "$binDir\tezz.cmd,0"
     Set-ItemProperty -Path $uninstallKey -Name "UninstallString" -Value "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command `"`$env:TEZZ_INSTALL_DIR='$InstallDir'; irm $BaseUrl/install.ps1 | iex; Remove-Install`""
-    Set-ItemProperty -Path $uninstallKey -Name "URLInfoAbout" -Value "https://tn.tezzcorp.com"
-    Set-ItemProperty -Path $uninstallKey -Name "HelpLink" -Value "https://tn.tezzcorp.com/docs/"
+    Set-ItemProperty -Path $uninstallKey -Name "URLInfoAbout" -Value "https://tezznative.org"
+    Set-ItemProperty -Path $uninstallKey -Name "HelpLink" -Value "https://tezznative.org/docs/"
     Set-ItemProperty -Path $uninstallKey -Name "EstimatedSize" -Value 120000 -Type DWord
     Set-ItemProperty -Path $uninstallKey -Name "NoModify" -Value 1 -Type DWord
     Set-ItemProperty -Path $uninstallKey -Name "NoRepair" -Value 1 -Type DWord

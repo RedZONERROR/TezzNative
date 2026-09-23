@@ -1,7 +1,7 @@
 param(
   [string]$SiteRoot = "TezzCorp_WebSites/tn_tezzcorp_com",
   [string]$OutFile = "",
-  [string]$BaseUrl = "https://tn.tezzcorp.com",
+  [string]$BaseUrl = "https://tezznative.org",
   [string[]]$Include = @()
 )
 

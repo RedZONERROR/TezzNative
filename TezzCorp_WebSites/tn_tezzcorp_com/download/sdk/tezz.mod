@@ -1,8 +1,8 @@
 name = tezznative
 version = 1.1.0
 module_root = lib
-registry = https://tn.tezzcorp.com/registry.tnx
-registry_lib = https://tn.tezzcorp.com/download/sdk/lib/
+registry = https://tezznative.org/registry.tnx
+registry_lib = https://tezznative.org/download/sdk/lib/
 dep.io = 0.1.0
 dep.net = 0.1.0
 dep.time = 0.1.0

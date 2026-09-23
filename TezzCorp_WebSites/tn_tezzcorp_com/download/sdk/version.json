@@ -1,10 +1,8 @@
 {
   "language": "TezzNative",
-  "version": "2.2.1",
+  "version": "1.1.0",
   "channel": "release",
-  "api": "v2",
-  "vendor": "TezzCorp Pvt Ltd.",
-  "creator": "Rohit Pathak",
+  "api": "v1",
   "backend": "x64-pe-native",
   "compiler": "tezzc",
   "codegen": "ir-v4",

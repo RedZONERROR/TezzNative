@@ -1,5 +1,6 @@
 <?php
 // includes/nav.php - Navigation, helper wrappers, and UI layout functions
+require_once __DIR__ . '/i18n.php';
 
 function tn_boot(string $path = '/'): array {
   // Load config + .env (idempotent)
@@ -33,7 +34,7 @@ function tn_boot(string $path = '/'): array {
   return [
     'config' => [
       'site_name' => 'TezzNative',
-      'site_url' => 'https://tn.tezzcorp.com',
+      'site_url' => 'https://tezznative.org',
       'version' => '2.2.1'
     ],
     'version' => [
@@ -49,6 +50,7 @@ function tn_head(string $title = '', string $desc = '', string $active = 'home',
   $page_title = $title;
   $page_desc = $desc;
   $active_nav = $active;
+  $canonical_path = $path;
   require __DIR__ . '/header.php';
 }
 
@@ -57,10 +59,10 @@ function tn_nav(string $active = 'home'): void {
 <!-- Top Announcement Ribbon -->
 <div class="announcement-banner">
   <div class="banner-container">
-    <span class="banner-badge">NEW IN v2.2</span>
-    <span class="banner-text">Native <code>async/await</code> Coroutines, Scoped <code>defer</code>, 4D Tensors & GGUF Ingestion Are Live!</span>
+    <span class="banner-badge"><?= __('banner_badge', 'NEW IN v2.2') ?></span>
+    <span class="banner-text"><?= __('banner_text', 'Native async/await Coroutines, Scoped defer, 4D Tensors & GGUF Ingestion Are Live!') ?></span>
     <a href="/download/" class="banner-link">
-      Get TezzNative v2.2
+      <?= __('banner_link', 'Get TezzNative v2.2') ?>
       <svg class="icon-inline" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
     </a>
   </div>
@@ -83,17 +85,20 @@ function tn_nav(string $active = 'home'): void {
 
     <!-- Desktop Navigation Links -->
     <nav class="nav-menu" id="navMenu">
-      <a href="/#features" class="nav-link <?= ($active === 'features') ? 'active' : '' ?>">Features</a>
-      <a href="/#benchmarks" class="nav-link <?= ($active === 'benchmarks') ? 'active' : '' ?>">Benchmarks</a>
-      <a href="/#playground" class="nav-link <?= ($active === 'playground') ? 'active' : '' ?>">Playground</a>
-      <a href="/lib/" class="nav-link <?= ($active === 'packages' || $active === 'lib') ? 'active' : '' ?>">Packages (40+)</a>
-      <a href="/docs/lsp" class="nav-link <?= ($active === 'lsp') ? 'active' : '' ?>">LSP & IDEs</a>
-      <a href="/docs/" class="nav-link <?= ($active === 'docs') ? 'active' : '' ?>">Docs</a>
-      <a href="/download/" class="nav-link <?= ($active === 'download') ? 'active' : '' ?>">Downloads</a>
+      <a href="/#features" class="nav-link <?= ($active === 'features') ? 'active' : '' ?>"><?= __('nav_features', 'Features') ?></a>
+      <a href="/#benchmarks" class="nav-link <?= ($active === 'benchmarks') ? 'active' : '' ?>"><?= __('nav_benchmarks', 'Benchmarks') ?></a>
+      <a href="/#playground" class="nav-link <?= ($active === 'playground') ? 'active' : '' ?>"><?= __('nav_playground', 'Playground') ?></a>
+      <a href="/lib/" class="nav-link <?= ($active === 'packages' || $active === 'lib') ? 'active' : '' ?>"><?= __('nav_packages', 'Packages (40+)') ?></a>
+      <a href="/docs/lsp" class="nav-link <?= ($active === 'lsp') ? 'active' : '' ?>"><?= __('nav_lsp', 'LSP & IDEs') ?></a>
+      <a href="/docs/" class="nav-link <?= ($active === 'docs') ? 'active' : '' ?>"><?= __('nav_docs', 'Docs') ?></a>
+      <a href="/download/" class="nav-link <?= ($active === 'download') ? 'active' : '' ?>"><?= __('nav_downloads', 'Downloads') ?></a>
     </nav>
 
     <!-- Header Actions -->
     <div class="nav-actions">
+      <!-- Language Selector -->
+      <?= function_exists('tn_lang_switcher_html') ? tn_lang_switcher_html() : '' ?>
+
       <!-- Theme Switcher -->
       <button class="theme-toggle" id="themeToggle" title="Toggle Light/Dark Theme" aria-label="Toggle Theme">
         <!-- Sun Icon (for Dark mode) -->
@@ -120,7 +125,7 @@ function tn_nav(string $active = 'home'): void {
           <polyline points="4 17 10 11 4 5"></polyline>
           <line x1="12" y1="19" x2="20" y2="19"></line>
         </svg>
-        <span>Install Tezz</span>
+        <span><?= __('nav_install_cli', 'Install Tezz') ?></span>
       </a>
 
       <!-- Mobile Menu Toggle Button (Hamburger) -->
@@ -160,31 +165,36 @@ function tn_nav(string $active = 'home'): void {
   </div>
 
   <div class="sidebar-body">
-    <div class="sidebar-section-label">Navigation Menu</div>
+    <div style="padding: 10px 16px; border-bottom: 1px solid var(--border-subtle); display: flex; align-items: center; justify-content: space-between;">
+      <span style="font-size: 0.8rem; color: var(--text-tertiary); font-weight: 600; text-transform: uppercase;"><?= __('lang_selector', 'Language') ?></span>
+      <?= function_exists('tn_lang_switcher_html') ? tn_lang_switcher_html() : '' ?>
+    </div>
+
+    <div class="sidebar-section-label" style="padding-top: 14px;">Navigation Menu</div>
     <nav class="sidebar-nav">
       <a href="/#features" class="sidebar-link <?= ($active === 'features') ? 'active' : '' ?>">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-        <span>Features</span>
+        <span><?= __('nav_features', 'Features') ?></span>
       </a>
       <a href="/#benchmarks" class="sidebar-link <?= ($active === 'benchmarks') ? 'active' : '' ?>">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
-        <span>Benchmarks</span>
+        <span><?= __('nav_benchmarks', 'Benchmarks') ?></span>
       </a>
       <a href="/#playground" class="sidebar-link <?= ($active === 'playground') ? 'active' : '' ?>">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-        <span>Playground</span>
+        <span><?= __('nav_playground', 'Playground') ?></span>
       </a>
       <a href="/lib/" class="sidebar-link <?= ($active === 'packages' || $active === 'lib') ? 'active' : '' ?>">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
-        <span>Packages <span class="sidebar-badge">40+</span></span>
+        <span><?= __('nav_packages', 'Packages') ?> <span class="sidebar-badge">40+</span></span>
       </a>
       <a href="/docs/lsp" class="sidebar-link <?= ($active === 'lsp') ? 'active' : '' ?>">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-        <span>LSP & IDEs</span>
+        <span><?= __('nav_lsp', 'LSP & IDEs') ?></span>
       </a>
       <a href="/docs/" class="sidebar-link <?= ($active === 'docs') ? 'active' : '' ?>">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
-        <span>Documentation</span>
+        <span><?= __('nav_docs', 'Documentation') ?></span>
       </a>
       <a href="/community/" class="sidebar-link <?= ($active === 'community') ? 'active' : '' ?>">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
@@ -196,7 +206,7 @@ function tn_nav(string $active = 'home'): void {
       </a>
       <a href="/download/" class="sidebar-link <?= ($active === 'download') ? 'active' : '' ?>">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        <span>All Downloads</span>
+        <span><?= __('nav_downloads', 'All Downloads') ?></span>
       </a>
     </nav>
 
@@ -209,7 +219,7 @@ function tn_nav(string $active = 'home'): void {
           <polyline points="4 17 10 11 4 5"></polyline>
           <line x1="12" y1="19" x2="20" y2="19"></line>
         </svg>
-        <span>Install TezzNative (CLI)</span>
+        <span><?= __('nav_install_cli', 'Install TezzNative (CLI)') ?></span>
       </a>
       <div class="sidebar-cta-links">
         <a href="/download/tezznative-sdk-linux.tar.gz" class="sidebar-sub-link">Linux SDK (.tar.gz) &rarr;</a>

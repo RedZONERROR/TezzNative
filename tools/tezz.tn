@@ -2499,8 +2499,8 @@ fn cmd_init() -> int:
   if path_exists(mod_path) == 0:
     m0:str = str_join3("name = ", proj_name, "\n")
     m1:str = str_join2(m0, "version = 0.1.0\n")
-    m2:str = str_join2(m1, "registry = https://tn.tezzcorp.com/registry.tnx\n")
-    m3:str = str_join2(m2, "registry_lib = https://tn.tezzcorp.com/download/sdk/lib/\n")
+    m2:str = str_join2(m1, "registry = https://tezznative.org/registry.tnx\n")
+    m3:str = str_join2(m2, "registry_lib = https://tezznative.org/download/sdk/lib/\n")
     m4:str = str_join2(m3, "dep.std = 0.1.0\n")
     m6:str = 0 as str
     if streq(template, "minimal"):
@@ -6729,7 +6729,7 @@ fn run_installer_mode(mode:str) -> int:
   nonce:str = int_to_str(time.now_ms())
   osn:str = os_name()
   if streq(osn, "windows"):
-    ps_url:str = str_join3("https://tn.tezzcorp.com/download/install.ps1?nocache=", nonce, "")
+    ps_url:str = str_join3("https://tezznative.org/download/install.ps1?nocache=", nonce, "")
     c0:str = str_join3("powershell -NoProfile -ExecutionPolicy Bypass -Command \"iwr ", ps_url, " -OutFile $env:TEMP\\tezz-install.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\\tezz-install.ps1 -Mode ")
     c1:str = str_join3(c0, mode, "")
     c2:str = str_join2(c1, "\"")
@@ -6741,7 +6741,7 @@ fn run_installer_mode(mode:str) -> int:
     free(nonce)
     ret r1
 
-  sh_url:str = str_join3("https://tn.tezzcorp.com/download/install.sh?nocache=", nonce, "")
+  sh_url:str = str_join3("https://tezznative.org/download/install.sh?nocache=", nonce, "")
   c3a:str = str_join3("curl -fsSL ", sh_url, " | bash -s -- ")
   c3:str = str_join3(c3a, mode, "")
   r2:int = proc_run(c3)
@@ -6759,7 +6759,7 @@ fn run_installer_mode(mode:str) -> int:
 
 fn run_installer_mode_windows_scoped(mode:str, scope:str, path_mode:str) -> int:
   nonce:str = int_to_str(time.now_ms())
-  ps_url:str = str_join3("https://tn.tezzcorp.com/download/install.ps1?nocache=", nonce, "")
+  ps_url:str = str_join3("https://tezznative.org/download/install.ps1?nocache=", nonce, "")
   p0:str = str_join3("powershell -NoProfile -ExecutionPolicy Bypass -Command \"$env:TEZZ_INSTALL_SCOPE='", scope, "'; ")
   p1:str = str_join3("$env:TEZZ_INSTALL_AUTO_PATH='", path_mode, "'; iwr ")
   p2:str = str_join3(ps_url, " -OutFile $env:TEMP\\tezz-install.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\\tezz-install.ps1 -Mode ", mode)
@@ -8203,7 +8203,7 @@ fn write_lock(out_path:str) -> int:
       base = url_dir(reg)
       own_base = 1
   if base == 0:
-    base = "https://tn.tezzcorp.com/lib/"
+    base = "https://tezznative.org/lib/"
     own_base = 0
 
   names:[str;64]
@@ -8410,7 +8410,7 @@ fn write_registry(out_path:str) -> int:
       base = url_dir(reg)
       own_base = 1
   if base == 0:
-    base = "https://tn.tezzcorp.com/lib/"
+    base = "https://tezznative.org/lib/"
     own_base = 0
 
   bl:int = len(base)
@@ -8759,7 +8759,7 @@ fn cmd_verify() -> int:
     if reglib0 != 0:
       free(reglib0)
     if prov_base == 0:
-      prov_base = str_join2("https://tn.tezzcorp.com/lib/", "")
+      prov_base = str_join2("https://tezznative.org/lib/", "")
       prov_base_owned = 1
     prov_base_norm = prov_base
     if prov_base_norm != 0:

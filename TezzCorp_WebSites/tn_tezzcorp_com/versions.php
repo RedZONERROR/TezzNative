@@ -47,7 +47,7 @@ tn_page_shell_start('Releases', 'Version registry and CLI validation reports.', 
         </div>
         <h3 style="font-size: 1.1rem; font-weight: 700; color: var(--text-primary); margin-bottom: 8px;">Automated Update Check</h3>
         <div style="background: var(--code-bg); padding: 14px; border-radius: var(--radius-sm); font-family: var(--font-mono); font-size: 0.85rem; color: #ff9933; overflow-x: auto; border: 1px solid var(--border-subtle);">
-          curl "https://tn.tezzcorp.com/api/update_check.php?platform=windows-x64&version=2.2.1&mode=check"
+          curl "https://tezznative.org/api/update_check.php?platform=windows-x64&version=2.2.1&mode=check"
         </div>
       </article>
 

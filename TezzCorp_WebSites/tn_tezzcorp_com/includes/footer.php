@@ -1,5 +1,6 @@
 <?php
 // includes/footer.php - Footer component for TezzNative portal
+require_once __DIR__ . '/i18n.php';
 ?>
 <footer class="main-footer">
   <div class="footer-container">
@@ -13,7 +14,7 @@
           <span class="footer-brand-name">TezzNative</span>
         </div>
         <p class="footer-bio">
-          Ultra-fast native AI, tensor arithmetic, and systems programming language founded on <strong>18 Oct 2022</strong> by <strong>Rohit Pathak</strong> at <strong>TezzCorp Pvt Ltd.</strong> Featuring zero runtime GC pauses, standalone PE/ELF binaries, first-class async/await concurrency, and native GGUF LLM inference.
+          <?= __('footer_bio', 'Ultra-fast native AI, tensor arithmetic, and systems programming language founded on <strong>18 Oct 2022</strong> by <strong>Rohit Pathak</strong> at <strong>TezzCorp Pvt Ltd.</strong> Featuring zero runtime GC pauses, standalone PE/ELF binaries, first-class async/await concurrency, and native GGUF LLM inference.') ?>
         </p>
         <div class="footer-badges">
           <span class="f-badge">Founded Oct 2022</span>
@@ -92,11 +93,11 @@
     <!-- Bottom Copyright & Status -->
     <div class="footer-bottom">
       <div class="footer-copy">
-        &copy; <?= date('Y') ?> <strong>TezzCorp Pvt Ltd.</strong> &mdash; TezzNative, founded <strong>18 Oct 2022</strong> by <strong>Rohit Pathak</strong>. All rights reserved.
+        &copy; <?= date('Y') ?> <strong>TezzCorp Pvt Ltd.</strong> &mdash; <?= __('footer_copyright', 'TezzNative, founded <strong>18 Oct 2022</strong> by <strong>Rohit Pathak</strong>. All rights reserved.') ?>
       </div>
       <div class="footer-status">
         <span class="status-indicator" style="background: #ff9933; box-shadow: 0 0 8px #ff9933;"></span>
-        <span>TezzNative v2.2.1 Production Operational</span>
+        <span><?= __('footer_operational', 'TezzNative v2.2.1 Production Operational') ?></span>
       </div>
     </div>
   </div>
@@ -105,6 +106,6 @@
 </div> <!-- .site-wrapper -->
 
 <!-- Scripts -->
-<script src="/assets/app.js?v=2.2.4"></script>
+<script src="/assets/app.js?v=2.2.6"></script>
 </body>
 </html>

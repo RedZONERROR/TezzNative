@@ -55,9 +55,9 @@ function tezz_site_url(array $config): string
 
     $https = (string)($_SERVER['HTTPS'] ?? '');
     $scheme = ($https !== '' && strtolower($https) !== 'off') ? 'https' : 'http';
-    $host = tezz_clean_text((string)($_SERVER['HTTP_HOST'] ?? 'tn.tezzcorp.com'), 190);
+    $host = tezz_clean_text((string)($_SERVER['HTTP_HOST'] ?? 'tezznative.org'), 190);
     if ($host === '') {
-        $host = 'tn.tezzcorp.com';
+        $host = 'tezznative.org';
     }
     return $scheme . '://' . $host;
 }
@@ -351,18 +351,18 @@ function tezz_download_artifacts(string $root): array
             'label' => 'Recommended',
             'href' => '/download/tezznative-sdk.zip',
             'relative' => 'download/tezznative-sdk.zip',
-            'command' => 'iwr https://tn.tezzcorp.com/api/download_request.php?artifact=windows-sdk -OutFile tezznative-sdk.zip',
+            'command' => 'iwr https://tezznative.org/api/download_request.php?artifact=windows-sdk -OutFile tezznative-sdk.zip',
             'description' => 'Portable compiler, wrapper scripts, standard library, tools, and metadata.',
         ],
         [
             'key' => 'windows-installer',
-            'title' => 'Windows Installer',
+            'title' => 'Windows CLI Installer',
             'platform' => 'windows-x64',
-            'label' => 'Installer',
-            'href' => '/dist/TezzNativeSetup.exe',
-            'relative' => 'dist/TezzNativeSetup.exe',
-            'command' => 'iwr https://tn.tezzcorp.com/api/download_request.php?artifact=windows-installer -OutFile TezzNativeSetup.exe',
-            'description' => 'Setup flow for users who prefer installer-driven PATH and SDK configuration.',
+            'label' => 'CLI Script',
+            'href' => '/download/install.ps1',
+            'relative' => 'download/install.ps1',
+            'command' => 'irm https://tezznative.org/install.ps1 | iex',
+            'description' => 'Official one-line automated installer for Windows 10/11 x64.',
         ],
         [
             'key' => 'linux-sdk',
@@ -371,7 +371,7 @@ function tezz_download_artifacts(string $root): array
             'label' => 'Preview',
             'href' => '/download/tezznative-sdk-linux.tar.gz',
             'relative' => 'download/tezznative-sdk-linux.tar.gz',
-            'command' => 'curl -fL "https://tn.tezzcorp.com/api/download_request.php?artifact=linux-sdk" -o tezznative-sdk-linux.tar.gz',
+            'command' => 'curl -fL "https://tezznative.org/api/download_request.php?artifact=linux-sdk" -o tezznative-sdk-linux.tar.gz',
             'description' => 'Linux archive for native target validation and early CLI workflows.',
         ],
     ];

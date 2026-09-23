@@ -14,17 +14,17 @@ require_once __DIR__ . '/includes/nav.php';
     <div class="hero-content">
       <div class="hero-pill-badge">
         <span class="pulse-dot" style="background: #ff9933; box-shadow: 0 0 10px #ff9933;"></span>
-        <span>TEZZNATIVE v2.2.1 PRODUCTION RELEASE LIVE <span class="badge-sub">&bull; TEZZCORP PVT LTD</span></span>
+        <span><?= __('hero_badge', 'TEZZNATIVE v2.2.1 PRODUCTION RELEASE LIVE • TEZZCORP PVT LTD') ?></span>
       </div>
 
       <h1 class="hero-title">
-        Ultra-Fast Systems.<br>
-        Native Deep Learning.<br>
-        <span class="text-gradient">Engineered for Hardware.</span>
+        <?= __('hero_title_1', 'Ultra-Fast Systems.') ?><br>
+        <?= __('hero_title_2', 'Native Deep Learning.') ?><br>
+        <span class="text-gradient"><?= __('hero_title_3', 'Engineered for Hardware.') ?></span>
       </h1>
 
       <p class="hero-subtitle">
-        A premier systems and AI programming language created by <strong>Rohit Pathak</strong> at <strong>TezzCorp Pvt Ltd</strong>. Compiling directly to zero-overhead standalone native executables with first-class tensor arithmetic, multi-threaded <code>async/await</code>, and scoped memory safety without garbage collection pauses.
+        <?= __('hero_subtitle', 'A premier systems and AI programming language created by <strong>Rohit Pathak</strong> at <strong>TezzCorp Pvt Ltd</strong>. Compiling directly to zero-overhead standalone native executables with first-class tensor arithmetic, multi-threaded <code>async/await</code>, and scoped memory safety without garbage collection pauses.') ?>
       </p>
 
       <!-- Hero Action Buttons -->
@@ -34,7 +34,7 @@ require_once __DIR__ . '/includes/nav.php';
             <polyline points="4 17 10 11 4 5"></polyline>
             <line x1="12" y1="19" x2="20" y2="19"></line>
           </svg>
-          <span>Install TezzNative</span>
+          <span><?= __('hero_btn_install', 'Install TezzNative') ?></span>
         </a>
 
         <a href="/docs/lsp" class="btn btn-secondary btn-lg">
@@ -42,7 +42,7 @@ require_once __DIR__ . '/includes/nav.php';
             <polyline points="4 17 10 11 4 5"></polyline>
             <line x1="12" y1="19" x2="20" y2="19"></line>
           </svg>
-          <span>LSP &amp; IDE Setup</span>
+          <span><?= __('hero_btn_lsp', 'LSP &amp; IDE Setup') ?></span>
         </a>
 
         <a href="/lib/" class="btn btn-outline btn-lg">
@@ -51,7 +51,7 @@ require_once __DIR__ . '/includes/nav.php';
             <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
             <line x1="12" y1="22.08" x2="12" y2="12"></line>
           </svg>
-          <span>Explore 40+ Packages</span>
+          <span><?= __('hero_btn_explore', 'Explore 40+ Packages') ?></span>
         </a>
       </div>
 
@@ -91,7 +91,7 @@ require_once __DIR__ . '/includes/nav.php';
         <div class="terminal-body">
           <div class="terminal-comment"># 1. Install via Windows PowerShell in one command:</div>
           <div class="terminal-cmd">
-            <code>irm https://tn.tezzcorp.com/install.ps1 | iex</code>
+            <code>irm https://tezznative.org/install.ps1 | iex</code>
             <button class="copy-btn" title="Copy command" aria-label="Copy Command">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
             </button>
@@ -533,7 +533,7 @@ require_once __DIR__ . '/includes/nav.php';
     <div style="display: flex; justify-content: center; gap: 16px; flex-wrap: wrap;">
       <a href="/download/" class="btn btn-primary btn-lg">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
-        <span>Install TezzNative</span>
+        <span><?= __('hero_btn_install', 'Install TezzNative') ?></span>
       </a>
       <a href="/docs/" class="btn btn-secondary btn-lg">
         <span>Read the Documentation</span>

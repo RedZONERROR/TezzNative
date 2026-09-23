@@ -100,7 +100,7 @@ def resolve_lock_and_registry():
             print(f"  Warning: lib/{name}.tn missing, skipping...")
             continue
         checksum = hash8_source_file(lib_path)
-        url = f"https://tn.tezzcorp.com/download/sdk/lib/{name}.tn"
+        url = f"https://tezznative.org/download/sdk/lib/{name}.tn"
         lock_entries.append(f"{name}@{ver} {checksum} {url}")
         registry_entries.append(f"{name}@{ver} {url} {checksum}")
 

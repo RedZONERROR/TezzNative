@@ -152,9 +152,9 @@ def tezz_mod_semver():
     assert_semver(metadata["version"], "project version")
     if metadata["module_root"] != "lib":
         raise AssertionError("module_root must be lib")
-    if metadata["registry"] != "https://tn.tezzcorp.com/registry.tnx":
+    if metadata["registry"] not in ("https://tezznative.org/registry.tnx", "https://tn.tezzcorp.com/registry.tnx"):
         raise AssertionError("unexpected registry URL")
-    if metadata["registry_lib"] != "https://tn.tezzcorp.com/download/sdk/lib/":
+    if metadata["registry_lib"] not in ("https://tezznative.org/download/sdk/lib/", "https://tn.tezzcorp.com/download/sdk/lib/"):
         raise AssertionError("unexpected registry_lib URL")
     deps = {}
     for key, value in metadata.items():

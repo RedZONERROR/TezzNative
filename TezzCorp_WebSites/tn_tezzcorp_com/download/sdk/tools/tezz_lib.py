@@ -114,8 +114,8 @@ def update_tezz_mod(project_dir, name, version="0.1.0"):
             f"name = {proj_name}\n"
             f"version = 0.1.0\n"
             f"module_root = lib\n"
-            f"registry = https://tn.tezzcorp.com/registry.tnx\n"
-            f"registry_lib = https://tn.tezzcorp.com/download/sdk/lib/\n"
+            f"registry = https://tezznative.org/registry.tnx\n"
+            f"registry_lib = https://tezznative.org/download/sdk/lib/\n"
             f"dep.{name} = {version}\n"
         )
         with open(mod_path, "w", encoding="ascii") as f:
@@ -145,7 +145,7 @@ def update_tezz_mod(project_dir, name, version="0.1.0"):
 def update_tezz_lock(project_dir, name, version="0.1.0", checksum=None, url=None):
     lock_path = os.path.join(project_dir, "tezz.lock")
     if url is None:
-        url = f"https://tn.tezzcorp.com/download/sdk/lib/{name}.tn"
+        url = f"https://tezznative.org/download/sdk/lib/{name}.tn"
     if checksum is None:
         lib_file = os.path.join(project_dir, "lib", f"{name}.tn")
         if os.path.exists(lib_file):

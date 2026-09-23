@@ -1,4 +1,11 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://www.tezzcorp.com/sitemap.xml
+# Disallow internal API directories and scripts
+Disallow: /api/
+Disallow: /config/
+Disallow: /includes/
+Disallow: /logs/
+Disallow: /storage/
+
+Sitemap: https://tezznative.org/sitemap.xml

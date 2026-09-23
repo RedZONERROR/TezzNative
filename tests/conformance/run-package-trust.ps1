@@ -233,10 +233,10 @@ Check "tezz-mod-semver" {
   if ($script:metadata["module_root"] -ne "lib") {
     throw "module_root must be lib"
   }
-  if ($script:metadata["registry"] -ne "https://tn.tezzcorp.com/registry.tnx") {
+  if ($script:metadata["registry"] -ne "https://tezznative.org/registry.tnx" -and $script:metadata["registry"] -ne "https://tn.tezzcorp.com/registry.tnx") {
     throw "unexpected registry URL"
   }
-  if ($script:metadata["registry_lib"] -ne "https://tn.tezzcorp.com/download/sdk/lib/") {
+  if ($script:metadata["registry_lib"] -ne "https://tezznative.org/download/sdk/lib/" -and $script:metadata["registry_lib"] -ne "https://tn.tezzcorp.com/download/sdk/lib/") {
     throw "unexpected registry_lib URL"
   }
   foreach ($key in $script:metadata.Keys) {

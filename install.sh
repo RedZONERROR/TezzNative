@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BASE_URL="${TEZZ_INSTALL_BASE:-https://tn.tezzcorp.com/download}"
-PORTAL_URL="${TEZZ_PORTAL_BASE:-https://tn.tezzcorp.com}"
+BASE_URL="${TEZZ_INSTALL_BASE:-https://tezznative.org/download}"
+PORTAL_URL="${TEZZ_PORTAL_BASE:-https://tezznative.org}"
 PORTAL_URL="${PORTAL_URL%/}"
 MODE="${1:-${TEZZ_INSTALL_MODE:-install}}"
 MODE="$(printf '%s' "$MODE" | tr '[:upper:]' '[:lower:]')"

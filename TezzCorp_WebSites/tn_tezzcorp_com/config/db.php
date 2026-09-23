@@ -58,7 +58,7 @@ function tn_pdo(): PDO {
 // ── Legacy array for includes that do `$cfg = require 'db.php'` ──────────────
 return [
     'site_name'      => 'TezzNative Language',
-    'site_url'       => 'https://tn.tezzcorp.com/',
+    'site_url'       => 'https://tezznative.org/',
     'db_host'        => $_ENV['DB_HOST']    ?? 'localhost',
     'db_name'        => $_ENV['DB_NAME']    ?? 'u190073748_tezz_native_db',
     'db_user'        => $_ENV['DB_USER']    ?? 'u190073748_tezz_native_ur',

@@ -20,7 +20,7 @@ require_once __DIR__ . '/../includes/nav.php';
     <div style="background: var(--code-bg); border: 1px solid var(--code-border); border-radius: var(--radius-lg); padding: 24px; margin-bottom: 40px;">
       <div class="terminal-comment"># Windows PowerShell (Automated Setup - Adds to PATH &amp; Environment):</div>
       <div class="terminal-cmd" style="margin-bottom: 18px;">
-        <code>irm https://tn.tezzcorp.com/install.ps1 | iex</code>
+        <code>irm https://tezznative.org/install.ps1 | iex</code>
         <button class="copy-btn" title="Copy command" aria-label="Copy Command">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
         </button>
@@ -28,7 +28,7 @@ require_once __DIR__ . '/../includes/nav.php';
 
       <div class="terminal-comment"># Linux / macOS (Automated Bash Setup):</div>
       <div class="terminal-cmd" style="margin-bottom: 18px;">
-        <code>curl -fsSL https://tn.tezzcorp.com/install.sh | bash</code>
+        <code>curl -fsSL https://tezznative.org/install.sh | bash</code>
         <button class="copy-btn" title="Copy command" aria-label="Copy Command">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
         </button>
@@ -36,7 +36,7 @@ require_once __DIR__ . '/../includes/nav.php';
 
       <div class="terminal-comment"># Windows Command Prompt (cmd.exe):</div>
       <div class="terminal-cmd" style="margin-bottom: 0;">
-        <code>curl -fsSL https://tn.tezzcorp.com/install.cmd -o install.cmd &amp;&amp; install.cmd</code>
+        <code>curl -fsSL https://tezznative.org/install.cmd -o install.cmd &amp;&amp; install.cmd</code>
         <button class="copy-btn" title="Copy command" aria-label="Copy Command">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
         </button>

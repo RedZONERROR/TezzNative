@@ -18,11 +18,18 @@ RewriteCond %{HTTP_HOST}      !^(.+\.)?test(:[0-9]+)?$     [NC]
 RewriteCond %{HTTPS}          !=on
 RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
 
-# Force www only for bare tezzcorp.com
-RewriteCond %{REMOTE_ADDR}  !^127\.0\.0\.1$
-RewriteCond %{REMOTE_ADDR}  !^::1$
-RewriteCond %{HTTP_HOST}    ^tezzcorp\.com$ [NC]
-RewriteRule ^ https://www.tezzcorp.com%{REQUEST_URI} [R=301,L]
+# Redirect www.tezznative.org -> tezznative.org
+RewriteCond %{HTTP_HOST} ^www\.tezznative\.org$ [NC]
+RewriteRule ^ https://tezznative.org%{REQUEST_URI} [R=301,L]
+
+# Redirect legacy subdomain tn.tezzcorp.com -> tezznative.org
+RewriteCond %{HTTP_HOST} ^tn\.tezzcorp\.com$ [NC]
+RewriteRule ^ https://tezznative.org%{REQUEST_URI} [R=301,L]
+
+# ------------------------------------------------------------
+# 1b) 410 Gone for purged legacy tuition/agency/payment URLs
+# ------------------------------------------------------------
+RewriteRule ^(checkout|fee-receipt|academy_diag|callback|careers|check-monthly-payments|phpinfo_test2|portfolio|services|software)\.php$ - [G,L]
 
 # ------------------------------------------------------------
 # 2) Named-page clean URL routing (no .php extension)

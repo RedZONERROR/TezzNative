@@ -1,6 +1,6 @@
 @echo off
 setlocal
-set "TEZZ_INSTALL_URL=https://tn.tezzcorp.com/download/install.ps1?nocache=%RANDOM%%RANDOM%"
+set "TEZZ_INSTALL_URL=https://tezznative.org/install.ps1?nocache=%RANDOM%%RANDOM%"
 set "TEZZ_INSTALL_TMP=%TEMP%\tezznative-install-%RANDOM%%RANDOM%.ps1"
 
 where powershell >nul 2>nul
