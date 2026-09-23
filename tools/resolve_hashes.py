@@ -22,6 +22,7 @@ import os
 import shutil
 import hashlib
 import subprocess
+import struct
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 LIB_DIR = os.path.join(REPO_ROOT, "lib")
@@ -142,33 +143,83 @@ def resolve_lock_and_registry():
             synced_libs += 1
     print(f"  Synced {synced_libs} library files to {SITE_LIB_DIR}")
 
+def get_pe_machine(path):
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "rb") as f:
+            data = f.read(1024)
+            if len(data) < 64 or data[:2] != b"MZ":
+                return None
+            pe_off = struct.unpack("<I", data[60:64])[0]
+            f.seek(pe_off)
+            sig = f.read(4)
+            if sig != b"PE\x00\x00":
+                return None
+            return struct.unpack("<H", f.read(2))[0]
+    except Exception:
+        return None
+
 def sync_compiler_binaries():
     print("[2/6] Syncing compiler binaries...")
-    src_compiler = os.path.join(REPO_ROOT, "tezzc.exe")
-    if not os.path.exists(src_compiler):
-        src_compiler = os.path.join(REPO_ROOT, "bin", "tezzc.exe")
-    if not os.path.exists(src_compiler):
-        src_compiler = os.path.join(SITE_BIN_DIR, "tezzc.exe")
+    # Find genuine x86_64 compiler
+    x64_candidates = [
+        os.path.join(REPO_ROOT, "tezzc.exe"),
+        os.path.join(SITE_BIN_DIR, "Release", "tezzc.exe"),
+        os.path.join(REPO_ROOT, "TezzNative-language", "bin", "tezzc-windows-x64.exe"),
+        os.path.join(SITE_BIN_DIR, "tezzc-windows-x64.exe"),
+    ]
+    x64_compiler = None
+    for cand in x64_candidates:
+        if os.path.exists(cand) and get_pe_machine(cand) == 0x8664:
+            x64_compiler = cand
+            break
 
-    if os.path.exists(src_compiler):
-        sha = sha256_file(src_compiler)
-        size = os.path.getsize(src_compiler)
-        print(f"  Source compiler: {src_compiler} ({size} bytes, sha256={sha})")
+    if not x64_compiler:
+        raise RuntimeError("CRITICAL ERROR: No genuine x86_64 tezzc compiler binary (PE Machine 0x8664) found!")
 
-        # Update bootstrap compiler for CI
-        bootstrap_dir = os.path.join(REPO_ROOT, "ci", "bootstrap")
-        os.makedirs(bootstrap_dir, exist_ok=True)
-        bootstrap_path = os.path.join(bootstrap_dir, "tezzc-windows-x64.exe")
-        shutil.copyfile(src_compiler, bootstrap_path)
+    sha_x64 = sha256_file(x64_compiler)
+    size_x64 = os.path.getsize(x64_compiler)
+    print(f"  Verified x86_64 compiler: {x64_compiler} ({size_x64} bytes, sha256={sha_x64})")
 
-        # Update website mirrors
-        os.makedirs(SITE_BIN_DIR, exist_ok=True)
-        shutil.copyfile(src_compiler, os.path.join(SITE_BIN_DIR, "tezzc.exe"))
-        shutil.copyfile(src_compiler, os.path.join(SITE_BIN_DIR, "tezzc-windows-x64.exe"))
-        shutil.copyfile(src_compiler, os.path.join(SITE_ROOT, "download", "tezzc.exe"))
-        print(f"  Updated bootstrap and download mirror compiler binaries.")
+    def safe_copy(s, d):
+        if os.path.abspath(s) != os.path.abspath(d):
+            os.makedirs(os.path.dirname(d), exist_ok=True)
+            shutil.copyfile(s, d)
+
+    # Sync x86_64 binaries
+    bootstrap_dir = os.path.join(REPO_ROOT, "ci", "bootstrap")
+    safe_copy(x64_compiler, os.path.join(bootstrap_dir, "tezzc-windows-x64.exe"))
+    safe_copy(x64_compiler, os.path.join(SITE_BIN_DIR, "tezzc.exe"))
+    safe_copy(x64_compiler, os.path.join(SITE_BIN_DIR, "tezzc-windows-x64.exe"))
+    safe_copy(x64_compiler, os.path.join(SITE_ROOT, "download", "tezzc.exe"))
+    safe_copy(x64_compiler, os.path.join(SITE_ROOT, "download", "tezzc-windows-x64.exe"))
+    safe_copy(x64_compiler, os.path.join(REPO_ROOT, "tezzc.exe"))
+    safe_copy(x64_compiler, os.path.join(REPO_ROOT, "bin", "tezzc.exe"))
+    print(f"  Synchronized x86_64 binaries (Machine=0x8664) across all distribution paths.")
+
+    # Find and sync ARM64 compiler if present
+    arm64_candidates = [
+        os.path.join(REPO_ROOT, "bin", "tezzc-windows-arm64.exe"),
+        os.path.join(SITE_BIN_DIR, "tezzc-windows-arm64.exe"),
+        os.path.join(SITE_ROOT, "download", "tezzc-windows-arm64.exe"),
+    ]
+    arm64_compiler = None
+    for cand in arm64_candidates:
+        if os.path.exists(cand) and get_pe_machine(cand) == 0xAA64:
+            arm64_compiler = cand
+            break
+
+    if arm64_compiler:
+        sha_arm = sha256_file(arm64_compiler)
+        size_arm = os.path.getsize(arm64_compiler)
+        print(f"  Verified ARM64 compiler: {arm64_compiler} ({size_arm} bytes, sha256={sha_arm})")
+        safe_copy(arm64_compiler, os.path.join(SITE_BIN_DIR, "tezzc-windows-arm64.exe"))
+        safe_copy(arm64_compiler, os.path.join(SITE_ROOT, "download", "tezzc-windows-arm64.exe"))
+        safe_copy(arm64_compiler, os.path.join(REPO_ROOT, "bin", "tezzc-windows-arm64.exe"))
+        print(f"  Synchronized ARM64 binaries (Machine=0xAA64).")
     else:
-        print("  Warning: tezzc.exe not found to sync.")
+        print("  Notice: ARM64 compiler binary not present.")
 
 def repackage_sdk():
     print("[3/6] Repackaging distributed SDK zip...")

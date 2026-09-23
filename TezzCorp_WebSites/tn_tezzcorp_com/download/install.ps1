@@ -144,21 +144,23 @@ function Normalize-SdkLayout {
   }
 
   $preferred = Join-Path $binDir "tezzc-windows-x64.exe"
+  $armPreferred = Join-Path $binDir "tezzc-windows-arm64.exe"
   $fromBin = Join-Path $binDir "tezzc.exe"
   $fromBuild = Join-Path (Join-Path $SdkDir "build") "tezzc.exe"
   $fromRoot = Join-Path $SdkDir "tezzc.exe"
 
-  if (-not (Test-Path $preferred)) {
-    if (Test-Path $fromBin) {
-      Copy-Item -Force $fromBin $preferred
-    } elseif (Test-Path $fromBuild) {
-      Copy-Item -Force $fromBuild $preferred
-    } elseif (Test-Path $fromRoot) {
-      Copy-Item -Force $fromRoot $preferred
-    }
-  }
-  if (-not (Test-Path $fromBin) -and (Test-Path $preferred)) {
+  if (($env:PROCESSOR_ARCHITECTURE -eq "ARM64") -and (Test-Path $armPreferred)) {
+    Copy-Item -Force $armPreferred $fromBin
+  } elseif (Test-Path $preferred) {
     Copy-Item -Force $preferred $fromBin
+  } elseif (Test-Path $fromBuild) {
+    Copy-Item -Force $fromBuild $fromBin
+  } elseif (Test-Path $fromRoot) {
+    Copy-Item -Force $fromRoot $fromBin
+  }
+
+  if (-not (Test-Path $preferred) -and (Test-Path $fromBin)) {
+    Copy-Item -Force $fromBin $preferred
   }
 
   # Ensure root launchers and bin launchers are synchronized
@@ -200,6 +202,11 @@ function Install-Shims {
   }
 
   $tezzcExe = Join-Path (Join-Path $SdkDir "bin") "tezzc-windows-x64.exe"
+  if (($env:PROCESSOR_ARCHITECTURE -eq "ARM64") -and (Test-Path (Join-Path (Join-Path $SdkDir "bin") "tezzc-windows-arm64.exe"))) {
+    $tezzcExe = Join-Path (Join-Path $SdkDir "bin") "tezzc-windows-arm64.exe"
+  } elseif (Test-Path (Join-Path (Join-Path $SdkDir "bin") "tezzc.exe")) {
+    $tezzcExe = Join-Path (Join-Path $SdkDir "bin") "tezzc.exe"
+  }
 
   $cmdShimPath = Join-Path $binDir "tezz.cmd"
   $psShimPath = Join-Path $binDir "tezz.ps1"
@@ -220,7 +227,9 @@ function Install-Shims {
 function Smoke-TestInstall {
   param([string]$BinDir)
   $tezzc = Join-Path $SdkDir "bin\tezzc-windows-x64.exe"
-  if (-not (Test-Path $tezzc)) {
+  if (($env:PROCESSOR_ARCHITECTURE -eq "ARM64") -and (Test-Path (Join-Path $SdkDir "bin\tezzc-windows-arm64.exe"))) {
+    $tezzc = Join-Path $SdkDir "bin\tezzc-windows-arm64.exe"
+  } elseif (Test-Path (Join-Path $SdkDir "bin\tezzc.exe")) {
     $tezzc = Join-Path $SdkDir "bin\tezzc.exe"
   }
 
