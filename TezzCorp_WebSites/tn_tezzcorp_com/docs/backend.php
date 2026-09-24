@@ -3,7 +3,6 @@ declare(strict_types=1);
 require_once __DIR__ . '/_common.php';
 tn_doc_boot('/docs/backend', 'backend');
 tn_head('Backend Architecture', 'TezzNative backend architecture overview for checks, IR, native codegen, and runtime support.', 'docs', '/docs/backend');
-tn_nav('docs');
 tn_page_shell_start('Backend architecture', 'Compiler reliability before target expansion.', 'Native backend work should be gated by deterministic IR checks, platform smoke tests, and clear unsupported-target errors.');
 ?>
   <section class="tn-section">

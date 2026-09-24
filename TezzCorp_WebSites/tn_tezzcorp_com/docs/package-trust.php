@@ -3,7 +3,6 @@ declare(strict_types=1);
 require_once __DIR__ . '/_common.php';
 tn_doc_boot('/docs/package-trust', 'package-trust');
 tn_head('Package Trust', 'TezzNative package trust gates for tezz commands, semantic versions, lockfiles, registry metadata, package checksums, and generated package docs.', 'docs', '/docs/package-trust');
-tn_nav('docs');
 tn_page_shell_start('Package trust', 'Reproducible package metadata for the first-party SDK set.', 'Milestone 5 gates the public tezz tool, launchers, SemVer package pins, lock/registry parity, package checksums, and generated package inventory docs.');
 $commands = [
     ['tezz init', 'Creates project metadata, cache directories, and template files with SemVer dependency pins.'],

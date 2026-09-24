@@ -1,98 +1,48 @@
 <?php
-$title = 'Terms of Service';
-$effectiveDate = date('F d, Y');
+declare(strict_types=1);
+
+require_once __DIR__ . '/includes/nav.php';
+
+$boot = tn_boot('/terms');
+$GLOBALS['tn_config'] = $boot['config'];
+$effectiveDate = 'March 15, 2026';
+
+tn_head('Terms of Service | TezzNative', 'TezzNative terms of service, platform usage, compiler licenses, and developer guidelines.', 'terms', '/terms');
+tn_page_shell_start('Terms of Service', 'TEZZCORP PVT LTD LEGAL', 'These terms govern your use of the TezzNative compiler, package registry, and official online services.');
 ?>
-<!DOCTYPE html>
-<html lang="en-IN">
-<head>
-    <meta charset="UTF-8">
-    <title><?= htmlspecialchars($title) ?> - TezzCorp</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Review TezzCorp terms for service usage, account responsibilities, and legal conditions.">
 
-    <link rel="apple-touch-icon" sizes="180x180" href="favicon/apple-touch-icon.png">
-    <link rel="icon" type="image/png" sizes="32x32" href="favicon/favicon-32x32.png">
-    <link rel="icon" type="image/png" sizes="16x16" href="favicon/favicon-16x16.png">
-    <link rel="manifest" href="favicon/site.webmanifest">
+<div style="max-width: 860px; margin: 30px auto; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 32px;">
+  <p style="color: var(--text-tertiary); font-size: 0.88rem; margin-bottom: 24px;">Effective date: <?= htmlspecialchars($effectiveDate) ?> &bull; Published by TezzCorp Pvt Ltd.</p>
 
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Sora:wght@500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="css/style.css?v=<?php echo time(); ?>">
-</head>
-<body class="light-mode page-legal">
+  <section style="margin-bottom: 24px;">
+    <h3 style="color: var(--text-primary); margin-bottom: 8px;">1. Acceptance of Terms</h3>
+    <p style="color: var(--text-secondary); line-height: 1.6;">By downloading, installing, or compiling software with TezzNative, or by accessing tezznative.org services and registries, you agree to these Terms of Service.</p>
+  </section>
 
-<?php include 'header.php'; ?>
+  <section style="margin-bottom: 24px;">
+    <h3 style="color: var(--text-primary); margin-bottom: 8px;">2. Open Source &amp; Toolchain License</h3>
+    <p style="color: var(--text-secondary); line-height: 1.6;">The TezzNative native compiler suite, standard libraries, and tooling are distributed under open licenses. You are free to build commercial, closed-source, or open-source software without royalty or runtime fee obligations.</p>
+  </section>
 
-<main>
-    <section class="page-hero">
-        <div class="container">
-            <div class="hero-wrap reveal">
-                <div class="breadcrumbs"><a href="index">Home</a> / <span>Terms of Service</span></div>
-                <h1>Terms of <span class="dynamic-gradient-text">Service</span></h1>
-                <p>Effective date: <?= htmlspecialchars($effectiveDate) ?>. These terms govern your use of TezzCorp platforms and services.</p>
-            </div>
-        </div>
-    </section>
+  <section style="margin-bottom: 24px;">
+    <h3 style="color: var(--text-primary); margin-bottom: 8px;">3. Package Registry Usage</h3>
+    <p style="color: var(--text-secondary); line-height: 1.6;">The package registry (<code>registry.tnx</code>) is provided for community module distribution. Packages must not contain malicious code, exploits, or copyrighted material without authorization.</p>
+  </section>
 
-    <section class="section-shell reveal">
-        <div class="container">
-            <article class="card" style="padding:24px; display:grid; gap:18px;">
-                <section>
-                    <h2>1. Acceptance of Terms</h2>
-                    <p>By accessing or using TezzCorp services, you agree to these Terms of Service and our Privacy Policy.</p>
-                </section>
+  <section style="margin-bottom: 24px;">
+    <h3 style="color: var(--text-primary); margin-bottom: 8px;">4. Intellectual Property</h3>
+    <p style="color: var(--text-secondary); line-height: 1.6;">TezzNative is a trademark of TezzCorp Pvt Ltd, created and founded by Rohit Pathak. Third-party packages remain the intellectual property of their respective creators.</p>
+  </section>
 
-                <section>
-                    <h2>2. Service Scope</h2>
-                    <p>TezzCorp provides software, website, CRM, and API related solutions. Features and availability may vary by plan, project scope, or contractual agreement.</p>
-                </section>
+  <section style="margin-bottom: 24px;">
+    <h3 style="color: var(--text-primary); margin-bottom: 8px;">5. Limitation of Liability</h3>
+    <p style="color: var(--text-secondary); line-height: 1.6;">The compiler toolchain and web services are provided "AS IS", without warranties of any kind. TezzCorp Pvt Ltd is not liable for indirect, incidental, or consequential damages arising from software compilation or deployment.</p>
+  </section>
 
-                <section>
-                    <h2>3. Account Responsibilities</h2>
-                    <ul style="list-style:disc; padding-left:20px; display:grid; gap:8px; color:var(--text-muted);">
-                        <li>You are responsible for maintaining account credential security.</li>
-                        <li>You must provide accurate and lawful information.</li>
-                        <li>You must not misuse, disrupt, or attempt unauthorized access to TezzCorp systems.</li>
-                    </ul>
-                </section>
+  <section>
+    <h3 style="color: var(--text-primary); margin-bottom: 8px;">6. Contact</h3>
+    <p style="color: var(--text-secondary); line-height: 1.6;">For legal, licensing, or compliance inquiries, contact <a href="mailto:info@tezzcorp.com" style="color: var(--primary);">info@tezzcorp.com</a>.</p>
+  </section>
+</div>
 
-                <section>
-                    <h2>4. Data and Integrations</h2>
-                    <p>Where third-party services are connected (for example OAuth providers or cloud services), usage remains subject to those providers’ terms and your granted permissions.</p>
-                </section>
-
-                <section>
-                    <h2>5. Intellectual Property</h2>
-                    <p>Unless otherwise agreed in writing, TezzCorp retains rights to proprietary frameworks, tooling, and platform components used to deliver services.</p>
-                </section>
-
-                <section>
-                    <h2>6. Limitation of Liability</h2>
-                    <p>To the maximum extent permitted by law, TezzCorp is not liable for indirect, incidental, or consequential damages arising from service use.</p>
-                </section>
-
-                <section>
-                    <h2>7. Termination</h2>
-                    <p>We may suspend or terminate access for breaches of these terms, security risks, or legal requirements.</p>
-                </section>
-
-                <section>
-                    <h2>8. Updates to Terms</h2>
-                    <p>We may revise these terms periodically. Continued use after updates indicates acceptance of the revised terms.</p>
-                </section>
-
-                <section>
-                    <h2>9. Contact</h2>
-                    <p>For legal or compliance questions, contact <a href="mailto:support@tezzcorp.com">support@tezzcorp.com</a>.</p>
-                </section>
-            </article>
-        </div>
-    </section>
-</main>
-
-<?php include 'footer.php'; ?>
-
-<script src="js/main.js?v=<?php echo time(); ?>"></script>
-</body>
-</html>
+<?php tn_page_shell_end(); tn_footer(); ?>

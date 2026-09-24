@@ -16,7 +16,6 @@ $frameworks = [
 ];
 
 tn_head('TezzNative Frameworks', 'TezzNative framework hub for APIs, services, GUI, database, AI, and OS experiments.', 'frameworks', '/frameworks/');
-tn_nav('frameworks');
 tn_page_shell_start('Frameworks', 'A language ecosystem with explicit maturity labels.', 'Frameworks are useful, but production trust depends on separating beta surfaces from experimental ambitions.');
 ?>
   <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; margin-top: 30px;">

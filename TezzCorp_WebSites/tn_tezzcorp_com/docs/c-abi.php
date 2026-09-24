@@ -3,7 +3,6 @@ declare(strict_types=1);
 require_once __DIR__ . '/_common.php';
 tn_doc_boot('/docs/c-abi', 'c-abi');
 tn_head('C ABI', 'TezzNative C ABI layout rules, generated headers, structured ABI manifests, and verification commands.', 'docs', '/docs/c-abi');
-tn_nav('docs');
 tn_page_shell_start('C ABI', 'Predictable layout for C interop.', 'Generate headers, dump structured ABI manifests, and verify field offsets before shipping native boundaries.');
 ?>
   <section class="tn-section">

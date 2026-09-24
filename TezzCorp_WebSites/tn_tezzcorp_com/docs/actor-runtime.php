@@ -3,7 +3,6 @@ declare(strict_types=1);
 require_once __DIR__ . '/_common.php';
 tn_doc_boot('/docs/actor-runtime', 'actor-runtime');
 tn_head('Actor Runtime', 'TezzNative local actor runtime, mailbox, supervision, node metadata, and OTP-like app framework boundary.', 'docs', '/docs/actor-runtime');
-tn_nav('docs');
 tn_page_shell_start('Actor runtime', 'Local actors first. Distributed claims only after gates.', 'TezzNative now has a native-smoke-gated actor foundation for service-runtime experiments.');
 ?>
   <section class="tn-section">

@@ -35,10 +35,10 @@ function tn_boot(string $path = '/'): array {
     'config' => [
       'site_name' => 'TezzNative',
       'site_url' => 'https://tezznative.org',
-      'version' => '2.2.1'
+      'version' => '1.1.0'
     ],
     'version' => [
-      'version' => '2.2.1',
+      'version' => '1.1.0',
       'build' => '2026.09',
       'status' => 'Production Mature'
     ],
@@ -55,14 +55,19 @@ function tn_head(string $title = '', string $desc = '', string $active = 'home',
 }
 
 function tn_nav(string $active = 'home'): void {
+  static $rendered = false;
+  if ($rendered) {
+    return;
+  }
+  $rendered = true;
 ?>
 <!-- Top Announcement Ribbon -->
 <div class="announcement-banner">
   <div class="banner-container">
-    <span class="banner-badge"><?= __('banner_badge', 'NEW IN v2.2') ?></span>
-    <span class="banner-text"><?= __('banner_text', 'Native async/await Coroutines, Scoped defer, 4D Tensors & GGUF Ingestion Are Live!') ?></span>
+    <span class="banner-badge"><?= __('banner_badge', 'NEW IN v1.1') ?></span>
+    <span class="banner-text"><?= __('banner_text', 'High-Performance Systems & AI Language with Native Tensors, Coroutines & Zero-GC Execution!') ?></span>
     <a href="/download/" class="banner-link">
-      <?= __('banner_link', 'Get TezzNative v2.2') ?>
+      <?= __('banner_link', 'Get TezzNative v1.1.0') ?>
       <svg class="icon-inline" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
     </a>
   </div>
@@ -80,7 +85,7 @@ function tn_nav(string $active = 'home'): void {
         <span class="brand-text">Tezz<span class="brand-accent">Native</span></span>
         <span style="font-size: 0.65rem; color: #94a3b8; font-weight: 500;">TezzCorp Pvt Ltd</span>
       </div>
-      <span class="version-tag">v2.2.1</span>
+      <span class="version-tag">v1.1.0</span>
     </a>
 
     <!-- Desktop Navigation Links -->
@@ -91,6 +96,8 @@ function tn_nav(string $active = 'home'): void {
       <a href="/lib/" class="nav-link <?= ($active === 'packages' || $active === 'lib') ? 'active' : '' ?>"><?= __('nav_packages', 'Packages (40+)') ?></a>
       <a href="/docs/lsp" class="nav-link <?= ($active === 'lsp') ? 'active' : '' ?>"><?= __('nav_lsp', 'LSP & IDEs') ?></a>
       <a href="/docs/" class="nav-link <?= ($active === 'docs') ? 'active' : '' ?>"><?= __('nav_docs', 'Docs') ?></a>
+      <a href="/frameworks/" class="nav-link <?= ($active === 'frameworks') ? 'active' : '' ?>"><?= __('nav_frameworks', 'Frameworks') ?></a>
+      <a href="/about/" class="nav-link <?= ($active === 'about') ? 'active' : '' ?>"><?= __('nav_about', 'About') ?></a>
       <a href="/download/" class="nav-link <?= ($active === 'download') ? 'active' : '' ?>"><?= __('nav_downloads', 'Downloads') ?></a>
     </nav>
 
@@ -154,7 +161,7 @@ function tn_nav(string $active = 'home'): void {
         <span class="brand-text" style="font-size: 1.15rem;">Tezz<span class="brand-accent">Native</span></span>
         <span style="font-size: 0.62rem; color: #94a3b8; font-weight: 500;">TezzCorp Pvt Ltd</span>
       </div>
-      <span class="version-tag">v2.2.1</span>
+      <span class="version-tag">v1.1.0</span>
     </a>
     <button class="sidebar-close-btn" id="sidebarClose" aria-label="Close Navigation Menu">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -196,6 +203,14 @@ function tn_nav(string $active = 'home'): void {
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
         <span><?= __('nav_docs', 'Documentation') ?></span>
       </a>
+      <a href="/frameworks/" class="sidebar-link <?= ($active === 'frameworks') ? 'active' : '' ?>">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        <span><?= __('nav_frameworks', 'Frameworks') ?></span>
+      </a>
+      <a href="/about/" class="sidebar-link <?= ($active === 'about') ? 'active' : '' ?>">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+        <span><?= __('nav_about', 'About') ?></span>
+      </a>
       <a href="/community/" class="sidebar-link <?= ($active === 'community') ? 'active' : '' ?>">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
         <span>Community</span>
@@ -212,7 +227,7 @@ function tn_nav(string $active = 'home'): void {
 
     <!-- Prominent Mobile CTA Box -->
     <div class="sidebar-cta-box">
-      <div class="sidebar-cta-title">Install TezzNative v2.2.1</div>
+      <div class="sidebar-cta-title">Install TezzNative v1.1.0</div>
       <p class="sidebar-cta-desc">Standalone C speed, native tensors & async runtime on your machine.</p>
       <a href="/download/" class="btn btn-primary sidebar-btn-install">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

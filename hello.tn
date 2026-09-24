@@ -1,0 +1,6 @@
+import "io"
+
+fn main() -> int:
+  say "Hello, TezzNative!"
+  say "Welcome to high-performance systems and AI programming."
+  ret 0

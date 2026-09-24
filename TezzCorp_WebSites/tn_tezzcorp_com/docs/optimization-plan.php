@@ -3,7 +3,6 @@ declare(strict_types=1);
 require_once __DIR__ . '/_common.php';
 tn_doc_boot('/docs/optimization-plan', 'optimization');
 tn_head('Optimization Plan', 'TezzNative optimization plan for conformance, backend reliability, standard library hardening, DX, packages, Python bridge, C ABI, benchmarks, and release engineering.', 'docs', '/docs/optimization-plan');
-tn_nav('docs');
 tn_page_shell_start('Optimization plan', 'Make the language reliable before making it loud.', 'The full roadmap is also tracked in GitHub under docs/OPTIMIZATION_PLAN.md.');
 $items = [
     ['Milestone 0', 'Public trust baseline', 'Completed for the current public surface with verified claims, visible stability labels, and bounded replacement messaging.'],

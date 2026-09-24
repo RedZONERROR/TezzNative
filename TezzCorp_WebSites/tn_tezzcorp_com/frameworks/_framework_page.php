@@ -22,7 +22,6 @@ $boot = tn_boot('/frameworks/' . $slug);
 $GLOBALS['tn_config'] = $boot['config'];
 
 tn_head($name . ' Framework', $description, 'frameworks', '/frameworks/' . $slug);
-tn_nav('frameworks');
 tn_page_shell_start('Framework', $name, $description);
 ?>
   <section class="tn-section">

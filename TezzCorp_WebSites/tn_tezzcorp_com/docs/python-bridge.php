@@ -3,7 +3,6 @@ declare(strict_types=1);
 require_once __DIR__ . '/_common.php';
 tn_doc_boot('/docs/python-bridge', 'python-bridge');
 tn_head('Python Bridge', 'TezzNative Python bridge documentation for tezzc pyext, CPython wrapper generation, primitive mapping, buffer ownership, and conformance gates.', 'docs', '/docs/python-bridge');
-tn_nav('docs');
 tn_page_shell_start('Python Bridge', 'Use Python for orchestration and TezzNative for native hot paths.', 'Milestone 6 adds a gated CPython extension scaffold generator for ABI-safe TezzNative functions.');
 $rows = [
     ['int / i64', 'Python int', 'Python int'],

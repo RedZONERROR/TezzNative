@@ -2556,7 +2556,8 @@ fn cmd_init() -> int:
     m4:str = str_join2(m3, "dep.std = 0.1.0\n")
     m6:str = 0 as str
     if streq(template, "minimal"):
-      d1:str = str_join2(m4, "dep.io = 0.1.0\n")
+      d0:str = str_join2(m4, "dep.gui = 0.1.0\n")
+      d1:str = str_join2(d0, "dep.io = 0.1.0\n")
       d2:str = str_join2(d1, "dep.time = 0.1.0\n")
       d3:str = str_join2(d2, "dep.net = 0.1.0\n")
       d4:str = str_join2(d3, "dep.tls = 0.1.0\n")
@@ -2577,9 +2578,10 @@ fn cmd_init() -> int:
       d19:str = str_join2(d18, "dep.tezzserve = 0.1.0\n")
       d20:str = str_join2(d19, "dep.tnx = 0.1.0\n")
       d21:str = str_join2(d20, "dep.sys = 0.1.0\n")
-      io.write_all(mod_path, d21)
-      free(d1); free(d2); free(d3); free(d4); free(d5); free(d6); free(d7); free(d8); free(d9); free(d10)
-      free(d11); free(d12); free(d13); free(d14); free(d15); free(d16); free(d17); free(d18); free(d19); free(d20); free(d21)
+      d22:str = str_join2(d21, "dep.os = 0.1.0\ndep.str = 0.1.0\ndep.tensor = 0.1.0\ndep.gpu = 0.1.0\ndep.npu = 0.1.0\ndep.cyber = 0.1.0\ndep.actor = 0.1.0\n")
+      io.write_all(mod_path, d22)
+      free(d0); free(d1); free(d2); free(d3); free(d4); free(d5); free(d6); free(d7); free(d8); free(d9); free(d10)
+      free(d11); free(d12); free(d13); free(d14); free(d15); free(d16); free(d17); free(d18); free(d19); free(d20); free(d21); free(d22)
     else if streq(template, "cli"):
       c1:str = str_join2(m4, "dep.io = 0.1.0\n")
       c2:str = str_join2(c1, "dep.time = 0.1.0\n")
@@ -9807,8 +9809,15 @@ fn cmd_run_path(path:str) -> int:
   run_path:str = path
   compat_path:str = compat_rewrite_input_mode(path)
   simple_path:str = 0 as str
-  if compat_path != 0:
-    run_path = compat_path
+  if path_exists(run_path) == 0:
+    sdk_root_cand:str = sdk_root_arg()
+    if sdk_root_cand != 0:
+      sdk_cand_path:str = path_join(sdk_root_cand, run_path)
+      if path_exists(sdk_cand_path) != 0:
+        run_path = sdk_cand_path
+    if path_exists(run_path) == 0 && (streq(path, "hello.tn") != 0 || streq(path, "hello") != 0):
+      io.write_all("hello.tn", "import \"io\"\n\nfn main() -> int:\n  say \"Hello, TezzNative!\"\n  say \"Welcome to high-performance systems and AI programming.\"\n  ret 0\n")
+      run_path = "hello.tn"
   if path_exists(run_path) == 0:
     p_nf0:str = str_join2("tezz: file not found: ", run_path)
     say p_nf0
@@ -9872,6 +9881,11 @@ fn cmd_run_path(path:str) -> int:
           free(simple_path)
         ret 0 - 1
     need_bc:int = 0
+    host_arch_cur:str = detect_arch()
+    if host_arch_cur != 0:
+      if streq(host_arch_cur, "arm64") != 0:
+        need_bc = 1
+      free(host_arch_cur)
     if str_contains(src_in, "input(") != 0:
       need_bc = 1
     // Temporary correctness gate:
@@ -10015,7 +10029,7 @@ fn cmd_run_path(path:str) -> int:
       b3 = str_join2(b2, " --vectorize")
     else:
       b3 = str_join2(b2, " --no-vectorize")
-    if run_to_file(b3, "build/native_cache_build.log") != 0:
+    if run_to_file(b3, "build/native_cache_build.log") != 0 || path_exists(cache_exe) == 0:
       use_fallback_native = 1
     free(q_run_path)
     free(b0)
@@ -10027,7 +10041,7 @@ fn cmd_run_path(path:str) -> int:
     lane_native = "native-cache-miss"
   exec_start_ms_native:int = time.now_ms()
   r:int = 0
-  if use_fallback_native == 0:
+  if use_fallback_native == 0 && path_exists(cache_exe) != 0:
     cmd_run_native:str = q_cache_exe
     cmd_cache_args:str = 0 as str
     if passthrough != 0 && len(passthrough) > 0:
@@ -10066,6 +10080,10 @@ fn cmd_run_path(path:str) -> int:
       free(cmd2)
     if cmd3 != 0:
       free(cmd3)
+    if r != 0:
+      cmd_bc_fb:str = str_join3(tezzc, " run --bc ", run_path)
+      r = proc_run(cmd_bc_fb)
+      free(cmd_bc_fb)
   done_ms_native:int = time.now_ms()
   pre_ms_native:int = exec_start_ms_native - run_start_ms
   exec_ms_native:int = done_ms_native - exec_start_ms_native

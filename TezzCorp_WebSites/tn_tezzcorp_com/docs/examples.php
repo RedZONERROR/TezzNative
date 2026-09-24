@@ -3,7 +3,6 @@ declare(strict_types=1);
 require_once __DIR__ . '/_common.php';
 tn_doc_boot('/docs/examples', 'examples');
 tn_head('TezzNative Examples', 'Searchable TezzNative examples for CLI, files, structs, HTTP, and services.', 'docs', '/docs/examples');
-tn_nav('docs');
 $examples = [
     ['Hello world', "import \"std\"\n\nfn main() -> int:\n  say \"hello from TezzNative\"\n  ret 0"],
     ['CLI-style flags', "fn flag_enabled(arg:str, name:str) -> int:\n  if strcmp(arg, name) == 0:\n    ret 1\n  ret 0\n\nfn main() -> int:\n  if flag_enabled(\"--verbose\", \"--verbose\") != 0:\n    say \"verbose mode\"\n  ret 0"],

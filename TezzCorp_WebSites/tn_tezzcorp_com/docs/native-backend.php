@@ -3,7 +3,6 @@ declare(strict_types=1);
 require_once __DIR__ . '/_common.php';
 tn_doc_boot('/docs/native-backend', 'native-backend');
 tn_head('Native Backend Reliability', 'TezzNative native backend reliability matrix, reproducibility gates, and target support boundaries.', 'docs', '/docs/native-backend');
-tn_nav('docs');
 tn_page_shell_start('Native backend reliability', 'Windows/Linux x64 first, with evidence.', 'Native claims are gated by smoke tests, byte-reproducibility checks, release manifests, and explicit unsupported-target failures.');
 $targets = [
     ['Windows x64', 'x86_64', 'PE/COFF executable', 'GitHub Actions windows-2022 plus local smoke'],

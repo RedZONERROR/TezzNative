@@ -3,7 +3,6 @@ declare(strict_types=1);
 require_once __DIR__ . '/_common.php';
 tn_doc_boot('/docs/trust-baseline', 'trust');
 tn_head('Public Trust Baseline', 'TezzNative public trust baseline, verified claims, claim boundaries, and publication rules.', 'docs', '/docs/trust-baseline');
-tn_nav('docs');
 tn_page_shell_start('Public trust baseline', 'Honest claims users can verify.', 'TezzNative should be ambitious, but every public claim needs a matching doc, test, benchmark, or release artifact.');
 $verified = [
     ['Stable-core checks', 'docs/CONFORMANCE.md and tests/conformance/run.*'],

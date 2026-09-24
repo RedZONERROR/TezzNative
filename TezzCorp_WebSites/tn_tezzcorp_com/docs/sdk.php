@@ -4,7 +4,6 @@ require_once __DIR__ . '/_common.php';
 require_once __DIR__ . '/../lib/docs_indexer.php';
 tn_doc_boot('/docs/sdk', 'sdk');
 tn_head('SDK Reference', 'TezzNative SDK module reference generated from local library files when available.', 'docs', '/docs/sdk');
-tn_nav('docs');
 $modules = [];
 try {
     $modules = tezz_collect_sdk_modules(tezz_sdk_lib_dir());

@@ -3,7 +3,6 @@ declare(strict_types=1);
 require_once __DIR__ . '/_common.php';
 tn_doc_boot('/docs/tezzdb', 'tezzdb');
 tn_head('TezzDB Guide', 'TezzDB guide for embedded database usage inside TezzNative applications.', 'docs', '/docs/tezzdb');
-tn_nav('docs');
 tn_page_shell_start('TezzDB guide', 'Embedded data for TezzNative applications.', 'TezzDB is a beta surface. Use it deliberately, test migrations, and pin SDK versions for production deployments.');
 ?>
   <section class="tn-section">

@@ -3,7 +3,6 @@ declare(strict_types=1);
 require_once __DIR__ . '/_common.php';
 tn_doc_boot('/docs/benchmarks', 'benchmarks');
 tn_head('Benchmarks', 'TezzNative benchmark harness, workload matrix, comparison fixtures, and honest publishing rules.', 'docs', '/docs/benchmarks');
-tn_nav('docs');
 tn_page_shell_start('Benchmarks', 'Repeatable performance proof, not marketing numbers.', 'The public harness separates check, bytecode, native build, native run, and optional external language comparisons.');
 $workloads = [
     ['startup', 'Startup time', 'Minimal process launch and program startup.'],

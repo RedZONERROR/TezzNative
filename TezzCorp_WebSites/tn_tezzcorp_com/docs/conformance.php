@@ -3,7 +3,6 @@ declare(strict_types=1);
 require_once __DIR__ . '/_common.php';
 tn_doc_boot('/docs/conformance', 'conformance');
 tn_head('Conformance', 'TezzNative stable-core conformance suites for parser, type checking, diagnostics, stdlib imports, native smoke, and ABI checks.', 'docs', '/docs/conformance');
-tn_nav('docs');
 tn_page_shell_start('Conformance', 'A small compatibility contract that fails loudly.', 'The stable-core, DX, package trust, ABI, native smoke, and reliability runners gate the current public surface on Windows and Linux.');
 $suites = [
     ['Stable core', 'valid/', 'Arithmetic, control flow, structs, arrays, indexing, sizeof/alignof, and unsafe pointer basics.'],

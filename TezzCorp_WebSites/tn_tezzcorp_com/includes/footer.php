@@ -20,7 +20,7 @@ require_once __DIR__ . '/i18n.php';
           <span class="f-badge">Founded Oct 2022</span>
           <span class="f-badge">Zero-GC Pauses</span>
           <span class="f-badge">Native LSP v3.17</span>
-          <span class="f-badge">v2.2.1 Production</span>
+          <span class="f-badge">v1.1.0 Production</span>
         </div>
       </div>
 
@@ -29,10 +29,10 @@ require_once __DIR__ . '/i18n.php';
         <h4 class="footer-heading">Documentation</h4>
         <ul class="footer-links">
           <li><a href="/docs/">Getting Started</a></li>
-          <li><a href="/docs/lsp">Language Server (LSP)</a></li>
           <li><a href="/docs/language">Language Reference</a></li>
-          <li><a href="/#playground">Language Tour &amp; Syntax</a></li>
-          <li><a href="/docs/getting-started">Compiler Guide</a></li>
+          <li><a href="/docs/lsp">Language Server (LSP)</a></li>
+          <li><a href="/frameworks/">Framework Ecosystem</a></li>
+          <li><a href="/about/">About TezzNative</a></li>
           <li><a href="/docs/sdk">SDK Reference</a></li>
         </ul>
       </div>
@@ -97,7 +97,7 @@ require_once __DIR__ . '/i18n.php';
       </div>
       <div class="footer-status">
         <span class="status-indicator" style="background: #ff9933; box-shadow: 0 0 8px #ff9933;"></span>
-        <span><?= __('footer_operational', 'TezzNative v2.2.1 Production Operational') ?></span>
+        <span><?= __('footer_operational', 'TezzNative v1.1.0 Production Operational') ?></span>
       </div>
     </div>
   </div>

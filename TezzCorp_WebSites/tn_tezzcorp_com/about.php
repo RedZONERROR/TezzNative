@@ -7,7 +7,6 @@ $boot = tn_boot('/about/');
 $GLOBALS['tn_config'] = $boot['config'];
 
 tn_head('About TezzNative | TezzCorp Pvt Ltd.', 'About the TezzNative language, created by Rohit Pathak at TezzCorp Pvt Ltd.', 'about', '/about/');
-tn_nav('about');
 tn_page_shell_start('About TezzNative', 'ENGINEERED BY TEZZCORP PVT LTD', 'TezzNative is a high-performance native systems and AI programming language created by Rohit Pathak to deliver bare-metal execution speed, native multi-dimensional tensors, and built-in asynchronous coroutines without garbage collector pauses.');
 ?>
   <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 24px; margin-top: 30px;">

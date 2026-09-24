@@ -3,7 +3,6 @@ declare(strict_types=1);
 require_once __DIR__ . '/_common.php';
 tn_doc_boot('/docs/stdlib-core', 'stdlib-core');
 tn_head('Stable Standard Library Core', 'TezzNative stable-candidate standard library ownership, failure behavior, platform notes, and verification gates.', 'docs', '/docs/stdlib-core');
-tn_nav('docs');
 tn_page_shell_start('Stable stdlib core', 'Small, practical, and gated.', 'The current stable-candidate modules are documented by ownership rules, failure behavior, platform notes, and Windows/Linux x64 native smoke gates.');
 $modules = [
     ['std', 'Common prelude helpers', 'Stable import smoke'],

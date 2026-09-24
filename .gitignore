@@ -61,6 +61,7 @@ benchmarks/results/**
 !tezz.mod
 !tezz.lock
 !registry.tnx
+!hello.tn
 !.gitignore
 !.gitattributes
 

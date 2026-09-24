@@ -3,7 +3,6 @@ declare(strict_types=1);
 require_once __DIR__ . '/_common.php';
 tn_doc_boot('/docs/developer-experience', 'developer-experience');
 tn_head('Developer Experience', 'TezzNative developer experience gates for diagnostics, fmt, lint, examples, LSP, snippets, run, and native build workflows.', 'docs', '/docs/developer-experience');
-tn_nav('docs');
 tn_page_shell_start('Developer experience', 'The first-user workflow is now gated.', 'Milestone 4 checks diagnostics, formatting, linting, examples, editor snippets, LSP source health, run, and native build behavior.');
 $checks = [
     ['Diagnostics', 'Unknown-name and wrong-arity errors include file/line/column, snippet, caret, expected/actual detail where available, and a short help line.'],

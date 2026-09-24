@@ -3,7 +3,6 @@ declare(strict_types=1);
 require_once __DIR__ . '/_common.php';
 tn_doc_boot('/docs/stability', 'stability');
 tn_head('Stability Map', 'TezzNative stability labels for stable, beta, experimental, and internal surfaces.', 'stability', '/docs/stability');
-tn_nav('stability');
 tn_page_shell_start('Stability map', 'Trust starts with honest labels.', 'Stable users should know what is ready, what is hardening, and what remains experimental.');
 ?>
   <section class="tn-section">
