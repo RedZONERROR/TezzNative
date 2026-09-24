@@ -74,12 +74,6 @@ if (-not (Test-Path $tool)) {
 $env:Path = (Join-Path $root "bin") + ";" + (Join-Path $root "build") + ";" + $root + ";" + $env:Path
 $env:TEZZ_SDK_ROOT = $root
 
-$tezzSelfHost = Join-Path $root "bin\tezz.exe"
-if (-not (Test-Path $tezzSelfHost)) { $tezzSelfHost = Join-Path $root "tezz.exe" }
-if (Test-Path $tezzSelfHost) {
-  & $tezzSelfHost @args --tezzc $tezzc --sdk-root $root
-  exit $LASTEXITCODE
-}
-
 & $tezzc run --bc $tool -- @args --tezzc $tezzc --sdk-root $root
 exit $LASTEXITCODE
+

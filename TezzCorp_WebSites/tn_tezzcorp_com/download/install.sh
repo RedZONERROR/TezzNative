@@ -144,6 +144,7 @@ require_tools() {
 
 remove_install() {
   rm -rf "$DEST"
+  rm -rf "$HOME/.tezznative"
   rm -f "$BIN_DIR/tezz" "$BIN_DIR/tezzc"
 }
 

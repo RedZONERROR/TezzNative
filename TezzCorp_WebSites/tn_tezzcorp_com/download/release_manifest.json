@@ -1,6 +1,6 @@
 {
     "schema":  "tezznative.release-manifest.v1",
-    "generated_utc":  "2026-09-23T19:54:04Z",
+    "generated_utc":  "2026-09-24T15:18:41Z",
     "project":  "TezzNative",
     "version":  "1.1.0",
     "channel":  "release",
@@ -21,14 +21,14 @@
                       {
                           "path":  "download/install.ps1",
                           "url":  "https://tezznative.org/download/install.ps1",
-                          "bytes":  15532,
-                          "sha256":  "FD071F98319C6B30FB5279D1A1535C0FFD2E2410AF6D236CFDE142C0751919FA"
+                          "bytes":  21688,
+                          "sha256":  "1DE562BD5853CB9346BB0D7C8BED74BFB0DEF535CA12BB3EB028D71FE5C22292"
                       },
                       {
                           "path":  "download/install.sh",
                           "url":  "https://tezznative.org/download/install.sh",
-                          "bytes":  9696,
-                          "sha256":  "C1D8E083F12278AADC6307F55205847C7256F74F80BB177A432DB96F48D2766B"
+                          "bytes":  9725,
+                          "sha256":  "3D69DC8959F85A2101A886784B101A6E636CFDD3A90A8C8802EF2F9BAFA9B879"
                       },
                       {
                           "path":  "download/sdk/benchmarks/c/file_io.c",
@@ -639,8 +639,8 @@
                       {
                           "path":  "download/sdk/tezz.cmd",
                           "url":  "https://tezznative.org/download/sdk/tezz.cmd",
-                          "bytes":  5307,
-                          "sha256":  "F84CF96F0959C11A2F7BF9978F3576A909EA4314AE4994A2C796E74B4413A963"
+                          "bytes":  3849,
+                          "sha256":  "F9F19E70B3E868B6CAB4819271AE492A5E4346D99308928443F18348333375C2"
                       },
                       {
                           "path":  "download/sdk/tezz.lock",
@@ -657,8 +657,8 @@
                       {
                           "path":  "download/sdk/tezz.ps1",
                           "url":  "https://tezznative.org/download/sdk/tezz.ps1",
-                          "bytes":  2548,
-                          "sha256":  "5F45E01B03852C1F13417EC06B5FA622AB9EF6D6AF2B3FDF3D9F953A8F47FF04"
+                          "bytes":  2629,
+                          "sha256":  "E4C6F60CAF9DB71AAD68CD1782AC23E03F367A4217FD71B13432B24A5AB44603"
                       },
                       {
                           "path":  "download/sdk/tezznative-vscode/snippets/snippets.json",
@@ -669,8 +669,8 @@
                       {
                           "path":  "download/sdk/tools/tezz.tn",
                           "url":  "https://tezznative.org/download/sdk/tools/tezz.tn",
-                          "bytes":  317819,
-                          "sha256":  "60FA34E15A92EA8151BE784A5CAD566904C8D1772BE5BC9EA9C1B1EE9CCCE075"
+                          "bytes":  319655,
+                          "sha256":  "BDE36B09B9E9F9F96F772B082AADC34350799F0558DD40A5F1CDD7E369902336"
                       },
                       {
                           "path":  "download/sdk/tools/tezz_lsp.tn",
@@ -699,26 +699,26 @@
                       {
                           "path":  "download/tezznative-sdk.zip",
                           "url":  "https://tezznative.org/download/tezznative-sdk.zip",
-                          "bytes":  2394805,
-                          "sha256":  "4F2A68B9BF79128203465878C632E09D54117A6BBBCA0AB8AFF4BE570466D06C"
+                          "bytes":  2213404,
+                          "sha256":  "43CC9D1AB53CDF6B8DC6BD6CF87D3A7655E2466EE3E9F7A3F74849981E0E8F4F"
                       },
                       {
                           "path":  "download/tezznative-sdk.zip.sha256",
                           "url":  "https://tezznative.org/download/tezznative-sdk.zip.sha256",
                           "bytes":  86,
-                          "sha256":  "25AD8920BAA0D8C7F1CD6C2AD4B06ABF8627E5EEBA713AC83DEAABE7E382E08E"
+                          "sha256":  "D4EA130A3B0320D0F345C4AFBEB90172E9F1B323AE1445A78C924F2F0A82D7BB"
                       },
                       {
                           "path":  "download/tezznative-sdk-linux.tar.gz",
                           "url":  "https://tezznative.org/download/tezznative-sdk-linux.tar.gz",
                           "bytes":  6729536,
-                          "sha256":  "B390F45B524F45CCD74D843FC96274A1EC2F298A466A683A1DE9BF287A359C7C"
+                          "sha256":  "BF045300576F7ECE64389E7AC3E4BE31E20CC397C7B61ED81D52A4E778B90D1D"
                       },
                       {
                           "path":  "download/tezznative-sdk-linux.tar.gz.sha256",
                           "url":  "https://tezznative.org/download/tezznative-sdk-linux.tar.gz.sha256",
                           "bytes":  95,
-                          "sha256":  "C3701BA582020DB2380C6F127265D7DA767ADE5676C16295D93C459D96D02A6E"
+                          "sha256":  "06CB08984051043A60B928627B518B34F353A46F5D8372F0A2666FEC33B83F9A"
                       },
                       {
                           "path":  "registry.tnx",

@@ -73,5 +73,7 @@ if (-not (Test-Path $tool)) {
 }
 $env:Path = (Join-Path $root "bin") + ";" + (Join-Path $root "build") + ";" + $root + ";" + $env:Path
 $env:TEZZ_SDK_ROOT = $root
+
 & $tezzc run --bc $tool -- @args --tezzc $tezzc --sdk-root $root
 exit $LASTEXITCODE
+

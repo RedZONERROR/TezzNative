@@ -1,7 +1,12 @@
 param(
   [ValidateSet("install", "update", "reinstall", "uninstall", "check")]
-  [string]$Mode = "install"
+  [string]$Mode = "install",
+  [switch]$Uninstall
 )
+
+if ($Uninstall) {
+  $Mode = "uninstall"
+}
 
 $ErrorActionPreference = "Stop"
 
@@ -10,7 +15,7 @@ $PortalUrl = if ($env:TEZZ_PORTAL_BASE) { $env:TEZZ_PORTAL_BASE.TrimEnd("/") } e
 $InstallScope = if ($env:TEZZ_INSTALL_SCOPE) { $env:TEZZ_INSTALL_SCOPE.ToLowerInvariant() } else { "user" }
 if ($InstallScope -ne "user" -and $InstallScope -ne "system") { $InstallScope = "user" }
 
-$DefaultInstallDir = if ($InstallScope -eq "system") { "C:\\ProgramData\\TezzNative" } else { Join-Path $HOME "TezzNative" }
+$DefaultInstallDir = if ($InstallScope -eq "system") { "C:\ProgramData\TezzNative" } else { Join-Path $HOME "TezzNative" }
 $InstallDir = if ($env:TEZZ_INSTALL_DIR) { $env:TEZZ_INSTALL_DIR } else { $DefaultInstallDir }
 $SdkDir = Join-Path $InstallDir "sdk"
 $ZipPath = Join-Path $env:TEMP ("tezznative-sdk-" + [guid]::NewGuid().ToString() + ".zip")
@@ -78,6 +83,77 @@ function Get-LocalVersion {
   return ""
 }
 
+function Remove-PathEntry {
+  param(
+    [string]$Scope,
+    [string]$PathValue
+  )
+  try {
+    $current = [Environment]::GetEnvironmentVariable("Path", $Scope)
+    if (-not $current) { return }
+    $parts = $current.Split(';', [System.StringSplitOptions]::RemoveEmptyEntries)
+    $filtered = @()
+    foreach ($part in $parts) {
+      if ($part.TrimEnd('\', '/') -ine $PathValue.TrimEnd('\', '/')) {
+        $filtered += $part
+      }
+    }
+    $next = ($filtered -join ';')
+    [Environment]::SetEnvironmentVariable("Path", $next, $Scope)
+  } catch {
+  }
+}
+
+function Purge-LegacyEnvironment {
+  # 1. Stop any legacy server processes
+  Get-Process | Where-Object { $_.ProcessName -like "tezz_serve*" -or $_.ProcessName -eq "tezz_http_server" } | Stop-Process -Force -ErrorAction SilentlyContinue
+
+  # 2. Remove legacy .tezznative directory
+  $legacyDir = Join-Path $HOME ".tezznative"
+  if (Test-Path $legacyDir) {
+    try {
+      Remove-Item -Recurse -Force $legacyDir -ErrorAction SilentlyContinue
+      Write-Host "Purged legacy installation: $legacyDir" -ForegroundColor Yellow
+    } catch {
+    }
+  }
+
+  # 3. Clean legacy .tezznative\bin and stale paths from User and Machine PATH
+  foreach ($scope in @("User", "Machine")) {
+    try {
+      $p = [Environment]::GetEnvironmentVariable("Path", $scope)
+      if ($p) {
+        $parts = $p.Split(';', [System.StringSplitOptions]::RemoveEmptyEntries)
+        $kept = @()
+        $changed = $false
+        foreach ($part in $parts) {
+          if ($part -match '(?i)[\/\\]\.tezznative([\/\\]bin)?$') {
+            $changed = $true
+          } else {
+            $kept += $part
+          }
+        }
+        if ($changed) {
+          [Environment]::SetEnvironmentVariable("Path", ($kept -join ';'), $scope)
+        }
+      }
+    } catch {
+    }
+  }
+
+  # 4. Clean current session PATH
+  if ($env:PATH) {
+    $sessParts = $env:PATH.Split(';', [System.StringSplitOptions]::RemoveEmptyEntries)
+    $sessKept = @()
+    foreach ($sp in $sessParts) {
+      if ($sp -notmatch '(?i)[\/\\]\.tezznative([\/\\]bin)?$') {
+        $sessKept += $sp
+      }
+    }
+    $env:PATH = ($sessKept -join ';')
+  }
+}
+
 function Add-PathIfMissing {
   param(
     [string]$Scope,
@@ -87,12 +163,19 @@ function Add-PathIfMissing {
   if (-not $current) { $current = "" }
   $parts = $current.Split(';', [System.StringSplitOptions]::RemoveEmptyEntries)
   foreach ($part in $parts) {
-    if ($part.TrimEnd('\\') -ieq $PathValue.TrimEnd('\\')) {
+    if ($part.TrimEnd('\', '/') -ieq $PathValue.TrimEnd('\', '/')) {
+      if ($env:PATH -notmatch [regex]::Escape($PathValue)) {
+        $env:PATH = "$PathValue;$env:PATH"
+      }
       return
     }
   }
-  $next = if ([string]::IsNullOrWhiteSpace($current)) { $PathValue } else { "$current;$PathValue" }
+  # Prepend so new install takes precedence
+  $next = if ([string]::IsNullOrWhiteSpace($current)) { $PathValue } else { "$PathValue;$current" }
   [Environment]::SetEnvironmentVariable("Path", $next, $Scope)
+  if ($env:PATH -notmatch [regex]::Escape($PathValue)) {
+    $env:PATH = "$PathValue;$env:PATH"
+  }
 }
 
 function Configure-Env {
@@ -119,22 +202,59 @@ function Configure-Env {
       [Environment]::SetEnvironmentVariable("TEZZ_SDK_ROOT", $SdkRoot, "User")
     }
   }
+  $env:TEZZ_SDK_ROOT = $SdkRoot
 }
 
 function Remove-Install {
-  if (Test-Path $InstallDir) {
-    Remove-Item -Recurse -Force $InstallDir
-  }
+  Write-Host "Uninstalling TezzNative..." -ForegroundColor Yellow
+  Purge-LegacyEnvironment
+
+  $primaryBin = Join-Path $InstallDir "bin"
   $userBin = Join-Path $HOME "bin"
-  Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $userBin "tezz.cmd")
-  Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $userBin "tezz.ps1")
-  Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $userBin "tezzc.cmd")
-  $sysBin = Join-Path $InstallDir "bin"
-  Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $sysBin "tezz.cmd")
-  Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $sysBin "tezz.ps1")
-  Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $sysBin "tezzc.cmd")
+
+  # Remove shims from all locations
+  foreach ($dir in @($primaryBin, $userBin)) {
+    Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $dir "tezz.cmd")
+    Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $dir "tezz.ps1")
+    Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $dir "tezzc.cmd")
+    Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $dir "tezz.exe")
+  }
+
+  # Remove install directory
+  if (Test-Path $InstallDir) {
+    Remove-Item -Recurse -Force $InstallDir -ErrorAction SilentlyContinue
+  }
+
+  # Remove PATH entries from User and Machine
+  Remove-PathEntry -Scope "User" -PathValue $primaryBin
+  Remove-PathEntry -Scope "Machine" -PathValue $primaryBin
+  Remove-PathEntry -Scope "User" -PathValue (Join-Path $SdkDir "bin")
+  Remove-PathEntry -Scope "Machine" -PathValue (Join-Path $SdkDir "bin")
+
+  # Remove TEZZ_SDK_ROOT
+  [Environment]::SetEnvironmentVariable("TEZZ_SDK_ROOT", $null, "User")
+  if (Test-IsAdmin) {
+    [Environment]::SetEnvironmentVariable("TEZZ_SDK_ROOT", $null, "Machine")
+  }
+
+  # Remove Control Panel Uninstall registration
   Remove-Item -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\TezzNative" -Recurse -Force -ErrorAction SilentlyContinue
   Remove-Item -Path "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\TezzNative" -Recurse -Force -ErrorAction SilentlyContinue
+
+  # Clean current session environment
+  $env:TEZZ_SDK_ROOT = $null
+  if ($env:PATH) {
+    $parts = $env:PATH.Split(';', [System.StringSplitOptions]::RemoveEmptyEntries)
+    $kept = @()
+    foreach ($part in $parts) {
+      if ($part.TrimEnd('\', '/') -ine $primaryBin.TrimEnd('\', '/') -and $part -notmatch '(?i)tezz') {
+        $kept += $part
+      }
+    }
+    $env:PATH = ($kept -join ';')
+  }
+
+  Write-Host "TezzNative has been completely uninstalled from $InstallDir" -ForegroundColor Green
 }
 
 function Normalize-SdkLayout {
@@ -142,6 +262,10 @@ function Normalize-SdkLayout {
   if (-not (Test-Path $binDir)) {
     New-Item -ItemType Directory -Force -Path $binDir | Out-Null
   }
+
+  # Remove any broken tezz.exe in binDir or SdkDir
+  Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $binDir "tezz.exe")
+  Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $SdkDir "tezz.exe")
 
   $preferred = Join-Path $binDir "tezzc-windows-x64.exe"
   $armPreferred = Join-Path $binDir "tezzc-windows-arm64.exe"
@@ -196,9 +320,13 @@ function Assert-SdkIntegrity {
 }
 
 function Install-Shims {
-  $binDir = if ($InstallScope -eq "system") { Join-Path $InstallDir "bin" } else { Join-Path $HOME "bin" }
-  if (-not (Test-Path $binDir)) {
-    New-Item -ItemType Directory -Force -Path $binDir | Out-Null
+  $primaryBin = Join-Path $InstallDir "bin"
+  $userBin = Join-Path $HOME "bin"
+  if (-not (Test-Path $primaryBin)) {
+    New-Item -ItemType Directory -Force -Path $primaryBin | Out-Null
+  }
+  if (-not (Test-Path $userBin)) {
+    New-Item -ItemType Directory -Force -Path $userBin | Out-Null
   }
 
   $tezzcExe = Join-Path (Join-Path $SdkDir "bin") "tezzc-windows-x64.exe"
@@ -208,20 +336,59 @@ function Install-Shims {
     $tezzcExe = Join-Path (Join-Path $SdkDir "bin") "tezzc.exe"
   }
 
-  $cmdShimPath = Join-Path $binDir "tezz.cmd"
-  $psShimPath = Join-Path $binDir "tezz.ps1"
-  $tezzcShimPath = Join-Path $binDir "tezzc.cmd"
-
   $cmdShim = "@echo off`r`nset `"TEZZ_SDK_ROOT=$SdkDir`"`r`nset `"TEZZC=$tezzcExe`"`r`n`"$SdkDir\tezz.cmd`" %*`r`n"
   $psShim = "`$env:TEZZ_SDK_ROOT = `"$SdkDir`"`r`n`$env:TEZZC = `"$tezzcExe`"`r`n& `"$SdkDir\tezz.ps1`" @args`r`n"
   $tezzcShim = "@echo off`r`n`"$tezzcExe`" %*`r`n"
 
-  Set-Content -Path $cmdShimPath -Value $cmdShim -Encoding ASCII
-  Set-Content -Path $psShimPath -Value $psShim -Encoding ASCII
-  Set-Content -Path $tezzcShimPath -Value $tezzcShim -Encoding ASCII
+  foreach ($dir in @($primaryBin, $userBin)) {
+    Set-Content -Path (Join-Path $dir "tezz.cmd") -Value $cmdShim -Encoding ASCII
+    Set-Content -Path (Join-Path $dir "tezz.ps1") -Value $psShim -Encoding ASCII
+    Set-Content -Path (Join-Path $dir "tezzc.cmd") -Value $tezzcShim -Encoding ASCII
+    Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $dir "tezz.exe")
+  }
 
-  Configure-Env -BinDir $binDir -SdkRoot $SdkDir
-  return $binDir
+  Configure-Env -BinDir $primaryBin -SdkRoot $SdkDir
+  if ($userBin -ne $primaryBin) {
+    Configure-Env -BinDir $userBin -SdkRoot $SdkDir
+  }
+  return $primaryBin
+}
+
+function Write-OfflineUninstaller {
+  $uninstallerPs1 = Join-Path $InstallDir "uninstall.ps1"
+  $uninstallerCmd = Join-Path $InstallDir "uninstall.cmd"
+
+  $ps1Content = @"
+# TezzNative Offline Uninstaller
+`$InstallDir = Split-Path -Parent `$MyInvocation.MyCommand.Path
+`$installerScript = Join-Path `$InstallDir "sdk\install.ps1"
+if (Test-Path `$installerScript) {
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File `$installerScript -Mode uninstall
+} else {
+  # Standalone fallback removal
+  Write-Host "Removing TezzNative from `$InstallDir..." -ForegroundColor Yellow
+  `$binDir = Join-Path `$InstallDir "bin"
+  `$userBin = Join-Path `$HOME "bin"
+  foreach (`$d in @(`$binDir, `$userBin)) {
+    Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path `$d "tezz.cmd")
+    Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path `$d "tezz.ps1")
+    Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path `$d "tezzc.cmd")
+    Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path `$d "tezz.exe")
+  }
+  Remove-Item -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\TezzNative" -Recurse -Force -ErrorAction SilentlyContinue
+  Remove-Item -Path "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\TezzNative" -Recurse -Force -ErrorAction SilentlyContinue
+  Remove-Item -Recurse -Force `$InstallDir -ErrorAction SilentlyContinue
+  Write-Host "TezzNative uninstalled successfully." -ForegroundColor Green
+}
+"@
+
+  $cmdContent = @"
+@echo off
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0uninstall.ps1"
+"@
+
+  Set-Content -Path $uninstallerPs1 -Value $ps1Content -Encoding ASCII
+  Set-Content -Path $uninstallerCmd -Value $cmdContent -Encoding ASCII
 }
 
 function Smoke-TestInstall {
@@ -248,6 +415,14 @@ fn main() -> int:
 
   if (-not $buildOk) {
     throw "Smoke test failed: tezzc buildexe"
+  }
+
+  $shimCmd = Join-Path $BinDir "tezz.cmd"
+  if (Test-Path $shimCmd) {
+    $verOut = & $shimCmd --version
+    if ($LASTEXITCODE -ne 0 -or ($verOut -notmatch "tezz\s+\d+\.\d+")) {
+      throw "Smoke test failed: tezz --version returned exit code $($LASTEXITCODE): $verOut"
+    }
   }
 }
 
@@ -289,6 +464,9 @@ function Install-Payload {
     throw "System install requires Administrator PowerShell. Re-run as admin or set TEZZ_INSTALL_SCOPE=user."
   }
 
+  # Purge any legacy installations and corrupt PATH entries first
+  Purge-LegacyEnvironment
+
   Write-Host "Downloading TezzNative SDK..."
   Invoke-WebRequest -Uri "$BaseUrl/tezznative-sdk.zip?nocache=$CacheBust" -OutFile $ZipPath
   Assert-ArchiveChecksum -Path $ZipPath -FileName "tezznative-sdk.zip"
@@ -304,6 +482,11 @@ function Install-Payload {
   Assert-SdkIntegrity
   $binDir = Install-Shims
   Smoke-TestInstall -BinDir $binDir
+  Write-OfflineUninstaller
+
+  # Determine display version
+  $effectiveVer = if ($RemoteVersion) { $RemoteVersion } else { Get-LocalVersion }
+  if (-not $effectiveVer) { $effectiveVer = "1.1.0" }
 
   # Register in Windows Control Panel Programs (Installed Apps)
   try {
@@ -311,12 +494,12 @@ function Install-Payload {
     if (-not (Test-Path $uninstallKey)) {
       New-Item -Path $uninstallKey -Force | Out-Null
     }
-    Set-ItemProperty -Path $uninstallKey -Name "DisplayName" -Value "TezzNative Programming Language SDK v2.2.1"
-    Set-ItemProperty -Path $uninstallKey -Name "DisplayVersion" -Value "2.2.1"
+    Set-ItemProperty -Path $uninstallKey -Name "DisplayName" -Value "TezzNative Programming Language SDK v$effectiveVer"
+    Set-ItemProperty -Path $uninstallKey -Name "DisplayVersion" -Value $effectiveVer
     Set-ItemProperty -Path $uninstallKey -Name "Publisher" -Value "TezzCorp Pvt Ltd. (Created by Rohit Pathak)"
     Set-ItemProperty -Path $uninstallKey -Name "InstallLocation" -Value $InstallDir
     Set-ItemProperty -Path $uninstallKey -Name "DisplayIcon" -Value "$binDir\tezz.cmd,0"
-    Set-ItemProperty -Path $uninstallKey -Name "UninstallString" -Value "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command `"`$env:TEZZ_INSTALL_DIR='$InstallDir'; irm $BaseUrl/install.ps1 | iex; Remove-Install`""
+    Set-ItemProperty -Path $uninstallKey -Name "UninstallString" -Value "`"$InstallDir\uninstall.cmd`""
     Set-ItemProperty -Path $uninstallKey -Name "URLInfoAbout" -Value "https://tezznative.org"
     Set-ItemProperty -Path $uninstallKey -Name "HelpLink" -Value "https://tezznative.org/docs/"
     Set-ItemProperty -Path $uninstallKey -Name "EstimatedSize" -Value 120000 -Type DWord
@@ -331,9 +514,7 @@ function Install-Payload {
   Write-Host "Install root: $InstallDir"
   Write-Host "SDK root:     $SdkDir"
   Write-Host "Bin dir:      $binDir"
-  if ($RemoteVersion) {
-    Write-Host "Version:      $RemoteVersion"
-  }
+  Write-Host "Version:      $effectiveVer"
   Write-Host ""
   Write-Host "Next steps:"
   Write-Host "  tezz --version"
@@ -364,7 +545,6 @@ switch ($Mode) {
   }
   "uninstall" {
     Remove-Install
-    Write-Host "TezzNative removed from $InstallDir"
     Send-InstallEvent -Status "uninstall" -Message "removed"
   }
   "reinstall" {

@@ -106,15 +106,7 @@ if not exist "%TOOL%" (
 set "PATH=%ROOT%\bin;%ROOT%\build;%ROOT%;%PATH%"
 set "TEZZ_SDK_ROOT=%ROOT%"
 
-if exist "%ROOT%\bin\tezz.exe" (
-  "%ROOT%\bin\tezz.exe" %* --tezzc "%TEZZC%" --sdk-root "%ROOT%"
-  exit /b %ERRORLEVEL%
-)
-if exist "%ROOT%\tezz.exe" (
-  "%ROOT%\tezz.exe" %* --tezzc "%TEZZC%" --sdk-root "%ROOT%"
-  exit /b %ERRORLEVEL%
-)
-
 "%TEZZC%" run --bc "%TOOL%" -- %* --tezzc "%TEZZC%" --sdk-root "%ROOT%"
 exit /b %ERRORLEVEL%
+
 
