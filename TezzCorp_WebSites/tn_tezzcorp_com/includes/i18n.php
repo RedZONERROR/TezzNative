@@ -61,6 +61,7 @@ if (!defined('TN_I18N_LOADED')) {
             'nav_packages' => 'Packages (40+)',
             'nav_lsp' => 'LSP & IDEs',
             'nav_docs' => 'Docs',
+            'nav_more' => 'More',
             'nav_downloads' => 'Downloads',
             'nav_install_cli' => 'Install Tezz',
             'hero_badge' => 'TEZZNATIVE v2.2.1 PRODUCTION RELEASE LIVE • TEZZCORP PVT LTD',
@@ -105,6 +106,7 @@ if (!defined('TN_I18N_LOADED')) {
             'nav_packages' => 'पैकेजेस (40+)',
             'nav_lsp' => 'LSP और IDEs',
             'nav_docs' => 'दस्तावेज़',
+            'nav_more' => 'और भी',
             'nav_downloads' => 'डाउनलोड',
             'nav_install_cli' => 'Tezz स्थापित करें',
             'hero_badge' => 'TEZZNATIVE v2.2.1 प्रोडक्शन रिलीज लाइव • तेजकॉर्प प्राइवेट लिमिटेड',
@@ -149,6 +151,7 @@ if (!defined('TN_I18N_LOADED')) {
             'nav_packages' => 'Paquetes (40+)',
             'nav_lsp' => 'LSP e IDEs',
             'nav_docs' => 'Documentación',
+            'nav_more' => 'Más',
             'nav_downloads' => 'Descargas',
             'nav_install_cli' => 'Instalar Tezz',
             'hero_badge' => 'TEZZNATIVE v2.2.1 VERSIÓN DE PRODUCCIÓN EN VIVO • TEZZCORP PVT LTD',
@@ -193,6 +196,7 @@ if (!defined('TN_I18N_LOADED')) {
             'nav_packages' => '标准包 (40+)',
             'nav_lsp' => 'LSP 与 IDE 支持',
             'nav_docs' => '技术文档',
+            'nav_more' => '更多',
             'nav_downloads' => '下载中心',
             'nav_install_cli' => '安装 Tezz',
             'hero_badge' => 'TEZZNATIVE v2.2.1 正式生产版本现已上线 • TEZZCORP PVT LTD',
@@ -237,6 +241,7 @@ if (!defined('TN_I18N_LOADED')) {
             'nav_packages' => '標準パッケージ (40+)',
             'nav_lsp' => 'LSP & IDE',
             'nav_docs' => 'ドキュメント',
+            'nav_more' => 'その他',
             'nav_downloads' => 'ダウンロード',
             'nav_install_cli' => 'Tezz をインストール',
             'hero_badge' => 'TEZZNATIVE v2.2.1 プロダクション版リリース • TEZZCORP PVT LTD',
@@ -281,6 +286,7 @@ if (!defined('TN_I18N_LOADED')) {
             'nav_packages' => 'Pakete (40+)',
             'nav_lsp' => 'LSP & IDEs',
             'nav_docs' => 'Dokumentation',
+            'nav_more' => 'Mehr',
             'nav_downloads' => 'Downloads',
             'nav_install_cli' => 'Tezz installieren',
             'hero_badge' => 'TEZZNATIVE v2.2.1 PRODUKTIONS-RELEASE LIVE • TEZZCORP PVT LTD',
@@ -325,6 +331,7 @@ if (!defined('TN_I18N_LOADED')) {
             'nav_packages' => 'Paquets (40+)',
             'nav_lsp' => 'LSP et IDEs',
             'nav_docs' => 'Documentation',
+            'nav_more' => 'Plus',
             'nav_downloads' => 'Téléchargements',
             'nav_install_cli' => 'Installer Tezz',
             'hero_badge' => 'TEZZNATIVE v2.2.1 VERSION PRODUCTION EN LIGNE • TEZZCORP PVT LTD',
@@ -369,6 +376,7 @@ if (!defined('TN_I18N_LOADED')) {
             'nav_packages' => 'Пакеты (40+)',
             'nav_lsp' => 'LSP и IDE',
             'nav_docs' => 'Документация',
+            'nav_more' => 'Ещё',
             'nav_downloads' => 'Загрузки',
             'nav_install_cli' => 'Установить Tezz',
             'hero_badge' => 'TEZZNATIVE v2.2.1 ПРОДАКШН РЕЛИЗ • TEZZCORP PVT LTD',
@@ -439,51 +447,36 @@ function tn_lang_url(string $targetLang): string {
     return $path . '?' . http_build_query($query);
 }
 
-function tn_lang_switcher_html(): string {
+function tn_lang_switcher_html(string $instanceId = 'desktop'): string {
     global $TN_LANGUAGES, $TN_CURRENT_LANG;
     $curr = $TN_CURRENT_LANG ?? 'en';
     $currMeta = $TN_LANGUAGES[$curr] ?? $TN_LANGUAGES['en'];
+    $btnId = 'langSelectorBtn_' . $instanceId;
+    $ddId = 'langDropdown_' . $instanceId;
 
-    $html = '<div class="lang-selector-wrapper" style="position: relative; display: inline-block;">';
-    $html .= '<button type="button" class="lang-selector-btn" id="langSelectorBtn" aria-label="Select Language" aria-expanded="false" style="display: flex; align-items: center; gap: 6px; padding: 6px 10px; font-size: 0.82rem; font-weight: 600; color: var(--text-secondary); background: rgba(255,255,255,0.04); border: 1px solid var(--border-subtle); border-radius: 8px; cursor: pointer; transition: all 0.2s ease;">';
-    $html .= '<span class="lang-flag" style="font-weight: 700; color: #ff9933;">' . htmlspecialchars($currMeta['flag']) . '</span>';
+    $html = '<div class="lang-selector-wrapper" data-instance="' . htmlspecialchars($instanceId) . '">';
+    $html .= '<button type="button" class="lang-selector-btn" id="' . $btnId . '" aria-label="Select Language" aria-expanded="false" aria-controls="' . $ddId . '">';
+    $html .= '<span class="lang-flag">' . htmlspecialchars($currMeta['flag']) . '</span>';
     $html .= '<span class="lang-name">' . htmlspecialchars($currMeta['native']) . '</span>';
-    $html .= '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="transition: transform 0.2s;"><path d="M6 9l6 6 6-6"/></svg>';
+    $html .= '<svg class="lang-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>';
     $html .= '</button>';
 
-    $html .= '<div class="lang-dropdown" id="langDropdown" style="display: none; position: absolute; right: 0; top: calc(100% + 8px); background: #0f141c; border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; box-shadow: 0 12px 32px rgba(0,0,0,0.5); min-width: 170px; z-index: 999; padding: 6px 0; max-height: 380px; overflow-y: auto;">';
+    $html .= '<div class="lang-dropdown" id="' . $ddId . '" role="region" aria-label="Language Selection">';
 
     foreach ($TN_LANGUAGES as $code => $meta) {
-        $activeStyle = ($code === $curr) ? 'background: rgba(255,153,51,0.15); color: #ff9933; font-weight: 700;' : 'color: #cbd5e1;';
-        $html .= '<a href="' . htmlspecialchars(tn_lang_url($code)) . '" class="lang-option" style="display: flex; align-items: center; gap: 10px; padding: 8px 14px; font-size: 0.84rem; text-decoration: none; ' . $activeStyle . ' transition: background 0.15s ease;">';
-        $html .= '<span style="font-size: 0.75rem; font-weight: 700; opacity: 0.8; width: 22px;">' . htmlspecialchars($meta['flag']) . '</span>';
-        $html .= '<span>' . htmlspecialchars($meta['native']) . ' <small style="color: #64748b; font-size: 0.75rem;">(' . htmlspecialchars($meta['name']) . ')</small></span>';
+        $isActive = ($code === $curr);
+        $activeClass = $isActive ? ' active' : '';
+        $html .= '<a href="' . htmlspecialchars(tn_lang_url($code)) . '" class="lang-option' . $activeClass . '">';
+        $html .= '<span class="lang-option-flag">' . htmlspecialchars($meta['flag']) . '</span>';
+        $html .= '<span class="lang-option-text">' . htmlspecialchars($meta['native']) . ' <small>(' . htmlspecialchars($meta['name']) . ')</small></span>';
+        if ($isActive) {
+            $html .= '<svg class="lang-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ff9933" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>';
+        }
         $html .= '</a>';
     }
 
     $html .= '</div>';
     $html .= '</div>';
-
-    // Add inline vanilla JS dropdown toggle logic
-    $html .= '<script>
-    (function(){
-      var btn = document.getElementById("langSelectorBtn");
-      var dd = document.getElementById("langDropdown");
-      if(!btn || !dd) return;
-      btn.addEventListener("click", function(e){
-        e.stopPropagation();
-        var open = dd.style.display === "block";
-        dd.style.display = open ? "none" : "block";
-        btn.setAttribute("aria-expanded", !open);
-      });
-      document.addEventListener("click", function(e){
-        if(!dd.contains(e.target) && e.target !== btn){
-          dd.style.display = "none";
-          btn.setAttribute("aria-expanded", "false");
-        }
-      });
-    })();
-    </script>';
 
     return $html;
 }

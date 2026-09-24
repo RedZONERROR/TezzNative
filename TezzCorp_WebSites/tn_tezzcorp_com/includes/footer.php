@@ -106,6 +106,6 @@ require_once __DIR__ . '/i18n.php';
 </div> <!-- .site-wrapper -->
 
 <!-- Scripts -->
-<script src="/assets/app.js?v=2.2.6"></script>
+<script src="/assets/app.js?v=2.2.7"></script>
 </body>
 </html>

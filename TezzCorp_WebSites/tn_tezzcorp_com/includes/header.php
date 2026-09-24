@@ -59,7 +59,7 @@ $active_locale = tn_get_locale();
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
 
   <!-- Core App Stylesheets -->
-  <link rel="stylesheet" href="/assets/app.css?v=2.2.6">
+  <link rel="stylesheet" href="/assets/app.css?v=2.2.7">
 
   <!-- JSON-LD Structured Data Schema -->
   <script type="application/ld+json">

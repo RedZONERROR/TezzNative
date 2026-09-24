@@ -92,19 +92,74 @@ function tn_nav(string $active = 'home'): void {
     <nav class="nav-menu" id="navMenu">
       <a href="/#features" class="nav-link <?= ($active === 'features') ? 'active' : '' ?>"><?= __('nav_features', 'Features') ?></a>
       <a href="/#benchmarks" class="nav-link <?= ($active === 'benchmarks') ? 'active' : '' ?>"><?= __('nav_benchmarks', 'Benchmarks') ?></a>
-      <a href="/#playground" class="nav-link <?= ($active === 'playground') ? 'active' : '' ?>"><?= __('nav_playground', 'Playground') ?></a>
-      <a href="/lib/" class="nav-link <?= ($active === 'packages' || $active === 'lib') ? 'active' : '' ?>"><?= __('nav_packages', 'Packages (40+)') ?></a>
-      <a href="/docs/lsp" class="nav-link <?= ($active === 'lsp') ? 'active' : '' ?>"><?= __('nav_lsp', 'LSP & IDEs') ?></a>
       <a href="/docs/" class="nav-link <?= ($active === 'docs') ? 'active' : '' ?>"><?= __('nav_docs', 'Docs') ?></a>
       <a href="/frameworks/" class="nav-link <?= ($active === 'frameworks') ? 'active' : '' ?>"><?= __('nav_frameworks', 'Frameworks') ?></a>
-      <a href="/about/" class="nav-link <?= ($active === 'about') ? 'active' : '' ?>"><?= __('nav_about', 'About') ?></a>
+
+      <!-- Dropdown in navbar to prevent overflow -->
+      <div class="nav-dropdown" id="navMoreDropdown">
+        <button type="button" class="nav-dropdown-toggle <?= in_array($active, ['packages', 'lib', 'lsp', 'playground', 'about', 'community']) ? 'active' : '' ?>" id="navMoreBtn" aria-expanded="false" aria-haspopup="true">
+          <span><?= __('nav_more', 'More') ?></span>
+          <svg class="dropdown-arrow" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6 9l6 6 6-6"/>
+          </svg>
+        </button>
+        <div class="nav-dropdown-menu" id="navMoreMenu" role="menu" aria-labelledby="navMoreBtn">
+          <a href="/lib/" class="dropdown-item <?= ($active === 'packages' || $active === 'lib') ? 'active' : '' ?>" role="menuitem">
+            <div class="dropdown-item-icon">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+            </div>
+            <div class="dropdown-item-content">
+              <div class="dropdown-item-title"><?= __('nav_packages', 'Packages') ?> <span class="nav-badge">40+</span></div>
+              <div class="dropdown-item-desc">Standard modules, tensors & AI kernels</div>
+            </div>
+          </a>
+          <a href="/docs/lsp" class="dropdown-item <?= ($active === 'lsp') ? 'active' : '' ?>" role="menuitem">
+            <div class="dropdown-item-icon">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            </div>
+            <div class="dropdown-item-content">
+              <div class="dropdown-item-title"><?= __('nav_lsp', 'LSP & IDEs') ?></div>
+              <div class="dropdown-item-desc">VS Code, Neovim & language server</div>
+            </div>
+          </a>
+          <a href="/#playground" class="dropdown-item <?= ($active === 'playground') ? 'active' : '' ?>" role="menuitem">
+            <div class="dropdown-item-icon">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+            </div>
+            <div class="dropdown-item-content">
+              <div class="dropdown-item-title"><?= __('nav_playground', 'Playground') ?></div>
+              <div class="dropdown-item-desc">Interactive browser code runner</div>
+            </div>
+          </a>
+          <div class="dropdown-divider"></div>
+          <a href="/about/" class="dropdown-item <?= ($active === 'about') ? 'active' : '' ?>" role="menuitem">
+            <div class="dropdown-item-icon">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+            </div>
+            <div class="dropdown-item-content">
+              <div class="dropdown-item-title"><?= __('nav_about', 'About') ?></div>
+              <div class="dropdown-item-desc">TezzCorp Pvt Ltd & Language Origin</div>
+            </div>
+          </a>
+          <a href="/community/" class="dropdown-item <?= ($active === 'community') ? 'active' : '' ?>" role="menuitem">
+            <div class="dropdown-item-icon">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            </div>
+            <div class="dropdown-item-content">
+              <div class="dropdown-item-title">Community</div>
+              <div class="dropdown-item-desc">Developer forum & release updates</div>
+            </div>
+          </a>
+        </div>
+      </div>
+
       <a href="/download/" class="nav-link <?= ($active === 'download') ? 'active' : '' ?>"><?= __('nav_downloads', 'Downloads') ?></a>
     </nav>
 
     <!-- Header Actions -->
     <div class="nav-actions">
       <!-- Language Selector -->
-      <?= function_exists('tn_lang_switcher_html') ? tn_lang_switcher_html() : '' ?>
+      <?= function_exists('tn_lang_switcher_html') ? tn_lang_switcher_html('desktop') : '' ?>
 
       <!-- Theme Switcher -->
       <button class="theme-toggle" id="themeToggle" title="Toggle Light/Dark Theme" aria-label="Toggle Theme">
@@ -174,7 +229,7 @@ function tn_nav(string $active = 'home'): void {
   <div class="sidebar-body">
     <div style="padding: 10px 16px; border-bottom: 1px solid var(--border-subtle); display: flex; align-items: center; justify-content: space-between;">
       <span style="font-size: 0.8rem; color: var(--text-tertiary); font-weight: 600; text-transform: uppercase;"><?= __('lang_selector', 'Language') ?></span>
-      <?= function_exists('tn_lang_switcher_html') ? tn_lang_switcher_html() : '' ?>
+      <?= function_exists('tn_lang_switcher_html') ? tn_lang_switcher_html('mobile') : '' ?>
     </div>
 
     <div class="sidebar-section-label" style="padding-top: 14px;">Navigation Menu</div>

@@ -525,6 +525,84 @@ fn main() -> int:
     });
   }
 
+  // ── 12. Desktop Navbar Dropdown (More) ───────────────────────────────────────
+  function initNavDropdown() {
+    var moreWrap = document.getElementById('navMoreDropdown');
+    var moreBtn  = document.getElementById('navMoreBtn');
+    var moreMenu = document.getElementById('navMoreMenu');
+    if (!moreWrap || !moreBtn || !moreMenu) return;
+
+    moreBtn.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      var isOpen = moreWrap.classList.contains('open') || moreMenu.classList.contains('show');
+      if (isOpen) {
+        moreWrap.classList.remove('open');
+        moreMenu.classList.remove('show');
+        moreBtn.setAttribute('aria-expanded', 'false');
+      } else {
+        moreWrap.classList.add('open');
+        moreMenu.classList.add('show');
+        moreBtn.setAttribute('aria-expanded', 'true');
+      }
+    });
+
+    document.addEventListener('click', function (e) {
+      if (!moreWrap.contains(e.target)) {
+        moreWrap.classList.remove('open');
+        moreMenu.classList.remove('show');
+        moreBtn.setAttribute('aria-expanded', 'false');
+      }
+    });
+
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && (moreWrap.classList.contains('open') || moreMenu.classList.contains('show'))) {
+        moreWrap.classList.remove('open');
+        moreMenu.classList.remove('show');
+        moreBtn.setAttribute('aria-expanded', 'false');
+      }
+    });
+  }
+
+  // ── 13. Universal Language Dropdown ──────────────────────────────────────────
+  function initLangDropdown() {
+    document.addEventListener('click', function (e) {
+      var btn = e.target.closest('.lang-selector-btn');
+      var allDds = document.querySelectorAll('.lang-dropdown');
+      var allBtns = document.querySelectorAll('.lang-selector-btn');
+
+      if (btn) {
+        e.preventDefault();
+        e.stopPropagation();
+        var wrapper = btn.closest('.lang-selector-wrapper');
+        var dd = wrapper ? wrapper.querySelector('.lang-dropdown') : null;
+        var isOpen = dd && (dd.classList.contains('show') || dd.style.display === 'block');
+
+        allDds.forEach(function (d) { d.classList.remove('show'); d.style.display = 'none'; });
+        allBtns.forEach(function (b) { b.setAttribute('aria-expanded', 'false'); });
+
+        if (dd && !isOpen) {
+          dd.classList.add('show');
+          dd.style.display = 'block';
+          btn.setAttribute('aria-expanded', 'true');
+        }
+        return;
+      }
+
+      if (!e.target.closest('.lang-dropdown')) {
+        allDds.forEach(function (d) { d.classList.remove('show'); d.style.display = 'none'; });
+        allBtns.forEach(function (b) { b.setAttribute('aria-expanded', 'false'); });
+      }
+    });
+
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') {
+        document.querySelectorAll('.lang-dropdown').forEach(function (d) { d.classList.remove('show'); d.style.display = 'none'; });
+        document.querySelectorAll('.lang-selector-btn').forEach(function (b) { b.setAttribute('aria-expanded', 'false'); });
+      }
+    });
+  }
+
   // ── Bootstrap ────────────────────────────────────────────────────────────────
   function boot() {
     initTheme();
@@ -538,6 +616,8 @@ fn main() -> int:
     initSmoothScroll();
     initScrollSpy();
     initLibFilter();
+    initNavDropdown();
+    initLangDropdown();
   }
 
   if (document.readyState === 'loading') {
